@@ -220,3 +220,26 @@ export async function updateRoster(
     throw new Error("Error updating roster");
   }
 }
+
+/**
+ * Delete a roster by league ID and user ID
+ */
+export async function deleteRosterByLeagueAndUser(
+  leagueId: number,
+  userId: number
+): Promise<boolean> {
+  try {
+    const query = `
+      DELETE FROM rosters
+      WHERE league_id = $1 AND user_id = $2
+      RETURNING id
+    `;
+
+    const result = await pool.query(query, [leagueId, userId]);
+
+    return result.rows.length > 0;
+  } catch (error: any) {
+    console.error("Error deleting roster:", error);
+    throw new Error("Error deleting roster");
+  }
+}

@@ -5,6 +5,7 @@ import {
   getLeagueDetailsHandler,
   joinLeagueHandler,
   getPublicLeaguesHandler,
+  updateLeagueSettingsHandler,
 } from "../controllers/leagueController";
 import { authenticate } from "../middleware/authMiddleware";
 
@@ -21,6 +22,9 @@ router.get("/user/:userId", getUserLeaguesHandler);
 
 // GET /api/leagues/:leagueId - Get specific league details with rosters
 router.get("/:leagueId", getLeagueDetailsHandler);
+
+// PUT /api/leagues/:leagueId - Update league settings (protected, commissioner only)
+router.put("/:leagueId", authenticate, updateLeagueSettingsHandler);
 
 // POST /api/leagues/:leagueId/join - Join a league (protected)
 router.post("/:leagueId/join", authenticate, joinLeagueHandler);

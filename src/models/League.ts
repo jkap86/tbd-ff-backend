@@ -48,6 +48,12 @@ export async function createLeague(
     // Generate unique invite code
     const inviteCode = generateInviteCode();
 
+    // Add commissioner_id to settings
+    const settingsWithCommissioner = {
+      ...settings,
+      commissioner_id,
+    };
+
     const query = `
       INSERT INTO leagues (
         name,
@@ -70,7 +76,7 @@ export async function createLeague(
       season,
       season_type,
       total_rosters,
-      JSON.stringify(settings),
+      JSON.stringify(settingsWithCommissioner),
       JSON.stringify(scoring_settings),
       JSON.stringify(roster_positions),
       inviteCode,
@@ -88,8 +94,6 @@ export async function createLeague(
       await pool.query(rosterQuery, [league.id, commissioner_id, 1]);
     } catch (rosterError: any) {
       console.error("Error creating commissioner roster:", rosterError);
-      // If roster creation fails, we should probably rollback the league creation
-      // For now, we'll log it and continue
     }
 
     return league;
@@ -263,5 +267,98 @@ export async function getLeagueByInviteCode(
   } catch (error) {
     console.error("Error getting league by invite code:", error);
     throw new Error("Error getting league by invite code");
+  }
+}
+
+/**
+ * Get commissioner ID from league settings
+ */
+export function getCommissionerIdFromLeague(league: League): number | null {
+  try {
+    if (league.settings && typeof league.settings === "object") {
+      return league.settings.commissioner_id || null;
+    }
+    return null;
+  } catch (error) {
+    console.error("Error getting commissioner ID:", error);
+    return null;
+  }
+}
+
+/**
+ * Update league (only name, settings, and scoring_settings)
+ */
+export async function updateLeagueSettings(
+  leagueId: number,
+  commissionerId: number,
+  updates: {
+    name?: string;
+    settings?: any;
+    scoring_settings?: any;
+  }
+): Promise<League | null> {
+  try {
+    // First, get the league to verify commissioner
+    const league = await getLeagueById(leagueId);
+    if (!league) {
+      throw new Error("League not found");
+    }
+
+    // Check if user is commissioner
+    const leagueCommissionerId = getCommissionerIdFromLeague(league);
+    if (leagueCommissionerId !== commissionerId) {
+      throw new Error("Only the commissioner can update league settings");
+    }
+
+    const fields = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (updates.name !== undefined) {
+      fields.push(`name = $${paramCount}`);
+      values.push(updates.name);
+      paramCount++;
+    }
+
+    if (updates.settings !== undefined) {
+      fields.push(`settings = $${paramCount}`);
+      // Preserve commissioner_id in settings
+      const settingsWithCommissioner = {
+        ...updates.settings,
+        commissioner_id: leagueCommissionerId,
+      };
+      values.push(JSON.stringify(settingsWithCommissioner));
+      paramCount++;
+    }
+
+    if (updates.scoring_settings !== undefined) {
+      fields.push(`scoring_settings = $${paramCount}`);
+      values.push(JSON.stringify(updates.scoring_settings));
+      paramCount++;
+    }
+
+    if (fields.length === 0) {
+      return league;
+    }
+
+    values.push(leagueId);
+
+    const query = `
+      UPDATE leagues
+      SET ${fields.join(", ")}
+      WHERE id = $${paramCount}
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, values);
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return result.rows[0];
+  } catch (error: any) {
+    console.error("Error updating league settings:", error);
+    throw error;
   }
 }

@@ -143,10 +143,17 @@ export async function getLeagueDetailsHandler(
     // Get all rosters for this league
     const rosters = await getRostersByLeagueId(leagueId);
 
+    // Extract commissioner ID from settings
+    const commissionerId =
+      league.settings && league.settings.commissioner_id
+        ? league.settings.commissioner_id
+        : null;
+
     res.status(200).json({
       success: true,
       data: {
         league,
+        commissioner_id: commissionerId,
         rosters,
       },
     });
@@ -269,6 +276,78 @@ export async function getPublicLeaguesHandler(
     res.status(500).json({
       success: false,
       message: "Error getting public leagues",
+    });
+  }
+}
+
+/**
+ * Update league settings (name, settings, scoring_settings)
+ * PUT /api/leagues/:leagueId
+ */
+export async function updateLeagueSettingsHandler(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const leagueId = parseInt(req.params.leagueId);
+    const { name, settings, scoring_settings } = req.body;
+
+    if (isNaN(leagueId)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid league ID",
+      });
+      return;
+    }
+
+    // Get user ID from authenticated user
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+      return;
+    }
+
+    // Import the update function
+    const { updateLeagueSettings } = await import("../models/League");
+
+    // Update league settings
+    const updatedLeague = await updateLeagueSettings(leagueId, userId, {
+      name,
+      settings,
+      scoring_settings,
+    });
+
+    if (!updatedLeague) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "League settings updated successfully",
+      data: updatedLeague,
+    });
+  } catch (error: any) {
+    console.error("Update league settings error:", error);
+
+    if (error.message === "Only the commissioner can update league settings") {
+      res.status(403).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error updating league settings",
     });
   }
 }

@@ -14,6 +14,25 @@ export interface League {
   updated_at: Date;
 }
 
+export interface LeagueSettings {
+  is_public?: boolean;
+  season_type?: string;
+  start_week?: number;
+  end_week?: number;
+  league_median?: boolean;
+  commissioner_id?: number;
+  [key: string]: any;
+}
+
+export interface ScoringSettings {
+  [key: string]: number;
+}
+
+export interface RosterPosition {
+  position: string;
+  count: number;
+}
+
 export interface CreateLeagueInput {
   name: string;
   commissioner_id: number;
@@ -21,9 +40,9 @@ export interface CreateLeagueInput {
   status?: string;
   season_type?: string;
   total_rosters?: number;
-  settings?: any;
-  scoring_settings?: any;
-  roster_positions?: any;
+  settings?: LeagueSettings;
+  scoring_settings?: ScoringSettings;
+  roster_positions?: RosterPosition[];
 }
 
 /**
@@ -48,10 +67,16 @@ export async function createLeague(
     // Generate unique invite code
     const inviteCode = generateInviteCode();
 
-    // Add commissioner_id to settings
-    const settingsWithCommissioner = {
+    // Merge settings with commissioner_id and other data
+    const mergedSettings: LeagueSettings = {
       ...settings,
       commissioner_id,
+      season_type: season_type,
+      is_public: settings.is_public !== undefined ? settings.is_public : false,
+      start_week: settings.start_week || 1,
+      end_week: settings.end_week || 17,
+      league_median:
+        settings.league_median !== undefined ? settings.league_median : false,
     };
 
     const query = `
@@ -76,9 +101,9 @@ export async function createLeague(
       season,
       season_type,
       total_rosters,
-      JSON.stringify(settingsWithCommissioner),
-      JSON.stringify(scoring_settings),
-      JSON.stringify(roster_positions),
+      JSON.stringify(mergedSettings),
+      JSON.stringify(scoring_settings || {}),
+      JSON.stringify(roster_positions || []),
       inviteCode,
     ];
 
@@ -286,7 +311,8 @@ export function getCommissionerIdFromLeague(league: League): number | null {
 }
 
 /**
- * Update league (name, total_rosters, settings, and scoring_settings)
+ * Update league settings (name, total_rosters, settings, scoring_settings, roster_positions)
+ * Handles all the new settings data from the frontend
  */
 export async function updateLeagueSettings(
   leagueId: number,
@@ -294,8 +320,9 @@ export async function updateLeagueSettings(
   updates: {
     name?: string;
     total_rosters?: number;
-    settings?: any;
-    scoring_settings?: any;
+    settings?: LeagueSettings;
+    scoring_settings?: ScoringSettings;
+    roster_positions?: RosterPosition[];
   }
 ): Promise<League | null> {
   try {
@@ -330,7 +357,7 @@ export async function updateLeagueSettings(
     if (updates.settings !== undefined) {
       fields.push(`settings = $${paramCount}`);
       // Always preserve commissioner_id in settings
-      const settingsWithCommissioner = {
+      const settingsWithCommissioner: LeagueSettings = {
         ...updates.settings,
         commissioner_id: leagueCommissionerId,
       };
@@ -340,7 +367,13 @@ export async function updateLeagueSettings(
 
     if (updates.scoring_settings !== undefined) {
       fields.push(`scoring_settings = $${paramCount}`);
-      values.push(JSON.stringify(updates.scoring_settings));
+      values.push(JSON.stringify(updates.scoring_settings || {}));
+      paramCount++;
+    }
+
+    if (updates.roster_positions !== undefined) {
+      fields.push(`roster_positions = $${paramCount}`);
+      values.push(JSON.stringify(updates.roster_positions || []));
       paramCount++;
     }
 
@@ -403,7 +436,7 @@ export async function transferCommissioner(
     }
 
     // Update settings with new commissioner_id
-    const updatedSettings = {
+    const updatedSettings: LeagueSettings = {
       ...league.settings,
       commissioner_id: newCommissionerId,
     };
@@ -447,6 +480,127 @@ export async function validateCommissionerPermission(
 
     return commissionerId;
   } catch (error: any) {
+    throw error;
+  }
+}
+
+/**
+ * Validate league settings data
+ */
+export function validateLeagueSettings(settings: LeagueSettings): boolean {
+  try {
+    // Validate start_week and end_week if provided
+    if (settings.start_week !== undefined) {
+      if (
+        typeof settings.start_week !== "number" ||
+        settings.start_week < 1 ||
+        settings.start_week > 17
+      ) {
+        throw new Error("Start week must be between 1 and 17");
+      }
+    }
+
+    if (settings.end_week !== undefined) {
+      if (
+        typeof settings.end_week !== "number" ||
+        settings.end_week < 1 ||
+        settings.end_week > 17
+      ) {
+        throw new Error("End week must be between 1 and 17");
+      }
+    }
+
+    // Validate season_type if provided
+    if (settings.season_type !== undefined) {
+      const validSeasonTypes = ["pre", "regular", "post"];
+      if (!validSeasonTypes.includes(settings.season_type)) {
+        throw new Error("Invalid season type");
+      }
+    }
+
+    // Validate is_public if provided
+    if (settings.is_public !== undefined) {
+      if (typeof settings.is_public !== "boolean") {
+        throw new Error("is_public must be a boolean");
+      }
+    }
+
+    // Validate league_median if provided
+    if (settings.league_median !== undefined) {
+      if (typeof settings.league_median !== "boolean") {
+        throw new Error("league_median must be a boolean");
+      }
+    }
+
+    return true;
+  } catch (error: any) {
+    console.error("Validation error:", error.message);
+    throw error;
+  }
+}
+
+/**
+ * Validate scoring settings
+ * Note: Scoring settings are not applicable for 'betting' league type
+ */
+export function validateScoringSettings(
+  scoringSettings: ScoringSettings,
+  leagueType?: string
+): boolean {
+  try {
+    // Scoring settings not needed for betting leagues
+    if (leagueType === "betting") {
+      return true;
+    }
+
+    if (!scoringSettings || typeof scoringSettings !== "object") {
+      return true; // Allow empty scoring settings
+    }
+
+    // Validate that all values are numbers
+    for (const [key, value] of Object.entries(scoringSettings)) {
+      if (typeof value !== "number") {
+        throw new Error(`Scoring setting '${key}' must be a number`);
+      }
+    }
+
+    return true;
+  } catch (error: any) {
+    console.error("Scoring settings validation error:", error.message);
+    throw error;
+  }
+}
+
+/**
+ * Validate roster positions
+ */
+export function validateRosterPositions(
+  rosterPositions: RosterPosition[]
+): boolean {
+  try {
+    if (!Array.isArray(rosterPositions)) {
+      throw new Error("Roster positions must be an array");
+    }
+
+    // Allow empty array
+    if (rosterPositions.length === 0) {
+      return true;
+    }
+
+    // Validate each position
+    for (const pos of rosterPositions) {
+      if (!pos.position || typeof pos.position !== "string") {
+        throw new Error("Each roster position must have a 'position' string");
+      }
+
+      if (typeof pos.count !== "number" || pos.count < 1) {
+        throw new Error("Each roster position must have a 'count' >= 1");
+      }
+    }
+
+    return true;
+  } catch (error: any) {
+    console.error("Roster positions validation error:", error.message);
     throw error;
   }
 }

@@ -3,6 +3,9 @@ import {
   createLeague,
   getLeagueById,
   getLeaguesForUser,
+  validateLeagueSettings,
+  validateScoringSettings,
+  validateRosterPositions,
 } from "../models/League";
 import {
   createRoster,
@@ -12,8 +15,25 @@ import {
 } from "../models/Roster";
 
 /**
- * Create a new league
+ * Create a new league with all settings
  * POST /api/leagues/create
+ *
+ * Request body:
+ * {
+ *   name: string,
+ *   season: string,
+ *   season_type?: "pre" | "regular" | "post" | "betting",
+ *   total_rosters?: number (2-100),
+ *   settings?: {
+ *     is_public?: boolean,
+ *     season_type?: string,
+ *     start_week?: number (1-17),
+ *     end_week?: number (1-17),
+ *     league_median?: boolean
+ *   },
+ *   scoring_settings?: { [stat]: points },
+ *   roster_positions?: [{ position: string, count: number }]
+ * }
  */
 export async function createLeagueHandler(
   req: Request,
@@ -37,6 +57,79 @@ export async function createLeagueHandler(
         message: "Name and season are required",
       });
       return;
+    }
+
+    // Validate name length
+    if (name.length < 2 || name.length > 100) {
+      res.status(400).json({
+        success: false,
+        message: "League name must be between 2 and 100 characters",
+      });
+      return;
+    }
+
+    // Validate season format (e.g., "2024", "2025")
+    if (!/^\d{4}$/.test(season)) {
+      res.status(400).json({
+        success: false,
+        message: "Season must be a valid year (e.g., 2024)",
+      });
+      return;
+    }
+
+    // Validate total_rosters if provided
+    if (total_rosters !== undefined) {
+      if (
+        typeof total_rosters !== "number" ||
+        total_rosters < 2 ||
+        total_rosters > 100
+      ) {
+        res.status(400).json({
+          success: false,
+          message: "Total rosters must be between 2 and 100",
+        });
+        return;
+      }
+    }
+
+    // Validate settings if provided
+    if (settings) {
+      try {
+        validateLeagueSettings(settings);
+      } catch (error: any) {
+        res.status(400).json({
+          success: false,
+          message: `Invalid settings: ${error.message}`,
+        });
+        return;
+      }
+    }
+
+    // Validate scoring_settings if provided
+    // Note: Scoring settings are not applicable for 'betting' league type
+    if (scoring_settings) {
+      try {
+        validateScoringSettings(scoring_settings, season_type);
+      } catch (error: any) {
+        res.status(400).json({
+          success: false,
+          message: `Invalid scoring settings: ${error.message}`,
+        });
+        return;
+      }
+    }
+
+    // Validate roster_positions if provided
+    if (roster_positions) {
+      try {
+        validateRosterPositions(roster_positions);
+      } catch (error: any) {
+        res.status(400).json({
+          success: false,
+          message: `Invalid roster positions: ${error.message}`,
+        });
+        return;
+      }
     }
 
     // Get commissioner_id from authenticated user
@@ -238,7 +331,7 @@ export async function joinLeagueHandler(
       league_id: leagueId,
       user_id: userId,
       roster_id: nextRosterId,
-      settings: team_name ? { team_name } : {},
+      team_name: team_name || `Team ${nextRosterId}`,
     });
 
     res.status(201).json({
@@ -256,33 +349,17 @@ export async function joinLeagueHandler(
 }
 
 /**
- * Get public leagues
- * GET /api/leagues/public
- */
-export async function getPublicLeaguesHandler(
-  _req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const { getPublicLeagues } = await import("../models/League");
-    const leagues = await getPublicLeagues();
-
-    res.status(200).json({
-      success: true,
-      data: leagues,
-    });
-  } catch (error: any) {
-    console.error("Get public leagues error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Error getting public leagues",
-    });
-  }
-}
-
-/**
- * Update league settings (name, total_rosters, settings, scoring_settings)
+ * Update league settings (name, total_rosters, settings, scoring_settings, roster_positions)
  * PUT /api/leagues/:leagueId
+ *
+ * Request body can include any of:
+ * {
+ *   name?: string,
+ *   total_rosters?: number,
+ *   settings?: { is_public, season_type, start_week, end_week, league_median },
+ *   scoring_settings?: { [stat]: points },
+ *   roster_positions?: [{ position: string, count: number }]
+ * }
  */
 export async function updateLeagueSettingsHandler(
   req: Request,
@@ -290,7 +367,13 @@ export async function updateLeagueSettingsHandler(
 ): Promise<void> {
   try {
     const leagueId = parseInt(req.params.leagueId);
-    const { name, total_rosters, settings, scoring_settings } = req.body;
+    const {
+      name,
+      total_rosters,
+      settings,
+      scoring_settings,
+      roster_positions,
+    } = req.body;
 
     if (isNaN(leagueId)) {
       res.status(400).json({
@@ -311,8 +394,16 @@ export async function updateLeagueSettingsHandler(
       return;
     }
 
-    // Import the update function
-    const { updateLeagueSettings } = await import("../models/League");
+    // Validate name if provided
+    if (name !== undefined) {
+      if (name.length < 2 || name.length > 100) {
+        res.status(400).json({
+          success: false,
+          message: "League name must be between 2 and 100 characters",
+        });
+        return;
+      }
+    }
 
     // Validate total_rosters if provided
     if (total_rosters !== undefined) {
@@ -329,12 +420,69 @@ export async function updateLeagueSettingsHandler(
       }
     }
 
+    // Validate settings if provided
+    if (settings) {
+      try {
+        validateLeagueSettings(settings);
+      } catch (error: any) {
+        res.status(400).json({
+          success: false,
+          message: `Invalid settings: ${error.message}`,
+        });
+        return;
+      }
+    }
+
+    // Validate scoring_settings if provided
+    // Note: Scoring settings are not applicable for 'betting' league type
+    if (scoring_settings) {
+      try {
+        // Get the league to check its type
+        const league = await getLeagueById(leagueId);
+
+        if (!league) {
+          res.status(404).json({
+            success: false,
+            message: "League not found",
+          });
+          return;
+        }
+
+        // Use the league's season_type for validation
+        const leagueType = league.season_type;
+        validateScoringSettings(scoring_settings, leagueType);
+      } catch (error: any) {
+        res.status(400).json({
+          success: false,
+          message: `Invalid scoring settings: ${error.message}`,
+        });
+        return;
+      }
+    }
+
+    // Validate roster_positions if provided
+    if (roster_positions) {
+      try {
+        validateRosterPositions(roster_positions);
+      } catch (error: any) {
+        res.status(400).json({
+          success: false,
+          message: `Invalid roster positions: ${error.message}`,
+        });
+        return;
+      }
+    }
+
+    // Import the update function
+    const { updateLeagueSettings } = await import("../models/League");
+
     // Update league settings
     const updatedLeague = await updateLeagueSettings(leagueId, userId, {
       name,
       total_rosters,
       settings,
       scoring_settings,
+      roster_positions,
     });
 
     if (!updatedLeague) {
@@ -643,6 +791,9 @@ export async function getLeagueStatsHandler(
       season: league.season,
       status: league.status,
       created_at: league.created_at,
+      settings: league.settings,
+      scoring_settings: league.scoring_settings,
+      roster_positions: league.roster_positions,
     };
 
     res.status(200).json({

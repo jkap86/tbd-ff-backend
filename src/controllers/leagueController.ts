@@ -281,7 +281,7 @@ export async function getPublicLeaguesHandler(
 }
 
 /**
- * Update league settings (name, settings, scoring_settings)
+ * Update league settings (name, total_rosters, settings, scoring_settings)
  * PUT /api/leagues/:leagueId
  */
 export async function updateLeagueSettingsHandler(
@@ -290,7 +290,7 @@ export async function updateLeagueSettingsHandler(
 ): Promise<void> {
   try {
     const leagueId = parseInt(req.params.leagueId);
-    const { name, settings, scoring_settings } = req.body;
+    const { name, total_rosters, settings, scoring_settings } = req.body;
 
     if (isNaN(leagueId)) {
       res.status(400).json({
@@ -314,9 +314,25 @@ export async function updateLeagueSettingsHandler(
     // Import the update function
     const { updateLeagueSettings } = await import("../models/League");
 
+    // Validate total_rosters if provided
+    if (total_rosters !== undefined) {
+      if (
+        typeof total_rosters !== "number" ||
+        total_rosters < 2 ||
+        total_rosters > 100
+      ) {
+        res.status(400).json({
+          success: false,
+          message: "Total rosters must be between 2 and 100",
+        });
+        return;
+      }
+    }
+
     // Update league settings
     const updatedLeague = await updateLeagueSettings(leagueId, userId, {
       name,
+      total_rosters,
       settings,
       scoring_settings,
     });
@@ -348,6 +364,296 @@ export async function updateLeagueSettingsHandler(
     res.status(500).json({
       success: false,
       message: error.message || "Error updating league settings",
+    });
+  }
+}
+
+/**
+ * Transfer commissioner role to another user
+ * POST /api/leagues/:leagueId/transfer-commissioner
+ */
+export async function transferCommissionerHandler(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const leagueId = parseInt(req.params.leagueId);
+    const { newCommissionerId } = req.body;
+
+    if (isNaN(leagueId)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid league ID",
+      });
+      return;
+    }
+
+    if (!newCommissionerId) {
+      res.status(400).json({
+        success: false,
+        message: "New commissioner ID is required",
+      });
+      return;
+    }
+
+    // Get current user ID from authenticated user
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+      return;
+    }
+
+    // Import the transfer function
+    const { transferCommissioner } = await import("../models/League");
+
+    // Transfer commissioner role
+    const updatedLeague = await transferCommissioner(
+      leagueId,
+      userId,
+      newCommissionerId
+    );
+
+    if (!updatedLeague) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Commissioner role transferred successfully",
+      data: updatedLeague,
+    });
+  } catch (error: any) {
+    console.error("Transfer commissioner error:", error);
+
+    if (
+      error.message === "Only the commissioner can transfer their role" ||
+      error.message === "New commissioner must be a member of the league"
+    ) {
+      res.status(403).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error transferring commissioner",
+    });
+  }
+}
+
+/**
+ * Check if user is commissioner of a league
+ * GET /api/leagues/:leagueId/is-commissioner
+ */
+export async function isCommissionerHandler(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const leagueId = parseInt(req.params.leagueId);
+
+    if (isNaN(leagueId)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid league ID",
+      });
+      return;
+    }
+
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+      return;
+    }
+
+    const league = await getLeagueById(leagueId);
+
+    if (!league) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    const { getCommissionerIdFromLeague } = await import("../models/League");
+    const commissionerId = getCommissionerIdFromLeague(league);
+    const isCommissioner = commissionerId === userId;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        isCommissioner,
+        commissionerId,
+      },
+    });
+  } catch (error: any) {
+    console.error("Is commissioner check error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error checking commissioner status",
+    });
+  }
+}
+
+/**
+ * Remove a user from a league
+ * POST /api/leagues/:leagueId/remove-member
+ */
+export async function removeLeagueMemberHandler(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const leagueId = parseInt(req.params.leagueId);
+    const { userIdToRemove } = req.body;
+
+    if (isNaN(leagueId)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid league ID",
+      });
+      return;
+    }
+
+    if (!userIdToRemove) {
+      res.status(400).json({
+        success: false,
+        message: "User ID to remove is required",
+      });
+      return;
+    }
+
+    // Get current user ID from authenticated user
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+      return;
+    }
+
+    // Get league and verify user is commissioner
+    const league = await getLeagueById(leagueId);
+
+    if (!league) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    const { getCommissionerIdFromLeague } = await import("../models/League");
+    const commissionerId = getCommissionerIdFromLeague(league);
+
+    if (commissionerId !== userId) {
+      res.status(403).json({
+        success: false,
+        message: "Only the commissioner can remove members",
+      });
+      return;
+    }
+
+    // Prevent removing commissioner
+    if (userIdToRemove === commissionerId) {
+      res.status(400).json({
+        success: false,
+        message: "Cannot remove the commissioner from the league",
+      });
+      return;
+    }
+
+    // Remove user's roster from league
+    const { deleteRosterByLeagueAndUser } = await import("../models/Roster");
+    await deleteRosterByLeagueAndUser(leagueId, userIdToRemove);
+
+    res.status(200).json({
+      success: true,
+      message: "Member removed from league successfully",
+    });
+  } catch (error: any) {
+    console.error("Remove league member error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error removing member from league",
+    });
+  }
+}
+
+/**
+ * Get league statistics
+ * GET /api/leagues/:leagueId/stats
+ */
+export async function getLeagueStatsHandler(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const leagueId = parseInt(req.params.leagueId);
+
+    if (isNaN(leagueId)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid league ID",
+      });
+      return;
+    }
+
+    // Get league
+    const league = await getLeagueById(leagueId);
+
+    if (!league) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    // Get rosters
+    const rosters = await getRostersByLeagueId(leagueId);
+
+    const { getCommissionerIdFromLeague } = await import("../models/League");
+    const commissionerId = getCommissionerIdFromLeague(league);
+
+    const stats = {
+      league_id: league.id,
+      league_name: league.name,
+      total_rosters: league.total_rosters,
+      filled_rosters: rosters.length,
+      available_spots: league.total_rosters - rosters.length,
+      commissioner_id: commissionerId,
+      season: league.season,
+      status: league.status,
+      created_at: league.created_at,
+    };
+
+    res.status(200).json({
+      success: true,
+      data: stats,
+    });
+  } catch (error: any) {
+    console.error("Get league stats error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error getting league stats",
     });
   }
 }

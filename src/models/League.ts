@@ -286,13 +286,14 @@ export function getCommissionerIdFromLeague(league: League): number | null {
 }
 
 /**
- * Update league (only name, settings, and scoring_settings)
+ * Update league (name, total_rosters, settings, and scoring_settings)
  */
 export async function updateLeagueSettings(
   leagueId: number,
   commissionerId: number,
   updates: {
     name?: string;
+    total_rosters?: number;
     settings?: any;
     scoring_settings?: any;
   }
@@ -320,9 +321,15 @@ export async function updateLeagueSettings(
       paramCount++;
     }
 
+    if (updates.total_rosters !== undefined) {
+      fields.push(`total_rosters = $${paramCount}`);
+      values.push(updates.total_rosters);
+      paramCount++;
+    }
+
     if (updates.settings !== undefined) {
       fields.push(`settings = $${paramCount}`);
-      // Preserve commissioner_id in settings
+      // Always preserve commissioner_id in settings
       const settingsWithCommissioner = {
         ...updates.settings,
         commissioner_id: leagueCommissionerId,
@@ -359,6 +366,87 @@ export async function updateLeagueSettings(
     return result.rows[0];
   } catch (error: any) {
     console.error("Error updating league settings:", error);
+    throw error;
+  }
+}
+
+/**
+ * Transfer commissioner role to another user
+ */
+export async function transferCommissioner(
+  leagueId: number,
+  currentCommissionerId: number,
+  newCommissionerId: number
+): Promise<League | null> {
+  try {
+    // Get the league
+    const league = await getLeagueById(leagueId);
+    if (!league) {
+      throw new Error("League not found");
+    }
+
+    // Verify current user is the commissioner
+    const leagueCommissionerId = getCommissionerIdFromLeague(league);
+    if (leagueCommissionerId !== currentCommissionerId) {
+      throw new Error("Only the commissioner can transfer their role");
+    }
+
+    // Verify new commissioner has a roster in the league
+    const query = `
+      SELECT * FROM rosters 
+      WHERE league_id = $1 AND user_id = $2
+    `;
+    const result = await pool.query(query, [leagueId, newCommissionerId]);
+
+    if (result.rows.length === 0) {
+      throw new Error("New commissioner must be a member of the league");
+    }
+
+    // Update settings with new commissioner_id
+    const updatedSettings = {
+      ...league.settings,
+      commissioner_id: newCommissionerId,
+    };
+
+    const updateQuery = `
+      UPDATE leagues
+      SET settings = $1, updated_at = NOW()
+      WHERE id = $2
+      RETURNING *
+    `;
+
+    const updateResult = await pool.query(updateQuery, [
+      JSON.stringify(updatedSettings),
+      leagueId,
+    ]);
+
+    return updateResult.rows[0];
+  } catch (error: any) {
+    console.error("Error transferring commissioner:", error);
+    throw error;
+  }
+}
+
+/**
+ * Validate if a user is commissioner and return commissioner ID
+ */
+export async function validateCommissionerPermission(
+  leagueId: number,
+  userId: number
+): Promise<number> {
+  try {
+    const league = await getLeagueById(leagueId);
+    if (!league) {
+      throw new Error("League not found");
+    }
+
+    const commissionerId = getCommissionerIdFromLeague(league);
+    if (commissionerId !== userId) {
+      throw new Error("Only the commissioner can perform this action");
+    }
+
+    return commissionerId;
+  } catch (error: any) {
     throw error;
   }
 }

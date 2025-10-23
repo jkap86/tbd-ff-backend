@@ -204,6 +204,32 @@ export async function getUserLeaguesHandler(
 }
 
 /**
+ * Get all public leagues
+ * GET /api/leagues/public
+ */
+export async function getPublicLeaguesHandler(
+  _req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    // Get public leagues from database
+    const { getPublicLeagues } = await import("../models/League");
+    const leagues = await getPublicLeagues();
+
+    res.status(200).json({
+      success: true,
+      data: leagues,
+    });
+  } catch (error: any) {
+    console.error("Get public leagues error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error getting public leagues",
+    });
+  }
+}
+
+/**
  * Get specific league with all rosters
  * GET /api/leagues/:leagueId
  */

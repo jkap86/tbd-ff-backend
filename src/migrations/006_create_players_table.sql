@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS players (
 );
 
 -- Create indexes for common queries
-CREATE INDEX idx_players_player_id ON players(player_id);
-CREATE INDEX idx_players_position ON players(position);
-CREATE INDEX idx_players_team ON players(team);
-CREATE INDEX idx_players_full_name ON players(full_name);
+CREATE INDEX IF NOT EXISTS idx_players_player_id ON players(player_id);
+CREATE INDEX IF NOT EXISTS idx_players_position ON players(position);
+CREATE INDEX IF NOT EXISTS idx_players_team ON players(team);
+CREATE INDEX IF NOT EXISTS idx_players_full_name ON players(full_name);

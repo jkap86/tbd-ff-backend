@@ -8,6 +8,8 @@ export interface Player {
   team: string | null;
   age: number | null;
   years_exp: number | null;
+  search_rank: number | null; // ADP proxy from Sleeper - lower is better
+  fantasy_data_id: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -24,7 +26,7 @@ export async function getAllPlayers(
 ): Promise<Player[]> {
   try {
     let query = `
-      SELECT id, player_id, full_name, position, team, age, years_exp, created_at, updated_at
+      SELECT id, player_id, full_name, position, team, age, years_exp, search_rank, fantasy_data_id, created_at, updated_at
       FROM players
       WHERE 1=1
     `;
@@ -49,7 +51,7 @@ export async function getAllPlayers(
       paramCount++;
     }
 
-    query += ` ORDER BY full_name`;
+    query += ` ORDER BY search_rank NULLS LAST, full_name`;
 
     const result = await pool.query(query, params);
     return result.rows;
@@ -72,7 +74,7 @@ export async function getAvailablePlayersForDraft(
 ): Promise<Player[]> {
   try {
     let query = `
-      SELECT p.id, p.player_id, p.full_name, p.position, p.team, p.age, p.years_exp, p.created_at, p.updated_at
+      SELECT p.id, p.player_id, p.full_name, p.position, p.team, p.age, p.years_exp, p.search_rank, p.fantasy_data_id, p.created_at, p.updated_at
       FROM players p
       WHERE p.id NOT IN (
         SELECT player_id
@@ -101,7 +103,7 @@ export async function getAvailablePlayersForDraft(
       paramCount++;
     }
 
-    query += ` ORDER BY p.full_name`;
+    query += ` ORDER BY p.search_rank NULLS LAST, p.full_name`;
 
     const result = await pool.query(query, params);
     return result.rows;
@@ -117,7 +119,7 @@ export async function getAvailablePlayersForDraft(
 export async function getPlayerById(playerId: number): Promise<Player | null> {
   try {
     const query = `
-      SELECT id, player_id, full_name, position, team, age, years_exp, created_at, updated_at
+      SELECT id, player_id, full_name, position, team, age, years_exp, search_rank, fantasy_data_id, created_at, updated_at
       FROM players
       WHERE id = $1
     `;
@@ -143,7 +145,7 @@ export async function getPlayerBySleeperPlayerId(
 ): Promise<Player | null> {
   try {
     const query = `
-      SELECT id, player_id, full_name, position, team, age, years_exp, created_at, updated_at
+      SELECT id, player_id, full_name, position, team, age, years_exp, search_rank, fantasy_data_id, created_at, updated_at
       FROM players
       WHERE player_id = $1
     `;
@@ -171,11 +173,13 @@ export async function upsertPlayer(playerData: {
   team: string | null;
   age: number | null;
   years_exp: number | null;
+  search_rank: number | null;
+  fantasy_data_id: string | null;
 }): Promise<Player> {
   try {
     const query = `
-      INSERT INTO players (player_id, full_name, position, team, age, years_exp, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+      INSERT INTO players (player_id, full_name, position, team, age, years_exp, search_rank, fantasy_data_id, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
       ON CONFLICT (player_id)
       DO UPDATE SET
         full_name = EXCLUDED.full_name,
@@ -183,8 +187,10 @@ export async function upsertPlayer(playerData: {
         team = EXCLUDED.team,
         age = EXCLUDED.age,
         years_exp = EXCLUDED.years_exp,
+        search_rank = EXCLUDED.search_rank,
+        fantasy_data_id = EXCLUDED.fantasy_data_id,
         updated_at = CURRENT_TIMESTAMP
-      RETURNING id, player_id, full_name, position, team, age, years_exp, created_at, updated_at
+      RETURNING id, player_id, full_name, position, team, age, years_exp, search_rank, fantasy_data_id, created_at, updated_at
     `;
 
     const result = await pool.query(query, [
@@ -194,6 +200,8 @@ export async function upsertPlayer(playerData: {
       playerData.team,
       playerData.age,
       playerData.years_exp,
+      playerData.search_rank,
+      playerData.fantasy_data_id,
     ]);
 
     return result.rows[0];
@@ -214,6 +222,8 @@ export async function bulkUpsertPlayers(
     team: string | null;
     age: number | null;
     years_exp: number | null;
+    search_rank: number | null;
+    fantasy_data_id: string | null;
   }>
 ): Promise<number> {
   const client = await pool.connect();
@@ -224,8 +234,8 @@ export async function bulkUpsertPlayers(
 
     for (const playerData of players) {
       const query = `
-        INSERT INTO players (player_id, full_name, position, team, age, years_exp, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+        INSERT INTO players (player_id, full_name, position, team, age, years_exp, search_rank, fantasy_data_id, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
         ON CONFLICT (player_id)
         DO UPDATE SET
           full_name = EXCLUDED.full_name,
@@ -233,6 +243,8 @@ export async function bulkUpsertPlayers(
           team = EXCLUDED.team,
           age = EXCLUDED.age,
           years_exp = EXCLUDED.years_exp,
+          search_rank = EXCLUDED.search_rank,
+          fantasy_data_id = EXCLUDED.fantasy_data_id,
           updated_at = CURRENT_TIMESTAMP
       `;
 
@@ -243,6 +255,8 @@ export async function bulkUpsertPlayers(
         playerData.team,
         playerData.age,
         playerData.years_exp,
+        playerData.search_rank,
+        playerData.fantasy_data_id,
       ]);
 
       upsertedCount++;

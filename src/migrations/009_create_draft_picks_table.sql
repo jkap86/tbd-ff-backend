@@ -16,8 +16,8 @@ CREATE TABLE IF NOT EXISTS draft_picks (
 );
 
 -- Create indexes
-CREATE INDEX idx_draft_picks_draft_id ON draft_picks(draft_id);
-CREATE INDEX idx_draft_picks_roster_id ON draft_picks(roster_id);
-CREATE INDEX idx_draft_picks_player_id ON draft_picks(player_id);
-CREATE INDEX idx_draft_picks_pick_number ON draft_picks(draft_id, pick_number);
-CREATE INDEX idx_draft_picks_round ON draft_picks(draft_id, round);
+CREATE INDEX IF NOT EXISTS idx_draft_picks_draft_id ON draft_picks(draft_id);
+CREATE INDEX IF NOT EXISTS idx_draft_picks_roster_id ON draft_picks(roster_id);
+CREATE INDEX IF NOT EXISTS idx_draft_picks_player_id ON draft_picks(player_id);
+CREATE INDEX IF NOT EXISTS idx_draft_picks_pick_number ON draft_picks(draft_id, pick_number);
+CREATE INDEX IF NOT EXISTS idx_draft_picks_round ON draft_picks(draft_id, round);

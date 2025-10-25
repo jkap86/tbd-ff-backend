@@ -10,6 +10,6 @@ CREATE TABLE IF NOT EXISTS draft_chat_messages (
 );
 
 -- Create indexes
-CREATE INDEX idx_draft_chat_draft_id ON draft_chat_messages(draft_id);
-CREATE INDEX idx_draft_chat_created_at ON draft_chat_messages(draft_id, created_at);
-CREATE INDEX idx_draft_chat_user_id ON draft_chat_messages(user_id);
+CREATE INDEX IF NOT EXISTS idx_draft_chat_draft_id ON draft_chat_messages(draft_id);
+CREATE INDEX IF NOT EXISTS idx_draft_chat_created_at ON draft_chat_messages(draft_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_draft_chat_user_id ON draft_chat_messages(user_id);

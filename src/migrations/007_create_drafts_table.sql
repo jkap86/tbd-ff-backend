@@ -20,5 +20,5 @@ CREATE TABLE IF NOT EXISTS drafts (
 );
 
 -- Create indexes
-CREATE INDEX idx_drafts_league_id ON drafts(league_id);
-CREATE INDEX idx_drafts_status ON drafts(status);
+CREATE INDEX IF NOT EXISTS idx_drafts_league_id ON drafts(league_id);
+CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts(status);

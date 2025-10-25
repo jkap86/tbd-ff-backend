@@ -10,6 +10,6 @@ CREATE TABLE IF NOT EXISTS draft_order (
 );
 
 -- Create indexes
-CREATE INDEX idx_draft_order_draft_id ON draft_order(draft_id);
-CREATE INDEX idx_draft_order_roster_id ON draft_order(roster_id);
-CREATE INDEX idx_draft_order_position ON draft_order(draft_id, draft_position);
+CREATE INDEX IF NOT EXISTS idx_draft_order_draft_id ON draft_order(draft_id);
+CREATE INDEX IF NOT EXISTS idx_draft_order_roster_id ON draft_order(roster_id);
+CREATE INDEX IF NOT EXISTS idx_draft_order_position ON draft_order(draft_id, draft_position);

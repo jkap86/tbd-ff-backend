@@ -57,6 +57,8 @@ export async function syncPlayersHandler(
         team: playerData.team || null,
         age: playerData.age || null,
         years_exp: playerData.years_exp || null,
+        search_rank: playerData.search_rank || null,
+        fantasy_data_id: playerData.fantasy_data_id || null,
       }))
       .filter((player) => player.full_name !== "Unknown"); // Filter out players without names
 

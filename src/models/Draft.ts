@@ -1,0 +1,276 @@
+import pool from "../config/database";
+
+export interface Draft {
+  id: number;
+  league_id: number;
+  draft_type: "snake" | "linear";
+  third_round_reversal: boolean;
+  status: "not_started" | "in_progress" | "paused" | "completed";
+  current_pick: number;
+  current_round: number;
+  current_roster_id: number | null;
+  pick_time_seconds: number;
+  pick_deadline: Date | null;
+  rounds: number;
+  started_at: Date | null;
+  completed_at: Date | null;
+  settings: any;
+  created_at: Date;
+  updated_at: Date;
+}
+
+/**
+ * Create a new draft
+ */
+export async function createDraft(draftData: {
+  league_id: number;
+  draft_type: "snake" | "linear";
+  third_round_reversal?: boolean;
+  pick_time_seconds?: number;
+  rounds?: number;
+  settings?: any;
+}): Promise<Draft> {
+  try {
+    const query = `
+      INSERT INTO drafts (
+        league_id, draft_type, third_round_reversal, pick_time_seconds,
+        rounds, settings
+      )
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [
+      draftData.league_id,
+      draftData.draft_type,
+      draftData.third_round_reversal || false,
+      draftData.pick_time_seconds || 90,
+      draftData.rounds || 15,
+      JSON.stringify(draftData.settings || {}),
+    ]);
+
+    return result.rows[0];
+  } catch (error: any) {
+    console.error("Error creating draft:", error);
+
+    // Check for unique constraint violation
+    if (error.code === "23505") {
+      throw new Error("Draft already exists for this league");
+    }
+
+    throw new Error("Error creating draft");
+  }
+}
+
+/**
+ * Get draft by ID
+ */
+export async function getDraftById(draftId: number): Promise<Draft | null> {
+  try {
+    const query = `SELECT * FROM drafts WHERE id = $1`;
+    const result = await pool.query(query, [draftId]);
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return result.rows[0];
+  } catch (error) {
+    console.error("Error getting draft:", error);
+    throw new Error("Error getting draft");
+  }
+}
+
+/**
+ * Get draft by league ID
+ */
+export async function getDraftByLeagueId(
+  leagueId: number
+): Promise<Draft | null> {
+  try {
+    const query = `SELECT * FROM drafts WHERE league_id = $1`;
+    const result = await pool.query(query, [leagueId]);
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return result.rows[0];
+  } catch (error) {
+    console.error("Error getting draft by league:", error);
+    throw new Error("Error getting draft by league");
+  }
+}
+
+/**
+ * Update draft
+ */
+export async function updateDraft(
+  draftId: number,
+  updates: Partial<Draft>
+): Promise<Draft> {
+  try {
+    const fields: string[] = [];
+    const values: any[] = [];
+    let paramCount = 1;
+
+    // Build dynamic update query
+    Object.entries(updates).forEach(([key, value]) => {
+      if (key !== "id" && key !== "created_at") {
+        fields.push(`${key} = $${paramCount}`);
+        values.push(
+          key === "settings" && typeof value === "object"
+            ? JSON.stringify(value)
+            : value
+        );
+        paramCount++;
+      }
+    });
+
+    if (fields.length === 0) {
+      throw new Error("No fields to update");
+    }
+
+    fields.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(draftId);
+
+    const query = `
+      UPDATE drafts
+      SET ${fields.join(", ")}
+      WHERE id = $${paramCount}
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, values);
+
+    if (result.rows.length === 0) {
+      throw new Error("Draft not found");
+    }
+
+    return result.rows[0];
+  } catch (error) {
+    console.error("Error updating draft:", error);
+    throw new Error("Error updating draft");
+  }
+}
+
+/**
+ * Start draft
+ */
+export async function startDraft(draftId: number): Promise<Draft> {
+  try {
+    const query = `
+      UPDATE drafts
+      SET status = 'in_progress',
+          started_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [draftId]);
+
+    if (result.rows.length === 0) {
+      throw new Error("Draft not found");
+    }
+
+    return result.rows[0];
+  } catch (error) {
+    console.error("Error starting draft:", error);
+    throw new Error("Error starting draft");
+  }
+}
+
+/**
+ * Pause draft
+ */
+export async function pauseDraft(draftId: number): Promise<Draft> {
+  try {
+    const query = `
+      UPDATE drafts
+      SET status = 'paused',
+          pick_deadline = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [draftId]);
+
+    if (result.rows.length === 0) {
+      throw new Error("Draft not found");
+    }
+
+    return result.rows[0];
+  } catch (error) {
+    console.error("Error pausing draft:", error);
+    throw new Error("Error pausing draft");
+  }
+}
+
+/**
+ * Resume draft
+ */
+export async function resumeDraft(draftId: number): Promise<Draft> {
+  try {
+    const query = `
+      UPDATE drafts
+      SET status = 'in_progress',
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [draftId]);
+
+    if (result.rows.length === 0) {
+      throw new Error("Draft not found");
+    }
+
+    return result.rows[0];
+  } catch (error) {
+    console.error("Error resuming draft:", error);
+    throw new Error("Error resuming draft");
+  }
+}
+
+/**
+ * Complete draft
+ */
+export async function completeDraft(draftId: number): Promise<Draft> {
+  try {
+    const query = `
+      UPDATE drafts
+      SET status = 'completed',
+          completed_at = CURRENT_TIMESTAMP,
+          pick_deadline = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [draftId]);
+
+    if (result.rows.length === 0) {
+      throw new Error("Draft not found");
+    }
+
+    return result.rows[0];
+  } catch (error) {
+    console.error("Error completing draft:", error);
+    throw new Error("Error completing draft");
+  }
+}
+
+/**
+ * Delete draft
+ */
+export async function deleteDraft(draftId: number): Promise<void> {
+  try {
+    const query = `DELETE FROM drafts WHERE id = $1`;
+    await pool.query(query, [draftId]);
+  } catch (error) {
+    console.error("Error deleting draft:", error);
+    throw new Error("Error deleting draft");
+  }
+}

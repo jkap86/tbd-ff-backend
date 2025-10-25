@@ -12,6 +12,7 @@ import { transferCommissionerHandler } from "../controllers/leagueController";
 import { isCommissionerHandler } from "../controllers/leagueController";
 import { removeLeagueMemberHandler } from "../controllers/leagueController";
 import { getLeagueStatsHandler } from "../controllers/leagueController";
+import { getDraftByLeagueHandler } from "../controllers/draftController";
 
 const router = Router();
 
@@ -64,5 +65,11 @@ router.post(
  * GET /api/leagues/:leagueId/stats
  */
 router.get("/:leagueId/stats", authenticate, getLeagueStatsHandler);
+
+/**
+ * Get draft for a league
+ * GET /api/leagues/:leagueId/draft
+ */
+router.get("/:leagueId/draft", getDraftByLeagueHandler);
 
 export default router;

@@ -244,6 +244,7 @@ export async function completeDraft(draftId: number): Promise<Draft> {
       SET status = 'completed',
           completed_at = CURRENT_TIMESTAMP,
           pick_deadline = NULL,
+          current_roster_id = NULL,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
       RETURNING *
@@ -259,6 +260,56 @@ export async function completeDraft(draftId: number): Promise<Draft> {
   } catch (error) {
     console.error("Error completing draft:", error);
     throw new Error("Error completing draft");
+  }
+}
+
+/**
+ * Reset draft - clears all picks and resets to not_started
+ */
+export async function resetDraft(draftId: number): Promise<Draft> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Delete all draft picks
+    await client.query("DELETE FROM draft_picks WHERE draft_id = $1", [
+      draftId,
+    ]);
+
+    // Delete all draft chat messages
+    await client.query("DELETE FROM draft_chat_messages WHERE draft_id = $1", [
+      draftId,
+    ]);
+
+    // Reset draft to not_started
+    const query = `
+      UPDATE drafts
+      SET status = 'not_started',
+          current_pick = 1,
+          current_round = 1,
+          current_roster_id = NULL,
+          pick_deadline = NULL,
+          started_at = NULL,
+          completed_at = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING *
+    `;
+
+    const result = await client.query(query, [draftId]);
+
+    if (result.rows.length === 0) {
+      throw new Error("Draft not found");
+    }
+
+    await client.query("COMMIT");
+    return result.rows[0];
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Error resetting draft:", error);
+    throw new Error("Error resetting draft");
+  } finally {
+    client.release();
   }
 }
 

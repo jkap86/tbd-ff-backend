@@ -13,6 +13,10 @@ import { isCommissionerHandler } from "../controllers/leagueController";
 import { removeLeagueMemberHandler } from "../controllers/leagueController";
 import { getLeagueStatsHandler } from "../controllers/leagueController";
 import { getDraftByLeagueHandler } from "../controllers/draftController";
+import {
+  sendLeagueChatMessageHandler,
+  getLeagueChatMessagesHandler,
+} from "../controllers/leagueChatController";
 
 const router = Router();
 
@@ -71,5 +75,17 @@ router.get("/:leagueId/stats", authenticate, getLeagueStatsHandler);
  * GET /api/leagues/:leagueId/draft
  */
 router.get("/:leagueId/draft", getDraftByLeagueHandler);
+
+/**
+ * Send a league chat message
+ * POST /api/leagues/:leagueId/chat
+ */
+router.post("/:leagueId/chat", authenticate, sendLeagueChatMessageHandler);
+
+/**
+ * Get league chat messages
+ * GET /api/leagues/:leagueId/chat
+ */
+router.get("/:leagueId/chat", getLeagueChatMessagesHandler);
 
 export default router;

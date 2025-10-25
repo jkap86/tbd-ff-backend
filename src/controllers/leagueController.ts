@@ -22,11 +22,11 @@ import {
  * {
  *   name: string,
  *   season: string,
- *   season_type?: "pre" | "regular" | "post" | "betting",
+ *   season_type?: "pre" | "regular" | "post",
+ *   league_type?: "redraft" | "keeper" | "dynasty",
  *   total_rosters?: number (2-100),
  *   settings?: {
  *     is_public?: boolean,
- *     season_type?: string,
  *     start_week?: number (1-17),
  *     end_week?: number (1-17),
  *     league_median?: boolean
@@ -44,6 +44,7 @@ export async function createLeagueHandler(
       name,
       season,
       season_type,
+      league_type,
       total_rosters,
       settings,
       scoring_settings,
@@ -106,10 +107,9 @@ export async function createLeagueHandler(
     }
 
     // Validate scoring_settings if provided
-    // Note: Scoring settings are not applicable for 'betting' league type
     if (scoring_settings) {
       try {
-        validateScoringSettings(scoring_settings, season_type);
+        validateScoringSettings(scoring_settings);
       } catch (error: any) {
         res.status(400).json({
           success: false,
@@ -149,6 +149,7 @@ export async function createLeagueHandler(
       commissioner_id,
       season,
       season_type,
+      league_type,
       total_rosters,
       settings,
       scoring_settings,
@@ -395,6 +396,7 @@ export async function updateLeagueSettingsHandler(
     const leagueId = parseInt(req.params.leagueId);
     const {
       name,
+      league_type,
       total_rosters,
       settings,
       scoring_settings,
@@ -460,7 +462,6 @@ export async function updateLeagueSettingsHandler(
     }
 
     // Validate scoring_settings if provided
-    // Note: Scoring settings are not applicable for 'betting' league type
     if (scoring_settings) {
       try {
         // Get the league to check its type
@@ -474,9 +475,7 @@ export async function updateLeagueSettingsHandler(
           return;
         }
 
-        // Use the league's season_type for validation
-        const leagueType = league.season_type;
-        validateScoringSettings(scoring_settings, leagueType);
+        validateScoringSettings(scoring_settings);
       } catch (error: any) {
         res.status(400).json({
           success: false,
@@ -505,6 +504,7 @@ export async function updateLeagueSettingsHandler(
     // Update league settings
     const updatedLeague = await updateLeagueSettings(leagueId, userId, {
       name,
+      league_type,
       total_rosters,
       settings,
       scoring_settings,

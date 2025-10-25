@@ -85,17 +85,23 @@ export async function getDraftOrderWithDetails(draftId: number): Promise<any[]> 
       SELECT
         d.*,
         r.roster_id as roster_number,
+        r.settings,
         u.id as user_id,
         u.username
       FROM draft_order d
       JOIN rosters r ON d.roster_id = r.id
-      JOIN users u ON r.user_id = u.id
+      LEFT JOIN users u ON r.user_id = u.id
       WHERE d.draft_id = $1
       ORDER BY d.draft_position ASC
     `;
 
     const result = await pool.query(query, [draftId]);
-    return result.rows;
+
+    // Add team_name from settings if available
+    return result.rows.map(row => ({
+      ...row,
+      team_name: row.settings?.team_name || null,
+    }));
   } catch (error) {
     console.error("Error getting draft order with details:", error);
     throw new Error("Error getting draft order with details");

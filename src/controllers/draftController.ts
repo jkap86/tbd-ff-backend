@@ -1,11 +1,13 @@
 import { Request, Response } from "express";
 import {
+  Draft,
   createDraft,
   getDraftById,
   getDraftByLeagueId,
   updateDraft,
   pauseDraft,
   completeDraft,
+  resetDraft,
 } from "../models/Draft";
 import { io } from "../index";
 import {
@@ -27,8 +29,12 @@ import {
   isPlayerDrafted,
 } from "../models/DraftPick";
 import { getAvailablePlayersForDraft } from "../models/Player";
-import { getRostersByLeagueId } from "../models/Roster";
-import { getLeagueById } from "../models/League";
+import { getRostersByLeagueId, getRosterById } from "../models/Roster";
+import { getLeagueById, updateLeague } from "../models/League";
+import {
+  startAutoPickMonitoring,
+  stopAutoPickMonitoring,
+} from "../services/autoPickService";
 
 /**
  * Calculate which roster should be picking based on current pick number
@@ -184,6 +190,86 @@ export async function getDraftHandler(
 }
 
 /**
+ * Update draft settings
+ * PUT /api/drafts/:draftId/settings
+ */
+export async function updateDraftSettingsHandler(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const { draftId } = req.params;
+    const { draft_type, third_round_reversal, pick_time_seconds, rounds } = req.body;
+
+    const draft = await getDraftById(parseInt(draftId));
+    if (!draft) {
+      res.status(404).json({
+        success: false,
+        message: "Draft not found",
+      });
+      return;
+    }
+
+    // Only allow updates if draft hasn't started
+    if (draft.status !== "not_started") {
+      res.status(400).json({
+        success: false,
+        message: "Cannot update draft settings after draft has started",
+      });
+      return;
+    }
+
+    // Check if user is commissioner
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+      return;
+    }
+
+    const league = await getLeagueById(draft.league_id);
+    if (!league) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    const commissionerId = league.settings?.commissioner_id;
+    if (!commissionerId || commissionerId !== userId) {
+      res.status(403).json({
+        success: false,
+        message: "Only the commissioner can update draft settings",
+      });
+      return;
+    }
+
+    // Update draft settings
+    const updates: Partial<Draft> = {};
+    if (draft_type) updates.draft_type = draft_type;
+    if (typeof third_round_reversal === 'boolean') updates.third_round_reversal = third_round_reversal;
+    if (pick_time_seconds) updates.pick_time_seconds = pick_time_seconds;
+    if (rounds) updates.rounds = rounds;
+
+    const updatedDraft = await updateDraft(parseInt(draftId), updates);
+
+    res.status(200).json({
+      success: true,
+      data: updatedDraft,
+    });
+  } catch (error: any) {
+    console.error("Error updating draft settings:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error updating draft settings",
+    });
+  }
+}
+
+/**
  * Get draft by league ID
  * GET /api/leagues/:leagueId/draft
  */
@@ -238,6 +324,35 @@ export async function setDraftOrderHandler(
       return;
     }
 
+    // Check if user is commissioner
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+      return;
+    }
+
+    const league = await getLeagueById(draft.league_id);
+    if (!league) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    // Get commissioner ID from league settings
+    const commissionerId = league.settings?.commissioner_id;
+    if (!commissionerId || commissionerId !== userId) {
+      res.status(403).json({
+        success: false,
+        message: "Only the commissioner can set draft order",
+      });
+      return;
+    }
+
     // Don't allow changing order after draft has started
     if (draft.status !== "not_started") {
       res.status(400).json({
@@ -247,14 +362,12 @@ export async function setDraftOrderHandler(
       return;
     }
 
-    let draftOrder;
-
     if (randomize) {
       // Get all rosters for the league
       const rosters = await getRostersByLeagueId(draft.league_id);
       const rosterIds = rosters.map((r) => r.id);
 
-      draftOrder = await randomizeDraftOrder(parseInt(draftId), rosterIds);
+      await randomizeDraftOrder(parseInt(draftId), rosterIds);
     } else if (order && Array.isArray(order)) {
       // Manual order: validate format
       if (
@@ -271,7 +384,7 @@ export async function setDraftOrderHandler(
         return;
       }
 
-      draftOrder = await setDraftOrder(parseInt(draftId), order);
+      await setDraftOrder(parseInt(draftId), order);
     } else {
       res.status(400).json({
         success: false,
@@ -280,12 +393,16 @@ export async function setDraftOrderHandler(
       return;
     }
 
-    // Emit draft order update via WebSocket
-    emitDraftOrderUpdate(io, parseInt(draftId), draftOrder);
+    // Get detailed draft order with team names and usernames
+    const detailedDraftOrder = await getDraftOrderWithDetails(parseInt(draftId));
 
+    // Emit draft order update via WebSocket
+    emitDraftOrderUpdate(io, parseInt(draftId), detailedDraftOrder);
+
+    // Return detailed draft order in HTTP response
     res.status(200).json({
       success: true,
-      data: draftOrder,
+      data: detailedDraftOrder,
     });
   } catch (error: any) {
     console.error("Error setting draft order:", error);
@@ -391,8 +508,16 @@ export async function startDraftHandler(
       pick_deadline: pickDeadline,
     });
 
+    // Update league status to 'drafting'
+    if (league) {
+      await updateLeague(league.id, { status: "drafting" });
+    }
+
     // Emit draft status change via WebSocket
     emitDraftStatusChange(io, parseInt(draftId), "in_progress", updatedDraft);
+
+    // Start auto-pick monitoring
+    startAutoPickMonitoring(parseInt(draftId));
 
     res.status(200).json({
       success: true,
@@ -454,6 +579,35 @@ export async function makeDraftPickHandler(
       return;
     }
 
+    // Verify that the user making the pick owns the roster (unless it's an auto-pick)
+    if (!is_auto_pick) {
+      const userId = req.user?.userId;
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+        return;
+      }
+
+      const roster = await getRosterById(roster_id);
+      if (!roster) {
+        res.status(404).json({
+          success: false,
+          message: "Roster not found",
+        });
+        return;
+      }
+
+      if (roster.user_id !== userId) {
+        res.status(403).json({
+          success: false,
+          message: "You can only make picks for your own roster",
+        });
+        return;
+      }
+    }
+
     // Check if player is already drafted
     const alreadyDrafted = await isPlayerDrafted(
       parseInt(draftId),
@@ -507,11 +661,29 @@ export async function makeDraftPickHandler(
     const nextPickNumber = draft.current_pick + 1;
     const totalPicks = totalRosters * draft.rounds;
 
+    console.log(`Pick calculation - Current pick: ${draft.current_pick}, Next pick: ${nextPickNumber}, Total rosters: ${totalRosters}, Rounds: ${draft.rounds}, Total picks: ${totalPicks}`);
+
     let updatedDraft;
 
     if (nextPickNumber > totalPicks) {
       // Draft is complete
+      console.log(`Draft ${draftId} is complete! Total picks: ${totalPicks}`);
       updatedDraft = await completeDraft(parseInt(draftId));
+
+      // Update league status to 'in_season'
+      const league = await getLeagueById(draft.league_id);
+      console.log(`League before update:`, league ? `ID ${league.id}, Status: ${league.status}` : 'not found');
+      if (league) {
+        const updatedLeague = await updateLeague(league.id, { status: "in_season" });
+        console.log(`League after update:`, updatedLeague ? `ID ${updatedLeague.id}, Status: ${updatedLeague.status}` : 'update failed');
+      }
+
+      // Stop auto-pick monitoring
+      stopAutoPickMonitoring(parseInt(draftId));
+
+      // Emit status change to notify clients that draft is complete
+      console.log(`Emitting draft completion status for draft ${draftId}`);
+      emitDraftStatusChange(io, parseInt(draftId), "completed", updatedDraft);
     } else {
       // Advance to next pick
       const nextPickInfo = calculateCurrentRoster(
@@ -651,6 +823,9 @@ export async function pauseDraftHandler(
 
     const updatedDraft = await pauseDraft(parseInt(draftId));
 
+    // Stop auto-pick monitoring when paused
+    stopAutoPickMonitoring(parseInt(draftId));
+
     // Emit draft status change via WebSocket
     emitDraftStatusChange(io, parseInt(draftId), "paused", updatedDraft);
 
@@ -704,6 +879,9 @@ export async function resumeDraftHandler(
       pick_deadline: pickDeadline,
     });
 
+    // Restart auto-pick monitoring when resumed
+    startAutoPickMonitoring(parseInt(draftId));
+
     // Emit draft status change via WebSocket
     emitDraftStatusChange(io, parseInt(draftId), "in_progress", updatedDraft);
 
@@ -716,6 +894,77 @@ export async function resumeDraftHandler(
     res.status(500).json({
       success: false,
       message: error.message || "Error resuming draft",
+    });
+  }
+}
+
+/**
+ * Reset draft - clears all picks and resets to not_started
+ * POST /api/drafts/:draftId/reset
+ */
+export async function resetDraftHandler(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const { draftId } = req.params;
+
+    const draft = await getDraftById(parseInt(draftId));
+    if (!draft) {
+      res.status(404).json({
+        success: false,
+        message: "Draft not found",
+      });
+      return;
+    }
+
+    // Check if user is commissioner
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+      return;
+    }
+
+    const league = await getLeagueById(draft.league_id);
+    if (!league) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    // Get commissioner ID from league settings
+    const commissionerId = league.settings?.commissioner_id;
+    if (!commissionerId || commissionerId !== userId) {
+      res.status(403).json({
+        success: false,
+        message: "Only the commissioner can reset the draft",
+      });
+      return;
+    }
+
+    // Stop auto-pick monitoring
+    stopAutoPickMonitoring(parseInt(draftId));
+
+    // Reset the draft
+    const updatedDraft = await resetDraft(parseInt(draftId));
+
+    // Emit draft status change via WebSocket
+    emitDraftStatusChange(io, parseInt(draftId), "not_started", updatedDraft);
+
+    res.status(200).json({
+      success: true,
+      data: updatedDraft,
+    });
+  } catch (error: any) {
+    console.error("Error resetting draft:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error resetting draft",
     });
   }
 }

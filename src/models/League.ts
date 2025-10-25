@@ -7,7 +7,8 @@ export interface League {
   settings: any;
   scoring_settings: any;
   season: string;
-  season_type: string;
+  season_type: string; // pre, regular, post
+  league_type: string; // redraft, keeper, dynasty
   roster_positions: any;
   total_rosters: number;
   created_at: Date;
@@ -16,7 +17,6 @@ export interface League {
 
 export interface LeagueSettings {
   is_public?: boolean;
-  season_type?: string;
   start_week?: number;
   end_week?: number;
   league_median?: boolean;
@@ -38,7 +38,8 @@ export interface CreateLeagueInput {
   commissioner_id: number;
   season: string;
   status?: string;
-  season_type?: string;
+  season_type?: string; // pre, regular, post
+  league_type?: string; // redraft, keeper, dynasty
   total_rosters?: number;
   settings?: LeagueSettings;
   scoring_settings?: ScoringSettings;
@@ -57,6 +58,7 @@ export async function createLeague(
     season,
     status = "pre_draft",
     season_type = "regular",
+    league_type = "redraft",
     total_rosters = 12,
     settings = {},
     scoring_settings = {},
@@ -71,7 +73,6 @@ export async function createLeague(
     const mergedSettings: LeagueSettings = {
       ...settings,
       commissioner_id,
-      season_type: season_type,
       is_public: settings.is_public !== undefined ? settings.is_public : false,
       start_week: settings.start_week || 1,
       end_week: settings.end_week || 17,
@@ -83,15 +84,16 @@ export async function createLeague(
       INSERT INTO leagues (
         name,
         status,
-        season, 
-        season_type, 
-        total_rosters, 
-        settings, 
-        scoring_settings, 
+        season,
+        season_type,
+        league_type,
+        total_rosters,
+        settings,
+        scoring_settings,
         roster_positions,
         invite_code
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *
     `;
 
@@ -100,6 +102,7 @@ export async function createLeague(
       status,
       season,
       season_type,
+      league_type,
       total_rosters,
       JSON.stringify(mergedSettings),
       JSON.stringify(scoring_settings || {}),
@@ -319,6 +322,7 @@ export async function updateLeagueSettings(
   commissionerId: number,
   updates: {
     name?: string;
+    league_type?: string;
     total_rosters?: number;
     settings?: LeagueSettings;
     scoring_settings?: ScoringSettings;
@@ -345,6 +349,12 @@ export async function updateLeagueSettings(
     if (updates.name !== undefined) {
       fields.push(`name = $${paramCount}`);
       values.push(updates.name);
+      paramCount++;
+    }
+
+    if (updates.league_type !== undefined) {
+      fields.push(`league_type = $${paramCount}`);
+      values.push(updates.league_type);
       paramCount++;
     }
 
@@ -541,18 +551,11 @@ export function validateLeagueSettings(settings: LeagueSettings): boolean {
 
 /**
  * Validate scoring settings
- * Note: Scoring settings are not applicable for 'betting' league type
  */
 export function validateScoringSettings(
-  scoringSettings: ScoringSettings,
-  leagueType?: string
+  scoringSettings: ScoringSettings
 ): boolean {
   try {
-    // Scoring settings not needed for betting leagues
-    if (leagueType === "betting") {
-      return true;
-    }
-
     if (!scoringSettings || typeof scoringSettings !== "object") {
       return true; // Allow empty scoring settings
     }

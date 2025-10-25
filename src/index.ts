@@ -12,6 +12,8 @@ import userRoutes from "./routes/userRoutes";
 import draftRoutes from "./routes/draftRoutes";
 import playerRoutes from "./routes/playerRoutes";
 import { setupDraftSocket } from "./socket/draftSocket";
+import { setupLeagueSocket } from "./socket/leagueSocket";
+import { stopAllAutoPickMonitoring } from "./services/autoPickService";
 
 // Load environment variables
 dotenv.config();
@@ -27,8 +29,9 @@ const io = new Server(httpServer, {
 
 const PORT = process.env.PORT || 3000;
 
-// Setup Socket.io for draft events
+// Setup Socket.io for draft and league events
 setupDraftSocket(io);
+setupLeagueSocket(io);
 
 // Make io available globally for controllers
 export { io };
@@ -90,6 +93,26 @@ httpServer.listen(PORT, () => {
   console.log(`📍 Health check: http://localhost:${PORT}/health`);
   console.log(`🔐 Auth endpoints: http://localhost:${PORT}/api/auth`);
   console.log(`🔌 WebSocket server running for real-time draft updates`);
+  console.log(`⏱️  Auto-pick service initialized`);
+});
+
+// Graceful shutdown
+process.on("SIGTERM", () => {
+  console.log("SIGTERM signal received: closing HTTP server");
+  stopAllAutoPickMonitoring();
+  httpServer.close(() => {
+    console.log("HTTP server closed");
+    process.exit(0);
+  });
+});
+
+process.on("SIGINT", () => {
+  console.log("SIGINT signal received: closing HTTP server");
+  stopAllAutoPickMonitoring();
+  httpServer.close(() => {
+    console.log("HTTP server closed");
+    process.exit(0);
+  });
 });
 
 export default app;

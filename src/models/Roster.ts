@@ -1,12 +1,17 @@
 import pool from "../config/database";
 
+export interface RosterSlot {
+  slot: string;
+  player_id: number | null;
+}
+
 export interface Roster {
   id: number;
   league_id: number;
   user_id: number;
   roster_id: number;
   settings: any;
-  starters: any[];
+  starters: RosterSlot[];
   bench: any[];
   taxi: any[];
   ir: any[];
@@ -31,11 +36,31 @@ export async function createRoster(
   const { league_id, user_id, roster_id, settings = {} } = rosterData;
 
   try {
+    // Get league roster positions to initialize starter slots
+    const { getLeagueById } = await import("./League");
+    const league = await getLeagueById(league_id);
+
+    const starterSlots: RosterSlot[] = [];
+    if (league && league.roster_positions) {
+      // Create slots for each non-bench position
+      league.roster_positions.forEach((rp: any) => {
+        if (rp.position !== "BN") {
+          const count = rp.count || 1;
+          for (let i = 0; i < count; i++) {
+            starterSlots.push({
+              slot: count > 1 ? `${rp.position}${i + 1}` : rp.position,
+              player_id: null,
+            });
+          }
+        }
+      });
+    }
+
     const query = `
       INSERT INTO rosters (
-        league_id, 
-        user_id, 
-        roster_id, 
+        league_id,
+        user_id,
+        roster_id,
         settings,
         starters,
         bench,
@@ -51,7 +76,7 @@ export async function createRoster(
       user_id,
       roster_id,
       JSON.stringify(settings),
-      JSON.stringify([]),
+      JSON.stringify(starterSlots),
       JSON.stringify([]),
       JSON.stringify([]),
       JSON.stringify([]),
@@ -121,8 +146,13 @@ export async function getRosterWithPlayers(rosterId: number): Promise<any | null
     const roster = rosterResult.rows[0];
 
     // Get all player IDs from all arrays
+    // For starters, extract player_id from slot objects
+    const starterPlayerIds = (roster.starters || [])
+      .map((slot: any) => slot.player_id)
+      .filter((id: any) => id != null);
+
     const allPlayerIds = [
-      ...(roster.starters || []),
+      ...starterPlayerIds,
       ...(roster.bench || []),
       ...(roster.taxi || []),
       ...(roster.ir || []),
@@ -148,7 +178,10 @@ export async function getRosterWithPlayers(rosterId: number): Promise<any | null
 
     return {
       ...roster,
-      starters: (roster.starters || []).map((id: any) => playerMap[id] || null),
+      starters: (roster.starters || []).map((slot: any) => ({
+        slot: slot.slot,
+        player: slot.player_id ? playerMap[slot.player_id] || null : null,
+      })),
       bench: (roster.bench || []).map((id: any) => playerMap[id] || null),
       taxi: (roster.taxi || []).map((id: any) => playerMap[id] || null),
       ir: (roster.ir || []).map((id: any) => playerMap[id] || null),
@@ -220,6 +253,154 @@ export async function getNextRosterId(leagueId: number): Promise<number> {
   } catch (error) {
     console.error("Error getting next roster ID:", error);
     throw new Error("Error getting next roster ID");
+  }
+}
+
+/**
+ * Validate lineup against roster position requirements
+ * Now accepts slot-based structure: [{slot: string, player_id: number | null}]
+ */
+export async function validateLineup(
+  _leagueId: number,
+  starters: Array<{ slot: string; player_id: number | null }>
+): Promise<{ valid: boolean; errors: string[] }> {
+  try {
+    const errors: string[] = [];
+
+    // Get player IDs that are assigned
+    const playerIds = starters
+      .map((slot) => slot.player_id)
+      .filter((id): id is number => id !== null);
+
+    // If no players assigned, validation passes (allows empty lineup)
+    if (playerIds.length === 0) {
+      return { valid: true, errors: [] };
+    }
+
+    // Get player details for assigned starters
+    const playersQuery = `
+      SELECT id, position
+      FROM players
+      WHERE id = ANY($1)
+    `;
+    const playersResult = await pool.query(playersQuery, [playerIds]);
+    const players = playersResult.rows;
+
+    // Create a map of player positions
+    const playerPositionMap = players.reduce((acc: any, player: any) => {
+      acc[player.id] = player.position;
+      return acc;
+    }, {});
+
+    // Validate each slot assignment
+    for (const slotData of starters) {
+      if (slotData.player_id === null) {
+        // Empty slot is okay
+        continue;
+      }
+
+      const playerPosition = playerPositionMap[slotData.player_id];
+      if (!playerPosition) {
+        errors.push(`Player ${slotData.player_id} not found`);
+        continue;
+      }
+
+      // Extract base slot name (e.g., "QB1" -> "QB", "FLEX" -> "FLEX")
+      const baseSlot = slotData.slot.replace(/\d+$/, "");
+
+      // Check if player is eligible for this slot
+      if (!isPlayerEligibleForPosition(playerPosition, baseSlot)) {
+        errors.push(
+          `Player with position ${playerPosition} is not eligible for ${slotData.slot} slot`
+        );
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+    };
+  } catch (error) {
+    console.error("Error validating lineup:", error);
+    return { valid: false, errors: ["Error validating lineup"] };
+  }
+}
+
+/**
+ * Check if a player position is eligible for a roster position slot
+ */
+function isPlayerEligibleForPosition(playerPosition: string, slotPosition: string): boolean {
+  // Exact match
+  if (playerPosition === slotPosition) return true;
+
+  // FLEX positions
+  if (slotPosition === "FLEX") {
+    return ["RB", "WR", "TE"].includes(playerPosition);
+  }
+  if (slotPosition === "SUPER_FLEX") {
+    return ["QB", "RB", "WR", "TE"].includes(playerPosition);
+  }
+  if (slotPosition === "WRT") {
+    return ["WR", "RB", "TE"].includes(playerPosition);
+  }
+  if (slotPosition === "REC_FLEX") {
+    return ["WR", "TE"].includes(playerPosition);
+  }
+  if (slotPosition === "IDP_FLEX") {
+    return ["DL", "LB", "DB"].includes(playerPosition);
+  }
+
+  return false;
+}
+
+/**
+ * Validate a single slot assignment (for individual roster edits)
+ * This only validates the specific slot being edited, not the entire roster
+ */
+export async function validateSlotAssignment(
+  slot: string,
+  playerId: number | null
+): Promise<{ valid: boolean; errors: string[] }> {
+  try {
+    const errors: string[] = [];
+
+    // If no player assigned (clearing the slot), that's always valid
+    if (playerId === null) {
+      return { valid: true, errors: [] };
+    }
+
+    // Get player details
+    const playersQuery = `
+      SELECT id, position
+      FROM players
+      WHERE id = $1
+    `;
+    const playersResult = await pool.query(playersQuery, [playerId]);
+
+    if (playersResult.rows.length === 0) {
+      errors.push(`Player ${playerId} not found`);
+      return { valid: false, errors };
+    }
+
+    const playerPosition = playersResult.rows[0].position;
+
+    // Extract base slot name (e.g., "QB1" -> "QB", "FLEX" -> "FLEX")
+    const baseSlot = slot.replace(/\d+$/, "");
+
+    // Check if player is eligible for this slot
+    if (!isPlayerEligibleForPosition(playerPosition, baseSlot)) {
+      errors.push(
+        `Player with position ${playerPosition} is not eligible for ${slot} slot`
+      );
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+    };
+  } catch (error) {
+    console.error("Error validating slot assignment:", error);
+    return { valid: false, errors: ["Error validating slot assignment"] };
   }
 }
 
@@ -319,5 +500,48 @@ export async function deleteRosterByLeagueAndUser(
   } catch (error: any) {
     console.error("Error deleting roster:", error);
     throw new Error("Error deleting roster");
+  }
+}
+
+/**
+ * Clear all roster lineups for a league (remove all players from all rosters)
+ * Keeps the rosters themselves intact
+ */
+export async function clearAllRosterLineups(leagueId: number): Promise<void> {
+  try {
+    // Get league roster positions to reset starter slots
+    const { getLeagueById } = await import("./League");
+    const league = await getLeagueById(leagueId);
+
+    const starterSlots: RosterSlot[] = [];
+    if (league && league.roster_positions) {
+      // Create empty slots for each non-bench position
+      league.roster_positions.forEach((rp: any) => {
+        if (rp.position !== "BN") {
+          const count = rp.count || 1;
+          for (let i = 0; i < count; i++) {
+            starterSlots.push({
+              slot: count > 1 ? `${rp.position}${i + 1}` : rp.position,
+              player_id: null,
+            });
+          }
+        }
+      });
+    }
+
+    const query = `
+      UPDATE rosters
+      SET starters = $1,
+          bench = '[]',
+          taxi = '[]',
+          ir = '[]',
+          updated_at = CURRENT_TIMESTAMP
+      WHERE league_id = $2
+    `;
+
+    await pool.query(query, [JSON.stringify(starterSlots), leagueId]);
+  } catch (error: any) {
+    console.error("Error clearing roster lineups:", error);
+    throw new Error("Error clearing roster lineups");
   }
 }

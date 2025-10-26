@@ -234,6 +234,40 @@ export function setupDraftSocket(io: Server) {
     });
 
     /**
+     * Toggle autodraft status
+     */
+    socket.on("toggle_autodraft", async (data: {
+      draft_id: number;
+      roster_id: number;
+      is_autodrafting: boolean;
+      username: string;
+    }) => {
+      const { draft_id, roster_id, is_autodrafting, username } = data;
+
+      try {
+        const { toggleAutodraft } = await import("../models/DraftOrder");
+        const updatedOrder = await toggleAutodraft(draft_id, roster_id, is_autodrafting);
+
+        if (updatedOrder) {
+          const roomName = `draft_${draft_id}`;
+
+          // Broadcast to all users in the room
+          io.to(roomName).emit("autodraft_toggled", {
+            roster_id,
+            is_autodrafting,
+            username,
+            timestamp: new Date(),
+          });
+
+          console.log(`Autodraft ${is_autodrafting ? 'enabled' : 'disabled'} for roster ${roster_id} in draft ${draft_id}`);
+        }
+      } catch (error) {
+        console.error("Error toggling autodraft:", error);
+        socket.emit("error", { message: "Error toggling autodraft" });
+      }
+    });
+
+    /**
      * Handle disconnection
      */
     socket.on("disconnect", () => {

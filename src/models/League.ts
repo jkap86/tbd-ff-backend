@@ -19,6 +19,7 @@ export interface LeagueSettings {
   is_public?: boolean;
   start_week?: number;
   end_week?: number;
+  playoff_week_start?: number;
   league_median?: boolean;
   commissioner_id?: number;
   [key: string]: any;
@@ -76,6 +77,7 @@ export async function createLeague(
       is_public: settings.is_public !== undefined ? settings.is_public : false,
       start_week: settings.start_week || 1,
       end_week: settings.end_week || 17,
+      playoff_week_start: settings.playoff_week_start || 15,
       league_median:
         settings.league_median !== undefined ? settings.league_median : false,
     };
@@ -113,13 +115,14 @@ export async function createLeague(
     const result = await pool.query(query, values);
     const league = result.rows[0];
 
-    // Create roster for commissioner
+    // Create roster for commissioner using createRoster to get proper slot structure
     try {
-      const rosterQuery = `
-        INSERT INTO rosters (league_id, user_id, roster_id)
-        VALUES ($1, $2, $3)
-      `;
-      await pool.query(rosterQuery, [league.id, commissioner_id, 1]);
+      const { createRoster } = await import("./Roster");
+      await createRoster({
+        league_id: league.id,
+        user_id: commissioner_id,
+        roster_id: 1,
+      });
     } catch (rosterError: any) {
       console.error("Error creating commissioner roster:", rosterError);
     }
@@ -517,6 +520,20 @@ export function validateLeagueSettings(settings: LeagueSettings): boolean {
         settings.end_week > 17
       ) {
         throw new Error("End week must be between 1 and 17");
+      }
+    }
+
+    if (settings.playoff_week_start !== undefined) {
+      if (
+        typeof settings.playoff_week_start !== "number" ||
+        settings.playoff_week_start < 1 ||
+        settings.playoff_week_start > 18
+      ) {
+        throw new Error("Playoff week start must be between 1 and 18");
+      }
+      // Validate that playoff week is after start week
+      if (settings.start_week && settings.playoff_week_start <= settings.start_week) {
+        throw new Error("Playoff week start must be after season start week");
       }
     }
 

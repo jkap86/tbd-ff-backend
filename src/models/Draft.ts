@@ -301,7 +301,7 @@ export async function assignDraftedPlayersToRosters(draftId: number): Promise<vo
 
       await updateRoster(rosterId, {
         bench: playerIds as any[], // All drafted players go to bench initially
-        starters: [], // Commissioner can set starters later
+        // Don't update starters - leave the slot structure intact
       });
     }
 

@@ -5,6 +5,7 @@ export interface DraftOrder {
   draft_id: number;
   roster_id: number;
   draft_position: number;
+  is_autodrafting: boolean;
   created_at: Date;
 }
 
@@ -181,5 +182,34 @@ export async function randomizeDraftOrder(
   } catch (error) {
     console.error("Error randomizing draft order:", error);
     throw new Error("Error randomizing draft order");
+  }
+}
+
+/**
+ * Toggle autodraft status for a roster in a draft
+ */
+export async function toggleAutodraft(
+  draftId: number,
+  rosterId: number,
+  isAutodrafting: boolean
+): Promise<DraftOrder | null> {
+  try {
+    const query = `
+      UPDATE draft_order
+      SET is_autodrafting = $1
+      WHERE draft_id = $2 AND roster_id = $3
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [isAutodrafting, draftId, rosterId]);
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return result.rows[0];
+  } catch (error) {
+    console.error("Error toggling autodraft:", error);
+    throw new Error("Error toggling autodraft");
   }
 }

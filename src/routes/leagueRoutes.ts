@@ -12,6 +12,7 @@ import { transferCommissionerHandler } from "../controllers/leagueController";
 import { isCommissionerHandler } from "../controllers/leagueController";
 import { removeLeagueMemberHandler } from "../controllers/leagueController";
 import { getLeagueStatsHandler } from "../controllers/leagueController";
+import { resetLeagueHandler } from "../controllers/leagueController";
 import { getDraftByLeagueHandler } from "../controllers/draftController";
 import {
   sendLeagueChatMessageHandler,
@@ -87,5 +88,11 @@ router.post("/:leagueId/chat", authenticate, sendLeagueChatMessageHandler);
  * GET /api/leagues/:leagueId/chat
  */
 router.get("/:leagueId/chat", getLeagueChatMessagesHandler);
+
+/**
+ * Reset league to pre-draft status
+ * POST /api/leagues/:leagueId/reset
+ */
+router.post("/:leagueId/reset", authenticate, resetLeagueHandler);
 
 export default router;

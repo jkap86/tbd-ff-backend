@@ -51,6 +51,21 @@ async function checkAndAutoPickIfNeeded(draftId: number): Promise<void> {
       return;
     }
 
+    // Get the draft order to check if current roster has autodraft enabled
+    const draftOrder = await getDraftOrder(draftId);
+    const currentRosterOrder = draftOrder.find(
+      (order) => order.roster_id === draft.current_roster_id
+    );
+
+    // Check if current roster has autodraft enabled
+    if (currentRosterOrder?.is_autodrafting) {
+      console.log(
+        `[AutoPick] Roster ${draft.current_roster_id} has autodraft enabled, picking immediately`
+      );
+      await performAutoPick(draftId, draft);
+      return;
+    }
+
     // Check if pick deadline has passed
     if (!draft.pick_deadline) {
       return;
@@ -63,6 +78,25 @@ async function checkAndAutoPickIfNeeded(draftId: number): Promise<void> {
       console.log(
         `[AutoPick] Pick deadline expired for draft ${draftId}, pick ${draft.current_pick}`
       );
+
+      // Automatically enable autodraft for this roster since they timed out
+      if (currentRosterOrder && !currentRosterOrder.is_autodrafting && draft.current_roster_id) {
+        console.log(
+          `[AutoPick] Enabling autodraft for roster ${draft.current_roster_id} due to timeout`
+        );
+        const { toggleAutodraft } = await import("../models/DraftOrder");
+        await toggleAutodraft(draftId, draft.current_roster_id, true);
+
+        // Broadcast autodraft status change to all clients
+        const { io } = await import("../index");
+        io.to(`draft_${draftId}`).emit("autodraft_toggled", {
+          roster_id: draft.current_roster_id,
+          is_autodrafting: true,
+          username: "System (Timeout)",
+          timestamp: new Date(),
+        });
+      }
+
       await performAutoPick(draftId, draft);
     }
   } catch (error) {

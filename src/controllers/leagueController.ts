@@ -179,9 +179,11 @@ export async function getUserLeaguesHandler(
   res: Response
 ): Promise<void> {
   try {
+    console.log('[getUserLeagues] Request for userId:', req.params.userId);
     const userId = parseInt(req.params.userId);
 
     if (isNaN(userId)) {
+      console.log('[getUserLeagues] Invalid user ID');
       res.status(400).json({
         success: false,
         message: "Invalid user ID",
@@ -190,6 +192,7 @@ export async function getUserLeaguesHandler(
     }
 
     const leagues = await getLeaguesForUser(userId);
+    console.log('[getUserLeagues] Found', leagues.length, 'leagues');
 
     res.status(200).json({
       success: true,
@@ -197,6 +200,7 @@ export async function getUserLeaguesHandler(
     });
   } catch (error: any) {
     console.error("Get user leagues error:", error);
+    console.error("Error stack:", error.stack);
     res.status(500).json({
       success: false,
       message: error.message || "Error getting user leagues",
@@ -831,6 +835,85 @@ export async function getLeagueStatsHandler(
     res.status(500).json({
       success: false,
       message: error.message || "Error getting league stats",
+    });
+  }
+}
+
+/**
+ * Reset league to pre-draft status
+ * POST /api/leagues/:leagueId/reset
+ * - Sets league status to 'pre_draft'
+ * - Deletes the draft and all picks
+ * - Clears all roster lineups (keeps teams but removes players)
+ * - Keeps league members intact
+ */
+export async function resetLeagueHandler(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const { leagueId } = req.params;
+    const userId = (req as any).user?.userId;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "Not authenticated",
+      });
+      return;
+    }
+
+    // Get league and verify user is commissioner
+    const { getLeagueById, getCommissionerIdFromLeague, updateLeague } = await import("../models/League");
+    const league = await getLeagueById(parseInt(leagueId));
+
+    if (!league) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    const commissionerId = getCommissionerIdFromLeague(league);
+
+    if (commissionerId !== userId) {
+      res.status(403).json({
+        success: false,
+        message: "Only the commissioner can reset the league",
+      });
+      return;
+    }
+
+    // Delete draft if it exists
+    const { getDraftByLeagueId, deleteDraft } = await import("../models/Draft");
+    const draft = await getDraftByLeagueId(parseInt(leagueId));
+    if (draft) {
+      await deleteDraft(draft.id);
+    }
+
+    // Clear all roster lineups (remove all players but keep rosters)
+    const { clearAllRosterLineups } = await import("../models/Roster");
+    await clearAllRosterLineups(parseInt(leagueId));
+
+    // Delete all weekly lineups
+    const { deleteWeeklyLineupsForLeague } = await import("../models/WeeklyLineup");
+    await deleteWeeklyLineupsForLeague(parseInt(leagueId));
+
+    // Update league status to pre_draft
+    await updateLeague(parseInt(leagueId), {
+      status: "pre_draft",
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "League reset to pre-draft status successfully",
+    });
+  } catch (error: any) {
+    console.error("Reset league error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error resetting league",
     });
   }
 }

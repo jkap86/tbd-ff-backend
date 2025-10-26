@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS weekly_lineups (
 );
 
 -- Create index for faster lookups
-CREATE INDEX idx_weekly_lineups_roster_week ON weekly_lineups(roster_id, week, season);
+CREATE INDEX IF NOT EXISTS idx_weekly_lineups_roster_week ON weekly_lineups(roster_id, week, season);
 
 -- Add comment
 COMMENT ON TABLE weekly_lineups IS 'Stores lineup configurations for each roster per week';

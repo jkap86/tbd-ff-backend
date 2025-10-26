@@ -9,10 +9,16 @@ import {
 } from "../models/Matchup";
 import { updateMatchupScoresForWeek } from "../services/scoringService";
 import { syncSleeperStatsForWeek } from "../services/sleeperStatsService";
+import { finalizeWeekScores } from "../services/recordService";
+
+// Simple in-memory cache for last update times
+const lastUpdateCache = new Map<string, number>();
+const UPDATE_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Get all matchups for a league and specific week
  * GET /api/matchups/league/:leagueId/week/:week
+ * Automatically updates scores when loading (with rate limiting)
  */
 export async function getMatchupsForWeek(
   req: Request,
@@ -20,7 +26,30 @@ export async function getMatchupsForWeek(
 ): Promise<void> {
   try {
     const { leagueId, week } = req.params;
+    const { season, season_type = "regular", force_update = "false" } = req.query;
 
+    // Check if we should update scores
+    const cacheKey = `${leagueId}-${week}-${season}`;
+    const lastUpdate = lastUpdateCache.get(cacheKey) || 0;
+    const now = Date.now();
+    const shouldUpdate =
+      force_update === "true" || now - lastUpdate > UPDATE_INTERVAL;
+
+    // Auto-update scores if season is provided and enough time has passed
+    if (season && shouldUpdate) {
+      // Trigger update in background (don't wait for it)
+      updateScoresInBackground(
+        parseInt(leagueId),
+        parseInt(week),
+        season as string,
+        season_type as string,
+        cacheKey
+      ).catch((error) => {
+        console.error("[AutoUpdate] Background update failed:", error);
+      });
+    }
+
+    // Return matchups immediately (don't wait for score update)
     const matchups = await getMatchupsByLeagueAndWeek(
       parseInt(leagueId),
       parseInt(week)
@@ -29,6 +58,10 @@ export async function getMatchupsForWeek(
     res.status(200).json({
       success: true,
       data: matchups,
+      meta: {
+        last_updated: lastUpdate,
+        cache_age_seconds: Math.floor((now - lastUpdate) / 1000),
+      },
     });
   } catch (error: any) {
     console.error("Error getting matchups:", error);
@@ -36,6 +69,38 @@ export async function getMatchupsForWeek(
       success: false,
       message: error.message || "Error getting matchups",
     });
+  }
+}
+
+/**
+ * Update scores in background without blocking the response
+ */
+async function updateScoresInBackground(
+  leagueId: number,
+  week: number,
+  season: string,
+  seasonType: string,
+  cacheKey: string
+): Promise<void> {
+  try {
+    console.log(`[AutoUpdate] Background update started for week ${week}...`);
+
+    // Sync stats from Sleeper
+    await syncSleeperStatsForWeek(season, week, seasonType);
+
+    // Update matchup scores
+    await updateMatchupScoresForWeek(leagueId, week, season, seasonType);
+
+    // Finalize scores if week is complete
+    await finalizeWeekScores(leagueId, week, season, seasonType);
+
+    // Update cache
+    lastUpdateCache.set(cacheKey, Date.now());
+
+    console.log(`[AutoUpdate] Background update completed for week ${week}`);
+  } catch (error) {
+    console.error("[AutoUpdate] Error in background update:", error);
+    throw error;
   }
 }
 

@@ -264,44 +264,162 @@ export async function completeDraft(draftId: number): Promise<Draft> {
 }
 
 /**
+ * Auto-populate starters from drafted players
+ * Fills starter slots with drafted players, prioritizing early picks
+ */
+async function autoPopulateStarters(
+  rosterId: number,
+  playerIds: number[],
+  leagueId: number
+): Promise<{ starters: any[]; bench: number[] }> {
+  try {
+    // Get league roster positions
+    const { getLeagueById } = await import("./League");
+    const league = await getLeagueById(leagueId);
+
+    if (!league || !league.roster_positions) {
+      console.log(`[AutoPopulate] No roster positions found, all players to bench`);
+      return { starters: [], bench: playerIds };
+    }
+
+    const rosterPositions = league.roster_positions;
+
+    // Get player details (position info)
+    const playersQuery = `
+      SELECT id, position
+      FROM players
+      WHERE id = ANY($1)
+    `;
+    const playersResult = await pool.query(playersQuery, [playerIds]);
+    const playersMap = playersResult.rows.reduce((acc: any, p: any) => {
+      acc[p.id] = p.position;
+      return acc;
+    }, {});
+
+    // Initialize starters array with slot structure
+    const starters: any[] = rosterPositions.map((pos: any) => ({
+      slot: pos.position,
+      player_id: null,
+    }));
+
+    const assignedPlayerIds = new Set<number>();
+
+    // Fill starter slots (in order of draft position, which is playerIds order)
+    for (const playerId of playerIds) {
+      const playerPosition = playersMap[playerId];
+      if (!playerPosition) continue;
+
+      // Find first empty slot that this player can fill
+      const slotIndex = starters.findIndex((slot) => {
+        if (slot.player_id !== null) return false; // Slot already filled
+
+        const slotPos = slot.slot.replace(/\d+$/, ""); // Remove numbers (e.g., WR1 -> WR)
+
+        // Check if player position matches slot
+        if (playerPosition === slotPos) return true;
+
+        // Check FLEX positions
+        if (slotPos === "FLEX" && ["RB", "WR", "TE"].includes(playerPosition))
+          return true;
+        if (
+          slotPos === "SUPER_FLEX" &&
+          ["QB", "RB", "WR", "TE"].includes(playerPosition)
+        )
+          return true;
+        if (slotPos === "WRT" && ["WR", "RB", "TE"].includes(playerPosition))
+          return true;
+        if (slotPos === "REC_FLEX" && ["WR", "TE"].includes(playerPosition))
+          return true;
+        if (
+          slotPos === "IDP_FLEX" &&
+          ["DL", "LB", "DB"].includes(playerPosition)
+        )
+          return true;
+
+        return false;
+      });
+
+      if (slotIndex !== -1) {
+        starters[slotIndex].player_id = playerId;
+        assignedPlayerIds.add(playerId);
+        console.log(
+          `[AutoPopulate] Assigned player ${playerId} (${playerPosition}) to slot ${starters[slotIndex].slot}`
+        );
+      }
+    }
+
+    // Remaining players go to bench
+    const bench = playerIds.filter((id) => !assignedPlayerIds.has(id));
+
+    console.log(
+      `[AutoPopulate] Roster ${rosterId}: ${assignedPlayerIds.size} starters, ${bench.length} bench`
+    );
+
+    return { starters, bench };
+  } catch (error) {
+    console.error("Error auto-populating starters:", error);
+    // Fallback: all players to bench
+    return { starters: [], bench: playerIds };
+  }
+}
+
+/**
  * Assign drafted players to rosters
- * This populates each roster's bench with their drafted players
+ * This populates each roster with their drafted players, auto-filling starters
  */
 export async function assignDraftedPlayersToRosters(draftId: number): Promise<void> {
   try {
     console.log(`[AssignPlayers] Starting roster assignment for draft ${draftId}`);
 
+    // Get draft info to get league_id
+    const draftQuery = `SELECT league_id FROM drafts WHERE id = $1`;
+    const draftResult = await pool.query(draftQuery, [draftId]);
+    const leagueId = draftResult.rows[0]?.league_id;
+
+    if (!leagueId) {
+      throw new Error("Draft not found or missing league_id");
+    }
+
     // Get all draft picks with player IDs
     const picksQuery = `
-      SELECT roster_id, player_id
+      SELECT roster_id, player_id, pick_number
       FROM draft_picks
       WHERE draft_id = $1 AND player_id IS NOT NULL
-      ORDER BY roster_id, pick_number
+      ORDER BY pick_number
     `;
     const picksResult = await pool.query(picksQuery, [draftId]);
     const picks = picksResult.rows;
 
     console.log(`[AssignPlayers] Found ${picks.length} picks to assign`);
 
-    // Group picks by roster
-    const picksByRoster = picks.reduce((acc: any, pick: any) => {
-      if (!acc[pick.roster_id]) {
-        acc[pick.roster_id] = [];
+    // Group picks by roster (maintaining draft order)
+    const picksByRoster: { [key: number]: number[] } = {};
+    for (const pick of picks) {
+      if (!picksByRoster[pick.roster_id]) {
+        picksByRoster[pick.roster_id] = [];
       }
-      acc[pick.roster_id].push(pick.player_id);
-      return acc;
-    }, {});
+      picksByRoster[pick.roster_id].push(pick.player_id);
+    }
 
     // Update each roster with their drafted players
     const { updateRoster } = await import("./Roster");
 
     for (const [rosterIdStr, playerIds] of Object.entries(picksByRoster)) {
       const rosterId = parseInt(rosterIdStr);
-      console.log(`[AssignPlayers] Assigning ${(playerIds as any[]).length} players to roster ${rosterId}`);
+      console.log(
+        `[AssignPlayers] Auto-populating roster ${rosterId} with ${playerIds.length} players`
+      );
+
+      // Auto-populate starters from drafted players
+      const { starters, bench } = await autoPopulateStarters(
+        rosterId,
+        playerIds,
+        leagueId
+      );
 
       await updateRoster(rosterId, {
-        bench: playerIds as any[], // All drafted players go to bench initially
-        // Don't update starters - leave the slot structure intact
+        starters,
+        bench,
       });
     }
 

@@ -711,8 +711,37 @@ export async function makeDraftPickHandler(
       });
     }
 
-    // Emit draft pick via WebSocket
-    emitDraftPick(io, parseInt(draftId), pick, updatedDraft);
+    // Get player details and roster info for WebSocket emission
+    const { getPlayerById } = await import("../models/Player");
+    const player = await getPlayerById(player_id);
+    const roster = await getRosterById(roster_id);
+    const { getUserById } = await import("../models/User");
+    const user = roster?.user_id ? await getUserById(roster.user_id) : null;
+
+    console.log(`[MakePick] Player details:`, {
+      id: player?.id,
+      full_name: player?.full_name,
+      position: player?.position,
+      team: player?.team,
+    });
+    console.log(`[MakePick] Roster details:`, {
+      id: roster?.id,
+      roster_id: roster?.roster_id,
+      user_id: roster?.user_id,
+    });
+    console.log(`[MakePick] User details:`, { username: user?.username });
+
+    // Emit draft pick via WebSocket with player details
+    const pickWithDetails = {
+      ...pick,
+      player_name: player?.full_name,
+      player_position: player?.position,
+      player_team: player?.team,
+      roster_number: roster?.roster_id,
+      picked_by_username: user?.username,
+    };
+    console.log(`[MakePick] Emitting pick with details:`, pickWithDetails);
+    emitDraftPick(io, parseInt(draftId), pickWithDetails, updatedDraft);
 
     res.status(201).json({
       success: true,

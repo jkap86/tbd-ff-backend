@@ -90,8 +90,14 @@ async function performAutoPick(draftId: number, draft: any): Promise<void> {
     }
 
     console.log(
-      `[AutoPick] Auto-picking player ${player.id} (${player.name}) for roster ${rosterId}`
+      `[AutoPick] Auto-picking player ${player.id} (${player.full_name}) for roster ${rosterId}`
     );
+    console.log(`[AutoPick] Player details:`, {
+      id: player.id,
+      full_name: player.full_name,
+      position: player.position,
+      team: player.team,
+    });
 
     // Get league and draft order for calculations
     const league = await getLeagueById(draft.league_id);
@@ -116,6 +122,8 @@ async function performAutoPick(draftId: number, draft: any): Promise<void> {
       is_auto_pick: true,
       pick_time_seconds: 0, // Time expired
     });
+
+    console.log(`[AutoPick] Created pick:`, pick);
 
     // Calculate next pick
     const nextPickNumber = draft.current_pick + 1;
@@ -173,18 +181,23 @@ async function performAutoPick(draftId: number, draft: any): Promise<void> {
       });
     }
 
+    // Get roster and user details for WebSocket emission
+    const { getRosterById } = await import("../models/Roster");
+    const roster = await getRosterById(rosterId);
+    const { getUserById } = await import("../models/User");
+    const user = roster?.user_id ? await getUserById(roster.user_id) : null;
+
     // Emit socket event for the auto-pick
-    emitDraftPick(
-      io,
-      draftId,
-      {
-        ...pick,
-        player_name: player.name,
-        player_position: player.position,
-        player_team: player.team,
-      },
-      updatedDraft
-    );
+    const pickWithDetails = {
+      ...pick,
+      player_name: player.full_name,
+      player_position: player.position,
+      player_team: player.team,
+      roster_number: roster?.roster_id,
+      picked_by_username: user?.username,
+    };
+    console.log(`[AutoPick] Emitting pick with details:`, pickWithDetails);
+    emitDraftPick(io, draftId, pickWithDetails, updatedDraft);
 
     // Emit auto-pick notification
     io.to(`draft_${draftId}`).emit("auto_pick_made", {

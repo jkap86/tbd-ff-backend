@@ -156,6 +156,23 @@ export async function createLeagueHandler(
       roster_positions,
     });
 
+    // Auto-generate matchups for all regular season weeks
+    const startWeek = settings.start_week || 1;
+    const playoffWeekStart = settings.playoff_week_start || 15;
+    const { generateMatchupsForWeek } = await import("../models/Matchup");
+
+    console.log(`[CreateLeague] Auto-generating matchups for weeks ${startWeek} to ${playoffWeekStart - 1}...`);
+
+    for (let week = startWeek; week < playoffWeekStart; week++) {
+      try {
+        await generateMatchupsForWeek(league.id, week, season);
+        console.log(`[CreateLeague] Generated matchups for week ${week}`);
+      } catch (error) {
+        console.error(`[CreateLeague] Failed to generate matchups for week ${week}:`, error);
+        // Continue with other weeks even if one fails
+      }
+    }
+
     res.status(201).json({
       success: true,
       message: "League created successfully",
@@ -899,6 +916,14 @@ export async function resetLeagueHandler(
     // Delete all weekly lineups
     const { deleteWeeklyLineupsForLeague } = await import("../models/WeeklyLineup");
     await deleteWeeklyLineupsForLeague(parseInt(leagueId));
+
+    // Delete all matchups
+    const { deleteMatchupsForLeague } = await import("../models/Matchup");
+    await deleteMatchupsForLeague(parseInt(leagueId));
+
+    // Reset all roster records to 0-0-0
+    const { resetAllRosterRecords } = await import("../services/recordService");
+    await resetAllRosterRecords(parseInt(leagueId));
 
     // Update league status to pre_draft
     await updateLeague(parseInt(leagueId), {

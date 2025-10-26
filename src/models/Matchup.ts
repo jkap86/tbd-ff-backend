@@ -496,6 +496,22 @@ export async function generateMatchupsForWeek(
 
     const matchups: Matchup[] = [];
 
+    // Auto-populate weekly lineups from default roster for all rosters
+    const { getOrCreateWeeklyLineup, updateWeeklyLineup } = await import("./WeeklyLineup");
+
+    console.log(`[GenerateMatchups] Auto-populating weekly lineups for week ${week}...`);
+
+    for (const roster of rosters) {
+      // Get or create weekly lineup
+      await getOrCreateWeeklyLineup(roster.id, week, season);
+
+      // Copy starters from default roster to weekly lineup
+      if (roster.starters && Array.isArray(roster.starters)) {
+        await updateWeeklyLineup(roster.id, week, season, roster.starters);
+        console.log(`[GenerateMatchups] Copied ${roster.starters.length} starters to week ${week} for roster ${roster.id}`);
+      }
+    }
+
     // Simple round-robin: pair rosters sequentially
     // For odd number of teams, last team gets a bye
     for (let i = 0; i < rosters.length; i += 2) {
@@ -537,5 +553,23 @@ export async function deleteMatchupsForWeek(
   } catch (error) {
     console.error("Error deleting matchups:", error);
     throw new Error("Error deleting matchups");
+  }
+}
+
+/**
+ * Delete all matchups for a league
+ */
+export async function deleteMatchupsForLeague(leagueId: number): Promise<void> {
+  try {
+    const query = `
+      DELETE FROM matchups
+      WHERE league_id = $1
+    `;
+
+    await pool.query(query, [leagueId]);
+    console.log(`[Matchup] Deleted all matchups for league ${leagueId}`);
+  } catch (error) {
+    console.error("Error deleting matchups for league:", error);
+    throw new Error("Error deleting matchups for league");
   }
 }

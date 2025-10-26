@@ -191,3 +191,90 @@ export async function resetAllRosterRecords(leagueId: number): Promise<void> {
     throw error;
   }
 }
+
+/**
+ * Recalculate all records from completed matchups
+ * This is used to fix corrupted records
+ */
+export async function recalculateAllRecords(
+  leagueId: number,
+  season: string
+): Promise<void> {
+  try {
+    console.log(
+      `[RecalculateRecords] Starting recalculation for league ${leagueId}`
+    );
+
+    // Get league to get start week
+    const { getLeagueById } = await import("../models/League");
+    const league = await getLeagueById(leagueId);
+    const startWeek = league?.settings?.start_week || 1;
+
+    console.log(
+      `[RecalculateRecords] League start week is ${startWeek}`
+    );
+
+    // First, reset all records to 0
+    await resetAllRosterRecords(leagueId);
+
+    // Mark all matchups as not finalized so they can be reprocessed
+    const resetMatchupsQuery = `
+      UPDATE matchups
+      SET finalized = FALSE
+      WHERE league_id = $1 AND season = $2
+    `;
+    await pool.query(resetMatchupsQuery, [leagueId, season]);
+
+    // Get all completed matchups from start week onwards, in order by week
+    const matchupsQuery = `
+      SELECT id, week, roster1_id, roster2_id, roster1_score, roster2_score
+      FROM matchups
+      WHERE league_id = $1 AND season = $2 AND status = 'completed' AND week >= $3
+      ORDER BY week ASC
+    `;
+    const matchupsResult = await pool.query(matchupsQuery, [leagueId, season, startWeek]);
+    const matchups = matchupsResult.rows;
+
+    console.log(
+      `[RecalculateRecords] Found ${matchups.length} completed matchups to process`
+    );
+
+    // Process each matchup
+    for (const matchup of matchups) {
+      const { id, week, roster1_id, roster2_id, roster1_score, roster2_score } =
+        matchup;
+
+      console.log(
+        `[RecalculateRecords] Processing week ${week} matchup ${id}`
+      );
+
+      // Update roster 1
+      await updateRosterRecord(
+        roster1_id,
+        roster1_score,
+        roster2_score,
+        roster2_id === null // is bye week
+      );
+
+      // Update roster 2 if not bye week
+      if (roster2_id !== null) {
+        await updateRosterRecord(roster2_id, roster2_score, roster1_score, false);
+      }
+
+      // Mark matchup as finalized
+      const updateMatchupQuery = `
+        UPDATE matchups
+        SET finalized = TRUE
+        WHERE id = $1
+      `;
+      await pool.query(updateMatchupQuery, [id]);
+    }
+
+    console.log(
+      `[RecalculateRecords] Successfully recalculated all records for league ${leagueId}`
+    );
+  } catch (error) {
+    console.error("Error recalculating records:", error);
+    throw error;
+  }
+}

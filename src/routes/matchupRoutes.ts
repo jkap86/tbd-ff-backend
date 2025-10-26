@@ -6,6 +6,7 @@ import {
   updateScoresForWeek,
   getMatchupDetailsHandler,
   getMatchupScoresHandler,
+  recalculateRecordsHandler,
 } from "../controllers/matchupController";
 import { authenticate } from "../middleware/authMiddleware";
 
@@ -28,5 +29,8 @@ router.post("/league/:leagueId/week/:week/generate", authenticate, generateMatch
 
 // POST /api/matchups/league/:leagueId/week/:week/update-scores - Sync stats and update scores
 router.post("/league/:leagueId/week/:week/update-scores", authenticate, updateScoresForWeek);
+
+// POST /api/matchups/league/:leagueId/recalculate-records - Recalculate all records from scratch
+router.post("/league/:leagueId/recalculate-records", authenticate, recalculateRecordsHandler);
 
 export default router;

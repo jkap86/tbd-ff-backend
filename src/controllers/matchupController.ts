@@ -9,7 +9,7 @@ import {
 } from "../models/Matchup";
 import { updateMatchupScoresForWeek } from "../services/scoringService";
 import { syncSleeperStatsForWeek } from "../services/sleeperStatsService";
-import { finalizeWeekScores } from "../services/recordService";
+import { finalizeWeekScores, recalculateAllRecords } from "../services/recordService";
 
 // Simple in-memory cache for last update times
 const lastUpdateCache = new Map<string, number>();
@@ -211,6 +211,15 @@ export async function updateScoresForWeek(
       season_type
     );
 
+    // Finally, finalize scores if week is complete
+    console.log(`Checking if week ${week} should be finalized...`);
+    await finalizeWeekScores(
+      parseInt(leagueId),
+      parseInt(week),
+      season,
+      season_type
+    );
+
     res.status(200).json({
       success: true,
       message: `Updated scores for week ${week}`,
@@ -292,6 +301,42 @@ export async function getMatchupScoresHandler(
     res.status(500).json({
       success: false,
       message: error.message || "Error getting matchup scores",
+    });
+  }
+}
+
+/**
+ * Recalculate all records for a league from completed matchups
+ * POST /api/matchups/league/:leagueId/recalculate-records
+ */
+export async function recalculateRecordsHandler(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const { leagueId } = req.params;
+    const { season } = req.body;
+
+    if (!season) {
+      res.status(400).json({
+        success: false,
+        message: "Season is required",
+      });
+      return;
+    }
+
+    console.log(`Recalculating records for league ${leagueId}, season ${season}...`);
+    await recalculateAllRecords(parseInt(leagueId), season);
+
+    res.status(200).json({
+      success: true,
+      message: "Records recalculated successfully",
+    });
+  } catch (error: any) {
+    console.error("Error recalculating records:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error recalculating records",
     });
   }
 }

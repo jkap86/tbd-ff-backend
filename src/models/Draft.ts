@@ -305,19 +305,13 @@ async function autoPopulateStarters(
     const assignedPlayerIds = new Set<number>();
 
     // Fill starter slots (in order of draft position, which is playerIds order)
+    // PRIORITIZE: Exact position matches first, then FLEX positions
     for (const playerId of playerIds) {
       const playerPosition = playersMap[playerId];
       if (!playerPosition) continue;
 
-      // Find first empty slot that this player can fill
-      const slotIndex = starters.findIndex((slot) => {
-        if (slot.player_id !== null) return false; // Slot already filled
-
-        const slotPos = slot.slot.replace(/\d+$/, ""); // Remove numbers (e.g., WR1 -> WR)
-
-        // Check if player position matches slot
-        if (playerPosition === slotPos) return true;
-
+      // Helper function to check if player can fill a FLEX slot
+      const canFillFlexSlot = (slotPos: string): boolean => {
         // Check FLEX positions
         if (slotPos === "FLEX" && ["RB", "WR", "TE"].includes(playerPosition))
           return true;
@@ -337,7 +331,23 @@ async function autoPopulateStarters(
           return true;
 
         return false;
+      };
+
+      // First, try to find an EXACT position match
+      let slotIndex = starters.findIndex((slot) => {
+        if (slot.player_id !== null) return false;
+        const slotPos = slot.slot.replace(/\d+$/, "");
+        return playerPosition === slotPos; // Exact match only
       });
+
+      // If no exact match, then try FLEX positions
+      if (slotIndex === -1) {
+        slotIndex = starters.findIndex((slot) => {
+          if (slot.player_id !== null) return false;
+          const slotPos = slot.slot.replace(/\d+$/, "");
+          return canFillFlexSlot(slotPos); // FLEX match
+        });
+      }
 
       if (slotIndex !== -1) {
         starters[slotIndex].player_id = playerId;
@@ -421,9 +431,29 @@ export async function assignDraftedPlayersToRosters(draftId: number): Promise<vo
         starters,
         bench,
       });
+
+      // Also populate weekly lineups for all weeks with these starters
+      const { getLeagueById } = await import("./League");
+      const league = await getLeagueById(leagueId);
+
+      if (league) {
+        const startWeek = league.settings?.start_week || 1;
+        const playoffWeekStart = league.settings?.playoff_week_start || 15;
+        const { updateWeeklyLineup } = await import("./WeeklyLineup");
+
+        console.log(`[AssignPlayers] Populating weekly lineups for roster ${rosterId} from week ${startWeek} to ${playoffWeekStart - 1}`);
+
+        for (let week = startWeek; week < playoffWeekStart; week++) {
+          try {
+            await updateWeeklyLineup(rosterId, week, league.season, starters);
+          } catch (error) {
+            console.error(`[AssignPlayers] Failed to populate week ${week} lineup:`, error);
+          }
+        }
+      }
     }
 
-    console.log(`[AssignPlayers] Successfully assigned players to rosters`);
+    console.log(`[AssignPlayers] Successfully assigned players to rosters and populated weekly lineups`);
   } catch (error) {
     console.error("Error assigning drafted players to rosters:", error);
     throw new Error("Error assigning drafted players to rosters");

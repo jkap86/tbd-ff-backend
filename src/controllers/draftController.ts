@@ -680,6 +680,49 @@ export async function makeDraftPickHandler(
       if (league) {
         const updatedLeague = await updateLeague(league.id, { status: "in_season" });
         console.log(`League after update:`, updatedLeague ? `ID ${updatedLeague.id}, Status: ${updatedLeague.status}` : 'update failed');
+
+        const startWeek = league.settings?.start_week || 1;
+        const playoffWeekStart = league.settings?.playoff_week_start || 15;
+
+        // Generate matchups if they don't exist (e.g., after league reset)
+        console.log(`[DraftComplete] Checking/generating matchups...`);
+        const { generateMatchupsForWeek } = await import("../models/Matchup");
+        const { getMatchupsByLeagueAndWeek } = await import("../models/Matchup");
+
+        for (let week = startWeek; week < playoffWeekStart; week++) {
+          try {
+            const existingMatchups = await getMatchupsByLeagueAndWeek(league.id, week);
+            if (existingMatchups.length === 0) {
+              console.log(`[DraftComplete] Generating matchups for week ${week}...`);
+              await generateMatchupsForWeek(league.id, week, league.season);
+            }
+          } catch (error) {
+            console.error(`[DraftComplete] Failed to generate matchups for week ${week}:`, error);
+          }
+        }
+
+        // Calculate scores for all weeks that have already occurred
+        console.log(`[DraftComplete] Calculating scores for all weeks...`);
+        const { updateMatchupScoresForWeek } = await import("../services/scoringService");
+        const { finalizeWeekScores, recalculateAllRecords } = await import("../services/recordService");
+
+        for (let week = startWeek; week < playoffWeekStart; week++) {
+          try {
+            console.log(`[DraftComplete] Updating scores for week ${week}...`);
+            await updateMatchupScoresForWeek(league.id, week, league.season, "regular");
+            await finalizeWeekScores(league.id, week, league.season, "regular");
+          } catch (error) {
+            console.error(`[DraftComplete] Failed to update scores for week ${week}:`, error);
+          }
+        }
+
+        // Recalculate all records to ensure they're correct after score updates
+        console.log(`[DraftComplete] Recalculating all records...`);
+        try {
+          await recalculateAllRecords(league.id, league.season);
+        } catch (error) {
+          console.error(`[DraftComplete] Failed to recalculate records:`, error);
+        }
       }
 
       // Stop auto-pick monitoring

@@ -670,6 +670,10 @@ export async function makeDraftPickHandler(
       console.log(`Draft ${draftId} is complete! Total picks: ${totalPicks}`);
       updatedDraft = await completeDraft(parseInt(draftId));
 
+      // Assign drafted players to rosters
+      const { assignDraftedPlayersToRosters } = await import("../models/Draft");
+      await assignDraftedPlayersToRosters(parseInt(draftId));
+
       // Update league status to 'in_season'
       const league = await getLeagueById(draft.league_id);
       console.log(`League before update:`, league ? `ID ${league.id}, Status: ${league.status}` : 'not found');

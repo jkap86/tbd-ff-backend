@@ -101,6 +101,65 @@ export async function getRostersByLeagueId(leagueId: number): Promise<any[]> {
 }
 
 /**
+ * Get roster with player details
+ */
+export async function getRosterWithPlayers(rosterId: number): Promise<any | null> {
+  try {
+    // Get the roster
+    const rosterQuery = `
+      SELECT r.*, u.username, u.email
+      FROM rosters r
+      INNER JOIN users u ON r.user_id = u.id
+      WHERE r.id = $1
+    `;
+    const rosterResult = await pool.query(rosterQuery, [rosterId]);
+
+    if (rosterResult.rows.length === 0) {
+      return null;
+    }
+
+    const roster = rosterResult.rows[0];
+
+    // Get all player IDs from all arrays
+    const allPlayerIds = [
+      ...(roster.starters || []),
+      ...(roster.bench || []),
+      ...(roster.taxi || []),
+      ...(roster.ir || []),
+    ].filter((id: any) => id != null);
+
+    // Get player details for all players
+    let players = [];
+    if (allPlayerIds.length > 0) {
+      const playersQuery = `
+        SELECT id, player_id, full_name, position, team, age, years_exp
+        FROM players
+        WHERE id = ANY($1)
+      `;
+      const playersResult = await pool.query(playersQuery, [allPlayerIds]);
+      players = playersResult.rows;
+    }
+
+    // Map player IDs to player objects
+    const playerMap = players.reduce((acc: any, player: any) => {
+      acc[player.id] = player;
+      return acc;
+    }, {});
+
+    return {
+      ...roster,
+      starters: (roster.starters || []).map((id: any) => playerMap[id] || null),
+      bench: (roster.bench || []).map((id: any) => playerMap[id] || null),
+      taxi: (roster.taxi || []).map((id: any) => playerMap[id] || null),
+      ir: (roster.ir || []).map((id: any) => playerMap[id] || null),
+    };
+  } catch (error) {
+    console.error("Error getting roster with players:", error);
+    throw new Error("Error getting roster with players");
+  }
+}
+
+/**
  * Get roster by ID
  */
 export async function getRosterById(rosterId: number): Promise<Roster | null> {

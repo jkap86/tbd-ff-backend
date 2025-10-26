@@ -136,6 +136,10 @@ async function performAutoPick(draftId: number, draft: any): Promise<void> {
       console.log(`[AutoPick] Draft ${draftId} is complete! Total picks: ${totalPicks}`);
       updatedDraft = await completeDraft(draftId);
 
+      // Assign drafted players to rosters
+      const { assignDraftedPlayersToRosters } = await import("../models/Draft");
+      await assignDraftedPlayersToRosters(draftId);
+
       // Update league status to 'in_season'
       if (league) {
         await updateLeague(league.id, { status: "in_season" });

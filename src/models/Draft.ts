@@ -264,6 +264,55 @@ export async function completeDraft(draftId: number): Promise<Draft> {
 }
 
 /**
+ * Assign drafted players to rosters
+ * This populates each roster's bench with their drafted players
+ */
+export async function assignDraftedPlayersToRosters(draftId: number): Promise<void> {
+  try {
+    console.log(`[AssignPlayers] Starting roster assignment for draft ${draftId}`);
+
+    // Get all draft picks with player IDs
+    const picksQuery = `
+      SELECT roster_id, player_id
+      FROM draft_picks
+      WHERE draft_id = $1 AND player_id IS NOT NULL
+      ORDER BY roster_id, pick_number
+    `;
+    const picksResult = await pool.query(picksQuery, [draftId]);
+    const picks = picksResult.rows;
+
+    console.log(`[AssignPlayers] Found ${picks.length} picks to assign`);
+
+    // Group picks by roster
+    const picksByRoster = picks.reduce((acc: any, pick: any) => {
+      if (!acc[pick.roster_id]) {
+        acc[pick.roster_id] = [];
+      }
+      acc[pick.roster_id].push(pick.player_id);
+      return acc;
+    }, {});
+
+    // Update each roster with their drafted players
+    const { updateRoster } = await import("./Roster");
+
+    for (const [rosterIdStr, playerIds] of Object.entries(picksByRoster)) {
+      const rosterId = parseInt(rosterIdStr);
+      console.log(`[AssignPlayers] Assigning ${(playerIds as any[]).length} players to roster ${rosterId}`);
+
+      await updateRoster(rosterId, {
+        bench: playerIds as any[], // All drafted players go to bench initially
+        starters: [], // Commissioner can set starters later
+      });
+    }
+
+    console.log(`[AssignPlayers] Successfully assigned players to rosters`);
+  } catch (error) {
+    console.error("Error assigning drafted players to rosters:", error);
+    throw new Error("Error assigning drafted players to rosters");
+  }
+}
+
+/**
  * Reset draft - clears all picks and resets to not_started
  */
 export async function resetDraft(draftId: number): Promise<Draft> {

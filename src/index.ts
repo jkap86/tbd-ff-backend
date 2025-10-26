@@ -13,6 +13,7 @@ import draftRoutes from "./routes/draftRoutes";
 import playerRoutes from "./routes/playerRoutes";
 import playerStatsRoutes from "./routes/playerStatsRoutes";
 import playerProjectionsRoutes from "./routes/playerProjectionsRoutes";
+import rosterRoutes from "./routes/rosterRoutes";
 import { setupDraftSocket } from "./socket/draftSocket";
 import { setupLeagueSocket } from "./socket/leagueSocket";
 import { stopAllAutoPickMonitoring } from "./services/autoPickService";
@@ -62,6 +63,7 @@ app.use("/api/drafts", draftRoutes);
 app.use("/api/players", playerRoutes);
 app.use("/api/player-stats", playerStatsRoutes);
 app.use("/api/player-projections", playerProjectionsRoutes);
+app.use("/api/rosters", rosterRoutes);
 
 // Protected route example (to test authentication)
 app.get("/api/profile", authenticate, (req: Request, res: Response) => {

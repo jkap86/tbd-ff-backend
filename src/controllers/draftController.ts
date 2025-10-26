@@ -813,6 +813,34 @@ export async function pauseDraftHandler(
       return;
     }
 
+    // Check if user is commissioner
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+      return;
+    }
+
+    const league = await getLeagueById(draft.league_id);
+    if (!league) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    const commissionerId = league.settings?.commissioner_id;
+    if (!commissionerId || commissionerId !== userId) {
+      res.status(403).json({
+        success: false,
+        message: "Only the commissioner can pause the draft",
+      });
+      return;
+    }
+
     if (draft.status !== "in_progress") {
       res.status(400).json({
         success: false,
@@ -858,6 +886,34 @@ export async function resumeDraftHandler(
       res.status(404).json({
         success: false,
         message: "Draft not found",
+      });
+      return;
+    }
+
+    // Check if user is commissioner
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+      return;
+    }
+
+    const league = await getLeagueById(draft.league_id);
+    if (!league) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    const commissionerId = league.settings?.commissioner_id;
+    if (!commissionerId || commissionerId !== userId) {
+      res.status(403).json({
+        success: false,
+        message: "Only the commissioner can resume the draft",
       });
       return;
     }

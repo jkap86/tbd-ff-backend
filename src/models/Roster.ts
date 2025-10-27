@@ -42,16 +42,14 @@ export async function createRoster(
 
     const starterSlots: RosterSlot[] = [];
     if (league && league.roster_positions) {
-      // Create slots for each non-bench position
+      // Create slots for each position including bench
       league.roster_positions.forEach((rp: any) => {
-        if (rp.position !== "BN") {
-          const count = rp.count || 1;
-          for (let i = 0; i < count; i++) {
-            starterSlots.push({
-              slot: count > 1 ? `${rp.position}${i + 1}` : rp.position,
-              player_id: null,
-            });
-          }
+        const count = rp.count || 1;
+        for (let i = 0; i < count; i++) {
+          starterSlots.push({
+            slot: count > 1 ? `${rp.position}${i + 1}` : rp.position,
+            player_id: null,
+          });
         }
       });
     }
@@ -515,16 +513,14 @@ export async function clearAllRosterLineups(leagueId: number): Promise<void> {
 
     const starterSlots: RosterSlot[] = [];
     if (league && league.roster_positions) {
-      // Create empty slots for each non-bench position
+      // Create empty slots for each position including bench
       league.roster_positions.forEach((rp: any) => {
-        if (rp.position !== "BN") {
-          const count = rp.count || 1;
-          for (let i = 0; i < count; i++) {
-            starterSlots.push({
-              slot: count > 1 ? `${rp.position}${i + 1}` : rp.position,
-              player_id: null,
-            });
-          }
+        const count = rp.count || 1;
+        for (let i = 0; i < count; i++) {
+          starterSlots.push({
+            slot: count > 1 ? `${rp.position}${i + 1}` : rp.position,
+            player_id: null,
+          });
         }
       });
     }

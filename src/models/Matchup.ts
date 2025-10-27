@@ -505,10 +505,14 @@ export async function generateMatchupsForWeek(
       // Get or create weekly lineup
       await getOrCreateWeeklyLineup(roster.id, week, season);
 
-      // Copy starters from default roster to weekly lineup
+      // Copy starters from default roster to weekly lineup (exclude BN slots)
       if (roster.starters && Array.isArray(roster.starters)) {
-        await updateWeeklyLineup(roster.id, week, season, roster.starters);
-        console.log(`[GenerateMatchups] Copied ${roster.starters.length} starters to week ${week} for roster ${roster.id}`);
+        const nonBenchStarters = roster.starters.filter((slot: any) => {
+          const slotName = slot.slot || '';
+          return !slotName.startsWith('BN');
+        });
+        await updateWeeklyLineup(roster.id, week, season, nonBenchStarters);
+        console.log(`[GenerateMatchups] Copied ${nonBenchStarters.length} starters (excluding BN) to week ${week} for roster ${roster.id}`);
       }
     }
 

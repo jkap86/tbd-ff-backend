@@ -422,16 +422,36 @@ export async function assignDraftedPlayersToRosters(draftId: number): Promise<vo
         `[AssignPlayers] Auto-populating roster ${rosterId} with ${playerIds.length} players`
       );
 
-      // Auto-populate starters from drafted players
+      // Get existing roster to preserve BN slots
+      const { getRosterById } = await import("./Roster");
+      const existingRoster = await getRosterById(rosterId);
+
+      // Auto-populate starters from drafted players (this excludes BN slots)
       const { starters, bench } = await autoPopulateStarters(
         rosterId,
         playerIds,
         leagueId
       );
 
+      // Get BN slots from existing roster and assign bench players to them
+      const bnSlots = existingRoster?.starters?.filter((slot: any) =>
+        slot.slot?.startsWith('BN')
+      ) || [];
+
+      // Assign bench players to BN slots
+      for (let i = 0; i < bnSlots.length && i < bench.length; i++) {
+        bnSlots[i].player_id = bench[i];
+      }
+
+      // Combine non-BN starters with BN slots
+      const allStarters = [...starters, ...bnSlots];
+
+      // Remaining bench players (more than BN slots available)
+      const remainingBench = bench.slice(bnSlots.length);
+
       await updateRoster(rosterId, {
-        starters,
-        bench,
+        starters: allStarters,
+        bench: remainingBench,
       });
 
       // Also populate weekly lineups for all weeks with these starters
@@ -445,9 +465,15 @@ export async function assignDraftedPlayersToRosters(draftId: number): Promise<vo
 
         console.log(`[AssignPlayers] Populating weekly lineups for roster ${rosterId} from week ${startWeek} to ${playoffWeekStart - 1}`);
 
+        // Filter out BN slots for weekly lineups (bench players don't go in weekly starters)
+        const nonBenchStarters = starters.filter((slot: any) => {
+          const slotName = slot.slot || '';
+          return !slotName.startsWith('BN');
+        });
+
         for (let week = startWeek; week < playoffWeekStart; week++) {
           try {
-            await updateWeeklyLineup(rosterId, week, league.season, starters);
+            await updateWeeklyLineup(rosterId, week, league.season, nonBenchStarters);
           } catch (error) {
             console.error(`[AssignPlayers] Failed to populate week ${week} lineup:`, error);
           }

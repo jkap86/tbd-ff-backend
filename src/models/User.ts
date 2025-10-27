@@ -173,3 +173,24 @@ export async function getUserByEmail(email: string): Promise<User | null> {
     throw new Error("Error getting user by email");
   }
 }
+
+/**
+ * Update user password
+ */
+export async function updateUserPassword(
+  userId: number,
+  hashedPassword: string
+): Promise<void> {
+  try {
+    const query = `
+      UPDATE users
+      SET password = $1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+    `;
+
+    await pool.query(query, [hashedPassword, userId]);
+  } catch (error) {
+    console.error("Error updating user password:", error);
+    throw new Error("Error updating user password");
+  }
+}

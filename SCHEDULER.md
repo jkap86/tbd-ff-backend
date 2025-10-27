@@ -2,51 +2,79 @@
 
 ## Overview
 
-The score scheduler automatically updates live scores for all active leagues during NFL game times. This ensures scores stay current even when no users are actively viewing the app.
+The score scheduler automatically updates live scores for all active leagues during NFL games. It uses **intelligent game detection** via the Sleeper API to determine when games are live, eliminating the need for hardcoded time windows.
 
-## Schedule
+## How It Works
 
-The scheduler runs at the following times (all in UTC):
+The scheduler checks every 10 minutes (24/7) to see if there are live or upcoming NFL games:
 
-### Sunday (Game Day)
-- **Every 10 minutes** all day Sunday
-- Covers early games (1pm ET), late games (4pm ET), and Sunday Night Football
+### Smart Detection
+- **Checks actual NFL schedule** via Sleeper GraphQL API
+- **Detects in-progress games** (currently playing)
+- **Detects upcoming games** (starting within the next hour)
+- **Updates only when needed** (no wasted API calls when games aren't on)
 
-### Monday
-- **Every 10 minutes** from midnight-4am UTC
-- Covers Monday Night Football (8pm ET start)
-
-### Thursday
-- **Every 10 minutes** from midnight-4am UTC
-- Covers Thursday Night Football (8pm ET start)
-
-### Tuesday
-- **Once at 9am UTC** (4am ET)
-- Final update to catch any late stat corrections from Monday night
+### Supports All Game Times
+- ✅ **Thursday Night Football** (typically 8:15pm ET)
+- ✅ **Saturday games** (late season, 1pm/4pm/8pm ET)
+- ✅ **Sunday games** (1pm, 4pm, 8:20pm ET)
+- ✅ **Monday Night Football** (8:15pm ET)
+- ✅ **International games** (9:30am ET London, others)
+- ✅ **Any special scheduling** (flexed games, holidays, etc.)
 
 ## What It Does
 
-For each scheduled run, the system:
+For each scheduled check (every 10 minutes), the system:
 
-1. **Identifies Active Leagues** - Finds all leagues in the current NFL season
-2. **Syncs Stats** - Fetches latest player stats from Sleeper API
-3. **Updates Scores** - Recalculates all matchup scores based on updated stats
-4. **Finalizes Weeks** - Automatically finalizes and locks records when all games are complete
+1. **Checks NFL Schedule** - Queries Sleeper API for current week's game status
+2. **Identifies Live Games** - Looks for in-progress or soon-to-start games
+3. **Skips if No Games** - If no live games, exits early (efficient!)
+4. **Syncs Stats** - If games are live, fetches latest player stats from Sleeper
+5. **Updates Scores** - Recalculates all matchup scores for all active leagues
+6. **Finalizes Weeks** - Automatically finalizes and locks records when all games complete
 
 ## Performance
 
-- Updates all active leagues in a single batch (efficient)
-- Shares stat sync across leagues (only fetches stats once per week)
-- Runs in background without blocking API requests
-- Gracefully handles errors (one league failure won't stop others)
+- **Smart skipping**: Only updates when games are actually live (saves API calls)
+- **Efficient batching**: Updates all active leagues in a single run
+- **Shared stat sync**: Fetches stats once per week, used by all leagues
+- **Non-blocking**: Runs in background without blocking user requests
+- **Error resilient**: One league failure won't stop others
+
+## Example Behavior
+
+### Tuesday 2:00 PM (No Games)
+```
+[Scheduler] Checking for live games...
+[Scheduler] No live games for week 8, skipping update
+```
+*No API calls made to Sleeper, no database updates - efficient!*
+
+### Sunday 1:00 PM (Games Live)
+```
+[Scheduler] Checking for live games...
+[Scheduler] Live games detected for week 8, updating 5 leagues...
+[Scheduler] Syncing stats for 2025 week 8...
+[Scheduler] Updating league 19 week 8...
+[Scheduler] Score update completed in 1823ms for 5 leagues
+```
+*Scores updated every 10 minutes while games are in progress*
+
+### Sunday 11:45 AM (Game Starting Soon)
+```
+[Scheduler] Checking for live games...
+[Scheduler] Live games detected for week 8, updating 5 leagues...
+```
+*Starts updating 1 hour before kickoff to ensure scores are ready*
 
 ## Configuration
 
 The scheduler is configured in `src/services/scoreScheduler.ts`:
 
-- `UPDATE_INTERVAL`: Not used for scheduled updates (only for on-demand)
-- Cron schedules: Defined in `startScoreScheduler()`
-- Week calculation: Based on first Thursday of September
+- **Check interval**: Every 10 minutes (`*/10 * * * *`)
+- **Live game window**: 1 hour before kickoff
+- **Week calculation**: Based on first Thursday of September
+- **Game detection**: Via Sleeper GraphQL schedule API
 
 ## Manual Updates
 

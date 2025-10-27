@@ -3,6 +3,7 @@ import pool from "../config/database";
 import { syncSleeperStatsForWeek } from "./sleeperStatsService";
 import { updateMatchupScoresForWeek } from "./scoringService";
 import { finalizeWeekScores } from "./recordService";
+import { getWeekSchedule } from "./sleeperScheduleService";
 
 interface ActiveLeague {
   league_id: number;
@@ -28,8 +29,6 @@ async function getActiveLeagues(): Promise<ActiveLeague[]> {
     // For each league, determine current week based on season
     const activeLeagues: ActiveLeague[] = [];
     for (const row of result.rows) {
-      // Simple logic: use current date to estimate week
-      // You can make this more sophisticated by checking actual NFL schedule
       const currentWeek = getCurrentNFLWeek(row.season);
       if (currentWeek > 0 && currentWeek <= 18) {
         activeLeagues.push({
@@ -63,7 +62,6 @@ function getCurrentNFLWeek(season: string): number {
   }
 
   // NFL season roughly: Week 1 starts first Thu of Sept, ends early Jan
-  // This is a simplified calculation - you can make it more accurate
   const seasonStart = new Date(currentYear, 8, 1); // Sept 1
   const firstThursday = new Date(seasonStart);
   firstThursday.setDate(
@@ -84,32 +82,92 @@ function getCurrentNFLWeek(season: string): number {
 }
 
 /**
- * Update scores for all active leagues
+ * Check if there are any live or upcoming games in the current week
+ * Returns true if games are in_progress, or will start within the next hour
+ */
+async function hasLiveOrUpcomingGames(
+  season: string,
+  week: number,
+  seasonType: string
+): Promise<boolean> {
+  try {
+    const schedule = await getWeekSchedule(season, week, seasonType);
+
+    if (schedule.length === 0) {
+      return false; // No games scheduled
+    }
+
+    const now = new Date();
+    const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
+
+    for (const game of schedule) {
+      // Game is currently in progress
+      if (game.status === "in_progress") {
+        return true;
+      }
+
+      // Game hasn't started yet - check if it starts within next hour
+      if (game.status === "pre_game" && game.start_time) {
+        const gameStart = new Date(parseInt(game.start_time));
+        if (gameStart <= oneHourFromNow) {
+          return true; // Game starts soon
+        }
+      }
+    }
+
+    return false; // No live or upcoming games
+  } catch (error) {
+    console.error("[Scheduler] Error checking for live games:", error);
+    // Default to true on error to avoid missing updates
+    return true;
+  }
+}
+
+/**
+ * Update scores for all active leagues (only if games are live)
  */
 async function updateAllLeagueScores(): Promise<void> {
   const startTime = Date.now();
-  console.log("[Scheduler] Starting scheduled score update...");
+  console.log("[Scheduler] Checking for live games...");
 
   try {
     const activeLeagues = await getActiveLeagues();
-    console.log(`[Scheduler] Found ${activeLeagues.length} active leagues`);
 
     if (activeLeagues.length === 0) {
       console.log("[Scheduler] No active leagues to update");
       return;
     }
 
-    // Sync stats once for current week (shared across all leagues)
+    // Check if there are live games for the current week
     const currentWeek = activeLeagues[0]?.current_week;
     const season = activeLeagues[0]?.season;
     const seasonType = activeLeagues[0]?.season_type || "regular";
 
-    if (currentWeek && season) {
-      console.log(
-        `[Scheduler] Syncing stats for ${season} week ${currentWeek}...`
-      );
-      await syncSleeperStatsForWeek(season, currentWeek, seasonType);
+    if (!currentWeek || !season) {
+      console.log("[Scheduler] No current week/season found");
+      return;
     }
+
+    const hasLiveGames = await hasLiveOrUpcomingGames(
+      season,
+      currentWeek,
+      seasonType
+    );
+
+    if (!hasLiveGames) {
+      console.log(
+        `[Scheduler] No live games for week ${currentWeek}, skipping update`
+      );
+      return;
+    }
+
+    console.log(
+      `[Scheduler] Live games detected for week ${currentWeek}, updating ${activeLeagues.length} leagues...`
+    );
+
+    // Sync stats once for current week (shared across all leagues)
+    console.log(`[Scheduler] Syncing stats for ${season} week ${currentWeek}...`);
+    await syncSleeperStatsForWeek(season, currentWeek, seasonType);
 
     // Update each league's matchup scores
     for (const league of activeLeagues) {
@@ -152,44 +210,25 @@ async function updateAllLeagueScores(): Promise<void> {
 
 /**
  * Start the score update scheduler
- * Updates every 10 minutes during NFL game windows
+ * Checks every 10 minutes if there are live games, and updates if so
  */
 export function startScoreScheduler(): void {
-  console.log("[Scheduler] Starting score update scheduler...");
-
-  // NFL game times (all times in UTC):
-  // - Sunday early games: 6pm UTC (1pm ET) - midnight UTC (7pm ET)
-  // - Sunday night: midnight-3am UTC (7pm-10pm ET)
-  // - Monday night: midnight-3am UTC (7pm-10pm ET) (next day)
-  // - Thursday night: midnight-3am UTC (7pm-10pm ET)
-
-  // Run every 10 minutes during peak NFL times
-  // Sunday: 6pm-3am UTC (covers all Sunday games)
-  cron.schedule("*/10 * * * 0", updateAllLeagueScores, {
-    timezone: "UTC",
-  });
-  console.log("[Scheduler] ✓ Sunday updates scheduled (every 10 min)");
-
-  // Monday: midnight-4am UTC (covers Monday Night Football)
-  cron.schedule("*/10 0-4 * * 1", updateAllLeagueScores, {
-    timezone: "UTC",
-  });
-  console.log("[Scheduler] ✓ Monday updates scheduled (every 10 min 0-4am UTC)");
-
-  // Thursday: midnight-4am UTC (covers Thursday Night Football)
-  cron.schedule("*/10 0-4 * * 4", updateAllLeagueScores, {
-    timezone: "UTC",
-  });
+  console.log("[Scheduler] Starting smart score update scheduler...");
   console.log(
-    "[Scheduler] ✓ Thursday updates scheduled (every 10 min 0-4am UTC)"
+    "[Scheduler] Will check for live games every 10 minutes and update when needed"
   );
 
-  // Also run once at 9am UTC Tuesday (finalize Monday night games)
-  cron.schedule("0 9 * * 2", updateAllLeagueScores, {
+  // Run every 10 minutes, any day of the week
+  // The function itself will check if there are live games before updating
+  cron.schedule("*/10 * * * *", updateAllLeagueScores, {
     timezone: "UTC",
   });
-  console.log("[Scheduler] ✓ Tuesday finalization scheduled (9am UTC)");
 
+  console.log("[Scheduler] ✓ Live game detection scheduled (every 10 min)");
+  console.log(
+    "[Scheduler] ✓ Supports Thursday, Saturday, Sunday, and Monday games"
+  );
+  console.log("[Scheduler] ✓ Auto-detects game times from Sleeper schedule");
   console.log("[Scheduler] Score scheduler started successfully");
 }
 

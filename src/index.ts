@@ -23,6 +23,7 @@ import { setupMatchupSocket } from "./socket/matchupSocket";
 import { stopAllAutoPickMonitoring } from "./services/autoPickService";
 import { startScoreScheduler, stopScoreScheduler } from "./services/scoreScheduler";
 import { startLiveScoreUpdates, stopLiveScoreUpdates } from "./services/liveScoreService";
+import { startDraftScheduler } from "./services/draftScheduler";
 
 // Load environment variables
 dotenv.config();
@@ -116,6 +117,9 @@ httpServer.listen(PORT, () => {
 
   // Start live score updates (10 second updates during games)
   startLiveScoreUpdates(io);
+
+  // Start draft scheduler (checks every minute for overnight pause/resume)
+  startDraftScheduler(io);
 });
 
 // Graceful shutdown

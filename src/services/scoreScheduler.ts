@@ -4,6 +4,8 @@ import { syncSleeperStatsForWeek } from "./sleeperStatsService";
 import { updateMatchupScoresForWeek } from "./scoringService";
 import { finalizeWeekScores } from "./recordService";
 import { getWeekSchedule } from "./sleeperScheduleService";
+import { getCurrentNFLWeek } from "./currentWeekService";
+import { syncPlayers } from "../controllers/playerController";
 
 interface ActiveLeague {
   league_id: number;
@@ -29,7 +31,7 @@ async function getActiveLeagues(): Promise<ActiveLeague[]> {
     // For each league, determine current week based on season
     const activeLeagues: ActiveLeague[] = [];
     for (const row of result.rows) {
-      const currentWeek = getCurrentNFLWeek(row.season);
+      const currentWeek = await getCurrentNFLWeek(row.season, row.season_type || "regular");
       if (currentWeek > 0 && currentWeek <= 18) {
         activeLeagues.push({
           league_id: row.league_id,
@@ -47,39 +49,6 @@ async function getActiveLeagues(): Promise<ActiveLeague[]> {
   }
 }
 
-/**
- * Estimate current NFL week based on season and current date
- * NFL typically starts first Thursday of September
- */
-function getCurrentNFLWeek(season: string): number {
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const seasonYear = parseInt(season);
-
-  // Only process current season
-  if (seasonYear !== currentYear) {
-    return 0;
-  }
-
-  // NFL season roughly: Week 1 starts first Thu of Sept, ends early Jan
-  const seasonStart = new Date(currentYear, 8, 1); // Sept 1
-  const firstThursday = new Date(seasonStart);
-  firstThursday.setDate(
-    seasonStart.getDate() + ((4 - seasonStart.getDay() + 7) % 7)
-  );
-
-  const weeksSinceStart = Math.floor(
-    (now.getTime() - firstThursday.getTime()) / (7 * 24 * 60 * 60 * 1000)
-  );
-
-  const week = weeksSinceStart + 1;
-
-  // Regular season is weeks 1-18
-  if (week < 1) return 0;
-  if (week > 18) return 0;
-
-  return week;
-}
 
 /**
  * Check if there are any live or upcoming games in the current week
@@ -209,6 +178,19 @@ async function updateAllLeagueScores(): Promise<void> {
 }
 
 /**
+ * Sync players from Sleeper daily
+ */
+async function syncPlayersDaily(): Promise<void> {
+  try {
+    console.log("[Scheduler] Starting daily player sync...");
+    const syncedCount = await syncPlayers();
+    console.log(`[Scheduler] ✓ Daily player sync completed: ${syncedCount} players synced`);
+  } catch (error) {
+    console.error("[Scheduler] Error in daily player sync:", error);
+  }
+}
+
+/**
  * Start the score update scheduler
  * Checks every 10 minutes if there are live games, and updates if so
  */
@@ -229,6 +211,13 @@ export function startScoreScheduler(): void {
     "[Scheduler] ✓ Supports Thursday, Saturday, Sunday, and Monday games"
   );
   console.log("[Scheduler] ✓ Auto-detects game times from Sleeper schedule");
+
+  // Run daily at 3:00 AM UTC to sync players from Sleeper
+  cron.schedule("0 3 * * *", syncPlayersDaily, {
+    timezone: "UTC",
+  });
+
+  console.log("[Scheduler] ✓ Daily player sync scheduled (3:00 AM UTC)");
   console.log("[Scheduler] Score scheduler started successfully");
 }
 

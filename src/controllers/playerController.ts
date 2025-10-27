@@ -31,15 +31,11 @@ async function fetchSleeperPlayers(): Promise<any> {
 }
 
 /**
- * Sync players from Sleeper API
- * POST /api/players/sync
+ * Sync players from Sleeper (reusable function for scheduler)
  */
-export async function syncPlayersHandler(
-  _req: Request,
-  res: Response
-): Promise<void> {
+export async function syncPlayers(): Promise<number> {
   try {
-    console.log("Fetching players from Sleeper API...");
+    console.log("[PlayerSync] Fetching players from Sleeper API...");
 
     // Fetch players from Sleeper API
     const sleeperPlayersData = await fetchSleeperPlayers();
@@ -62,16 +58,34 @@ export async function syncPlayersHandler(
       }))
       .filter((player) => player.full_name !== "Unknown"); // Filter out players without names
 
-    console.log(`Found ${activePlayers.length} active players`);
+    console.log(`[PlayerSync] Found ${activePlayers.length} active players`);
 
     // Bulk upsert players
     const upsertedCount = await bulkUpsertPlayers(activePlayers);
+
+    console.log(`[PlayerSync] Successfully synced ${upsertedCount} players`);
+    return upsertedCount;
+  } catch (error: any) {
+    console.error("[PlayerSync] Error syncing players:", error);
+    throw error;
+  }
+}
+
+/**
+ * Sync players from Sleeper API
+ * POST /api/players/sync
+ */
+export async function syncPlayersHandler(
+  _req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const upsertedCount = await syncPlayers();
 
     res.status(200).json({
       success: true,
       message: `Successfully synced ${upsertedCount} active players from Sleeper`,
       data: {
-        total_active: activePlayers.length,
         synced: upsertedCount,
       },
     });

@@ -4,6 +4,7 @@ import { syncSleeperStatsForWeek } from "./sleeperStatsService";
 import { updateMatchupScoresForWeek } from "./scoringService";
 import { getWeekSchedule } from "./sleeperScheduleService";
 import { broadcastScoreUpdate } from "../socket/matchupSocket";
+import { getCurrentNFLWeek } from "./currentWeekService";
 
 interface ActiveLeague {
   league_id: number;
@@ -30,7 +31,7 @@ async function getActiveLeagues(): Promise<ActiveLeague[]> {
 
     const activeLeagues: ActiveLeague[] = [];
     for (const row of result.rows) {
-      const currentWeek = getCurrentNFLWeek(row.season);
+      const currentWeek = await getCurrentNFLWeek(row.season, row.season_type || "regular");
       if (currentWeek > 0 && currentWeek <= 18) {
         activeLeagues.push({
           league_id: row.league_id,
@@ -48,35 +49,6 @@ async function getActiveLeagues(): Promise<ActiveLeague[]> {
   }
 }
 
-/**
- * Estimate current NFL week
- */
-function getCurrentNFLWeek(season: string): number {
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const seasonYear = parseInt(season);
-
-  if (seasonYear !== currentYear) {
-    return 0;
-  }
-
-  const seasonStart = new Date(currentYear, 8, 1); // Sept 1
-  const firstThursday = new Date(seasonStart);
-  firstThursday.setDate(
-    seasonStart.getDate() + ((4 - seasonStart.getDay() + 7) % 7)
-  );
-
-  const weeksSinceStart = Math.floor(
-    (now.getTime() - firstThursday.getTime()) / (7 * 24 * 60 * 60 * 1000)
-  );
-
-  const week = weeksSinceStart + 1;
-
-  if (week < 1) return 0;
-  if (week > 18) return 0;
-
-  return week;
-}
 
 /**
  * Check if there are any games currently in progress

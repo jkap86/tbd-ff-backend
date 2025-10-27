@@ -16,6 +16,7 @@ import playerProjectionsRoutes from "./routes/playerProjectionsRoutes";
 import rosterRoutes from "./routes/rosterRoutes";
 import matchupRoutes from "./routes/matchupRoutes";
 import weeklyLineupRoutes from "./routes/weeklyLineupRoutes";
+import nflRoutes from "./routes/nflRoutes";
 import { setupDraftSocket } from "./socket/draftSocket";
 import { setupLeagueSocket } from "./socket/leagueSocket";
 import { setupMatchupSocket } from "./socket/matchupSocket";
@@ -72,6 +73,7 @@ app.use("/api/player-projections", playerProjectionsRoutes);
 app.use("/api/rosters", rosterRoutes);
 app.use("/api/matchups", matchupRoutes);
 app.use("/api/weekly-lineups", weeklyLineupRoutes);
+app.use("/api/nfl", nflRoutes);
 
 // Protected route example (to test authentication)
 app.get("/api/profile", authenticate, (req: Request, res: Response) => {

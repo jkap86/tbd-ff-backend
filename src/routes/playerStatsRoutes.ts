@@ -3,9 +3,18 @@ import {
   getPlayerStats,
   getPlayerStatsById,
   getPlayerSeasonStats,
+  getBulkPlayerSeasonStats,
 } from "../controllers/playerStatsController";
 
 const router = Router();
+
+/**
+ * Get bulk season stats for multiple players
+ * POST /api/player-stats/bulk/:season
+ * Body: { player_ids: string[] }
+ * Note: This must come first to match before /:season/:playerId
+ */
+router.post("/bulk/:season", getBulkPlayerSeasonStats);
 
 /**
  * Get full season stats for a specific player (no week)

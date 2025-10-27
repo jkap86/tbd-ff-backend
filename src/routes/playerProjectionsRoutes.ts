@@ -3,9 +3,27 @@ import {
   getPlayerProjections,
   getPlayerProjectionsById,
   getPlayerSeasonProjections,
+  getBulkPlayerSeasonProjections,
+  getBulkPlayerWeekRangeProjections,
 } from "../controllers/playerStatsController";
 
 const router = Router();
+
+/**
+ * Get bulk projections for multiple players across a week range
+ * POST /api/player-projections/bulk/:season/weeks
+ * Body: { player_ids: string[], start_week: number, end_week: number, season_type?: string }
+ * Note: This must come first to match before other bulk routes
+ */
+router.post("/bulk/:season/weeks", getBulkPlayerWeekRangeProjections);
+
+/**
+ * Get bulk season projections for multiple players
+ * POST /api/player-projections/bulk/:season
+ * Body: { player_ids: string[] }
+ * Note: This must come first to match before /:season/:playerId
+ */
+router.post("/bulk/:season", getBulkPlayerSeasonProjections);
 
 /**
  * Get full season projections for a specific player (no week)

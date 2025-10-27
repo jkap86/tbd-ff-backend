@@ -942,3 +942,87 @@ export async function resetLeagueHandler(
     });
   }
 }
+
+/**
+ * Delete a league (commissioner only)
+ * DELETE /api/leagues/:leagueId
+ */
+export async function deleteLeagueHandler(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const { leagueId } = req.params;
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+      return;
+    }
+
+    // Get league to check commissioner
+    const league = await getLeagueById(parseInt(leagueId));
+    if (!league) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    // Check if user is commissioner
+    const commissionerId = league.settings?.commissioner_id;
+    if (!commissionerId || commissionerId !== userId) {
+      res.status(403).json({
+        success: false,
+        message: "Only the commissioner can delete the league",
+      });
+      return;
+    }
+
+    // Delete all related data in cascade
+    const pool = (await import("../config/database")).default;
+
+    // Delete draft if it exists
+    const { getDraftByLeagueId, deleteDraft } = await import("../models/Draft");
+    const draft = await getDraftByLeagueId(parseInt(leagueId));
+    if (draft) {
+      await deleteDraft(draft.id);
+    }
+
+    // Delete weekly lineups
+    const { deleteWeeklyLineupsForLeague } = await import("../models/WeeklyLineup");
+    await deleteWeeklyLineupsForLeague(parseInt(leagueId));
+
+    // Delete matchups
+    const { deleteMatchupsForLeague } = await import("../models/Matchup");
+    await deleteMatchupsForLeague(parseInt(leagueId));
+
+    // Delete league chat messages
+    const { deleteLeagueChatMessages } = await import("../models/LeagueChatMessage");
+    await deleteLeagueChatMessages(parseInt(leagueId));
+
+    // Delete rosters (this will cascade to roster-related tables)
+    await pool.query("DELETE FROM rosters WHERE league_id = $1", [parseInt(leagueId)]);
+
+    // Delete league invites
+    await pool.query("DELETE FROM league_invites WHERE league_id = $1", [parseInt(leagueId)]);
+
+    // Finally, delete the league itself
+    await pool.query("DELETE FROM leagues WHERE id = $1", [parseInt(leagueId)]);
+
+    res.status(200).json({
+      success: true,
+      message: "League deleted successfully",
+    });
+  } catch (error: any) {
+    console.error("Delete league error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error deleting league",
+    });
+  }
+}

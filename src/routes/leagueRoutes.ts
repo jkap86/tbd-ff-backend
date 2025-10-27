@@ -13,6 +13,7 @@ import { isCommissionerHandler } from "../controllers/leagueController";
 import { removeLeagueMemberHandler } from "../controllers/leagueController";
 import { getLeagueStatsHandler } from "../controllers/leagueController";
 import { resetLeagueHandler } from "../controllers/leagueController";
+import { deleteLeagueHandler } from "../controllers/leagueController";
 import { getDraftByLeagueHandler } from "../controllers/draftController";
 import {
   sendLeagueChatMessageHandler,
@@ -94,5 +95,11 @@ router.get("/:leagueId/chat", getLeagueChatMessagesHandler);
  * POST /api/leagues/:leagueId/reset
  */
 router.post("/:leagueId/reset", authenticate, resetLeagueHandler);
+
+/**
+ * Delete a league (commissioner only)
+ * DELETE /api/leagues/:leagueId
+ */
+router.delete("/:leagueId", authenticate, deleteLeagueHandler);
 
 export default router;

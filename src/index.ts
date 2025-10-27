@@ -18,8 +18,10 @@ import matchupRoutes from "./routes/matchupRoutes";
 import weeklyLineupRoutes from "./routes/weeklyLineupRoutes";
 import { setupDraftSocket } from "./socket/draftSocket";
 import { setupLeagueSocket } from "./socket/leagueSocket";
+import { setupMatchupSocket } from "./socket/matchupSocket";
 import { stopAllAutoPickMonitoring } from "./services/autoPickService";
 import { startScoreScheduler, stopScoreScheduler } from "./services/scoreScheduler";
+import { startLiveScoreUpdates, stopLiveScoreUpdates } from "./services/liveScoreService";
 
 // Load environment variables
 dotenv.config();
@@ -35,9 +37,10 @@ const io = new Server(httpServer, {
 
 const PORT = process.env.PORT || 3000;
 
-// Setup Socket.io for draft and league events
+// Setup Socket.io for draft, league, and matchup events
 setupDraftSocket(io);
 setupLeagueSocket(io);
+setupMatchupSocket(io);
 
 // Make io available globally for controllers
 export { io };
@@ -106,8 +109,11 @@ httpServer.listen(PORT, () => {
   console.log(`🔌 WebSocket server running for real-time draft updates`);
   console.log(`⏱️  Auto-pick service initialized`);
 
-  // Start background score scheduler
+  // Start background score scheduler (10 minute checks)
   startScoreScheduler();
+
+  // Start live score updates (10 second updates during games)
+  startLiveScoreUpdates(io);
 });
 
 // Graceful shutdown
@@ -115,6 +121,7 @@ process.on("SIGTERM", () => {
   console.log("SIGTERM signal received: closing HTTP server");
   stopAllAutoPickMonitoring();
   stopScoreScheduler();
+  stopLiveScoreUpdates();
   httpServer.close(() => {
     console.log("HTTP server closed");
     process.exit(0);
@@ -125,6 +132,7 @@ process.on("SIGINT", () => {
   console.log("SIGINT signal received: closing HTTP server");
   stopAllAutoPickMonitoring();
   stopScoreScheduler();
+  stopLiveScoreUpdates();
   httpServer.close(() => {
     console.log("HTTP server closed");
     process.exit(0);

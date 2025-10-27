@@ -1,0 +1,211 @@
+import { Server } from "socket.io";
+import pool from "../config/database";
+import { syncSleeperStatsForWeek } from "./sleeperStatsService";
+import { updateMatchupScoresForWeek } from "./scoringService";
+import { getWeekSchedule } from "./sleeperScheduleService";
+import { broadcastScoreUpdate } from "../socket/matchupSocket";
+
+interface ActiveLeague {
+  league_id: number;
+  season: string;
+  current_week: number;
+  season_type: string;
+}
+
+let liveUpdateInterval: NodeJS.Timeout | null = null;
+let isUpdating = false;
+
+/**
+ * Get all active leagues that need score updates
+ */
+async function getActiveLeagues(): Promise<ActiveLeague[]> {
+  try {
+    const query = `
+      SELECT DISTINCT l.id as league_id, l.season, l.season_type
+      FROM leagues l
+      WHERE l.season IS NOT NULL
+      ORDER BY l.id
+    `;
+    const result = await pool.query(query);
+
+    const activeLeagues: ActiveLeague[] = [];
+    for (const row of result.rows) {
+      const currentWeek = getCurrentNFLWeek(row.season);
+      if (currentWeek > 0 && currentWeek <= 18) {
+        activeLeagues.push({
+          league_id: row.league_id,
+          season: row.season,
+          current_week: currentWeek,
+          season_type: row.season_type || "regular",
+        });
+      }
+    }
+
+    return activeLeagues;
+  } catch (error) {
+    console.error("[LiveScore] Error getting active leagues:", error);
+    return [];
+  }
+}
+
+/**
+ * Estimate current NFL week
+ */
+function getCurrentNFLWeek(season: string): number {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const seasonYear = parseInt(season);
+
+  if (seasonYear !== currentYear) {
+    return 0;
+  }
+
+  const seasonStart = new Date(currentYear, 8, 1); // Sept 1
+  const firstThursday = new Date(seasonStart);
+  firstThursday.setDate(
+    seasonStart.getDate() + ((4 - seasonStart.getDay() + 7) % 7)
+  );
+
+  const weeksSinceStart = Math.floor(
+    (now.getTime() - firstThursday.getTime()) / (7 * 24 * 60 * 60 * 1000)
+  );
+
+  const week = weeksSinceStart + 1;
+
+  if (week < 1) return 0;
+  if (week > 18) return 0;
+
+  return week;
+}
+
+/**
+ * Check if there are any games currently in progress
+ */
+async function hasGamesInProgress(
+  season: string,
+  week: number,
+  seasonType: string
+): Promise<boolean> {
+  try {
+    const schedule = await getWeekSchedule(season, week, seasonType);
+
+    if (schedule.length === 0) {
+      return false;
+    }
+
+    // Check if ANY game is currently in progress
+    return schedule.some((game) => game.status === "in_progress");
+  } catch (error) {
+    console.error("[LiveScore] Error checking for live games:", error);
+    return false;
+  }
+}
+
+/**
+ * Update live scores and broadcast to connected clients
+ */
+async function updateLiveScores(io: Server): Promise<void> {
+  // Prevent concurrent updates
+  if (isUpdating) {
+    console.log("[LiveScore] Update already in progress, skipping...");
+    return;
+  }
+
+  isUpdating = true;
+
+  try {
+    const activeLeagues = await getActiveLeagues();
+
+    if (activeLeagues.length === 0) {
+      isUpdating = false;
+      return;
+    }
+
+    const currentWeek = activeLeagues[0]?.current_week;
+    const season = activeLeagues[0]?.season;
+    const seasonType = activeLeagues[0]?.season_type || "regular";
+
+    if (!currentWeek || !season) {
+      isUpdating = false;
+      return;
+    }
+
+    // Check if games are actually in progress
+    const hasLiveGames = await hasGamesInProgress(season, currentWeek, seasonType);
+
+    if (!hasLiveGames) {
+      console.log("[LiveScore] No games in progress, skipping update");
+      isUpdating = false;
+      return;
+    }
+
+    console.log(`[LiveScore] Updating scores for ${activeLeagues.length} leagues...`);
+
+    // Sync stats once
+    await syncSleeperStatsForWeek(season, currentWeek, seasonType);
+
+    // Update and broadcast for each league
+    for (const league of activeLeagues) {
+      try {
+        // Update scores in database
+        await updateMatchupScoresForWeek(
+          league.league_id,
+          league.current_week,
+          league.season,
+          league.season_type
+        );
+
+        // Get updated matchups
+        const { getMatchupsByLeagueAndWeek } = await import("../models/Matchup");
+        const matchups = await getMatchupsByLeagueAndWeek(
+          league.league_id,
+          league.current_week
+        );
+
+        // Broadcast to all connected clients
+        broadcastScoreUpdate(io, league.league_id, league.current_week, matchups);
+
+        console.log(
+          `[LiveScore] ✓ Updated and broadcast league ${league.league_id} week ${league.current_week}`
+        );
+      } catch (error) {
+        console.error(
+          `[LiveScore] Error updating league ${league.league_id}:`,
+          error
+        );
+      }
+    }
+  } catch (error) {
+    console.error("[LiveScore] Error in live score update:", error);
+  } finally {
+    isUpdating = false;
+  }
+}
+
+/**
+ * Start live score updates (every 10 seconds)
+ */
+export function startLiveScoreUpdates(io: Server): void {
+  console.log("[LiveScore] Starting live score updates (10 second interval)");
+
+  // Run immediately
+  updateLiveScores(io);
+
+  // Then run every 10 seconds
+  liveUpdateInterval = setInterval(() => {
+    updateLiveScores(io);
+  }, 10 * 1000); // 10 seconds
+
+  console.log("[LiveScore] ✓ Live score updates started");
+}
+
+/**
+ * Stop live score updates
+ */
+export function stopLiveScoreUpdates(): void {
+  if (liveUpdateInterval) {
+    clearInterval(liveUpdateInterval);
+    liveUpdateInterval = null;
+    console.log("[LiveScore] Live score updates stopped");
+  }
+}

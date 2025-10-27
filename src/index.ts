@@ -19,6 +19,7 @@ import weeklyLineupRoutes from "./routes/weeklyLineupRoutes";
 import { setupDraftSocket } from "./socket/draftSocket";
 import { setupLeagueSocket } from "./socket/leagueSocket";
 import { stopAllAutoPickMonitoring } from "./services/autoPickService";
+import { startScoreScheduler, stopScoreScheduler } from "./services/scoreScheduler";
 
 // Load environment variables
 dotenv.config();
@@ -104,12 +105,16 @@ httpServer.listen(PORT, () => {
   console.log(`🔐 Auth endpoints: http://localhost:${PORT}/api/auth`);
   console.log(`🔌 WebSocket server running for real-time draft updates`);
   console.log(`⏱️  Auto-pick service initialized`);
+
+  // Start background score scheduler
+  startScoreScheduler();
 });
 
 // Graceful shutdown
 process.on("SIGTERM", () => {
   console.log("SIGTERM signal received: closing HTTP server");
   stopAllAutoPickMonitoring();
+  stopScoreScheduler();
   httpServer.close(() => {
     console.log("HTTP server closed");
     process.exit(0);
@@ -119,6 +124,7 @@ process.on("SIGTERM", () => {
 process.on("SIGINT", () => {
   console.log("SIGINT signal received: closing HTTP server");
   stopAllAutoPickMonitoring();
+  stopScoreScheduler();
   httpServer.close(() => {
     console.log("HTTP server closed");
     process.exit(0);

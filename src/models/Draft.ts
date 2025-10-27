@@ -296,11 +296,13 @@ async function autoPopulateStarters(
       return acc;
     }, {});
 
-    // Initialize starters array with slot structure
-    const starters: any[] = rosterPositions.map((pos: any) => ({
-      slot: pos.position,
-      player_id: null,
-    }));
+    // Initialize starters array with slot structure (exclude BN slots - those are bench)
+    const starters: any[] = rosterPositions
+      .filter((pos: any) => !pos.position.startsWith('BN'))
+      .map((pos: any) => ({
+        slot: pos.position,
+        player_id: null,
+      }));
 
     const assignedPlayerIds = new Set<number>();
 

@@ -199,7 +199,7 @@ export async function updateDraftSettingsHandler(
 ): Promise<void> {
   try {
     const { draftId } = req.params;
-    const { draft_type, third_round_reversal, pick_time_seconds, rounds } = req.body;
+    const { draft_type, third_round_reversal, pick_time_seconds, rounds, settings } = req.body;
 
     const draft = await getDraftById(parseInt(draftId));
     if (!draft) {
@@ -210,11 +210,13 @@ export async function updateDraftSettingsHandler(
       return;
     }
 
-    // Only allow updates if draft hasn't started
-    if (draft.status !== "not_started") {
+    // Only allow core draft settings updates if draft hasn't started
+    // But allow settings (like overnight pause) to be updated anytime
+    const isCoreSettingsUpdate = draft_type || typeof third_round_reversal === 'boolean' || pick_time_seconds || rounds;
+    if (isCoreSettingsUpdate && draft.status !== "not_started") {
       res.status(400).json({
         success: false,
-        message: "Cannot update draft settings after draft has started",
+        message: "Cannot update draft type, rounds, or timer after draft has started",
       });
       return;
     }
@@ -253,6 +255,7 @@ export async function updateDraftSettingsHandler(
     if (typeof third_round_reversal === 'boolean') updates.third_round_reversal = third_round_reversal;
     if (pick_time_seconds) updates.pick_time_seconds = pick_time_seconds;
     if (rounds) updates.rounds = rounds;
+    if (settings) updates.settings = settings;
 
     const updatedDraft = await updateDraft(parseInt(draftId), updates);
 

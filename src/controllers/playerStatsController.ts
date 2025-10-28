@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import axios from "axios";
+import { statsCache, projectionsCache } from "../services/statsPreloader";
 
 const SLEEPER_API_BASE = "https://api.sleeper.com";
 
@@ -252,19 +253,53 @@ export async function getBulkPlayerSeasonStats(
       return;
     }
 
-    // Fetch all season stats from Sleeper
-    const response = await axios.get(
-      `${SLEEPER_API_BASE}/stats/nfl/${season}?season_type=${season_type}`
-    );
+    // Create cache key
+    const cacheKey = `season_stats_${season}_${season_type}`;
+    const indexCacheKey = `${cacheKey}_index`;
 
-    // Filter to only requested players and create a map
+    // Check cache first - use indexed version if available
+    let statsIndex = statsCache.get<Record<string, any>>(indexCacheKey);
+
+    if (!statsIndex) {
+      // Try to get array version
+      let allStats = statsCache.get<any[]>(cacheKey);
+
+      if (!allStats) {
+        // Fetch all season stats from Sleeper
+        console.log(`[StatsCache] Cache miss for ${cacheKey}, fetching from Sleeper...`);
+        const response = await axios.get(
+          `${SLEEPER_API_BASE}/stats/nfl/${season}?season_type=${season_type}`
+        );
+        allStats = response.data;
+
+        // Store array in cache
+        statsCache.set(cacheKey, allStats);
+      } else {
+        console.log(`[StatsCache] Cache hit for ${cacheKey}`);
+      }
+
+      // Create index for fast lookups
+      statsIndex = {};
+      if (allStats) {
+        for (const stat of allStats) {
+          if (stat.player_id) {
+            statsIndex[stat.player_id] = stat;
+          }
+        }
+      }
+
+      // Store indexed version in cache
+      statsCache.set(indexCacheKey, statsIndex);
+      console.log(`[StatsCache] Created index for ${cacheKey} with ${Object.keys(statsIndex).length} players`);
+    } else {
+      console.log(`[StatsCache] Index cache hit for ${cacheKey}`);
+    }
+
+    // Filter to only requested players using O(1) lookups
     const statsMap: Record<string, any> = {};
-    const allStats = response.data;
 
     for (const playerId of player_ids) {
-      const playerStat = allStats.find(
-        (stat: any) => stat.player_id === playerId
-      );
+      const playerStat = statsIndex[playerId];
       if (playerStat) {
         statsMap[playerId] = playerStat;
       }
@@ -305,19 +340,53 @@ export async function getBulkPlayerSeasonProjections(
       return;
     }
 
-    // Fetch all season projections from Sleeper
-    const response = await axios.get(
-      `${SLEEPER_API_BASE}/projections/nfl/${season}?season_type=${season_type}`
-    );
+    // Create cache key
+    const cacheKey = `season_projections_${season}_${season_type}`;
+    const indexCacheKey = `${cacheKey}_index`;
 
-    // Filter to only requested players and create a map
+    // Check cache first - use indexed version if available
+    let projectionsIndex = projectionsCache.get<Record<string, any>>(indexCacheKey);
+
+    if (!projectionsIndex) {
+      // Try to get array version
+      let allProjections = projectionsCache.get<any[]>(cacheKey);
+
+      if (!allProjections) {
+        // Fetch all season projections from Sleeper
+        console.log(`[ProjectionsCache] Cache miss for ${cacheKey}, fetching from Sleeper...`);
+        const response = await axios.get(
+          `${SLEEPER_API_BASE}/projections/nfl/${season}?season_type=${season_type}`
+        );
+        allProjections = response.data;
+
+        // Store array in cache
+        projectionsCache.set(cacheKey, allProjections);
+      } else {
+        console.log(`[ProjectionsCache] Cache hit for ${cacheKey}`);
+      }
+
+      // Create index for fast lookups
+      projectionsIndex = {};
+      if (allProjections) {
+        for (const proj of allProjections) {
+          if (proj.player_id) {
+            projectionsIndex[proj.player_id] = proj;
+          }
+        }
+      }
+
+      // Store indexed version in cache
+      projectionsCache.set(indexCacheKey, projectionsIndex);
+      console.log(`[ProjectionsCache] Created index for ${cacheKey} with ${Object.keys(projectionsIndex).length} players`);
+    } else {
+      console.log(`[ProjectionsCache] Index cache hit for ${cacheKey}`);
+    }
+
+    // Filter to only requested players using O(1) lookups
     const projectionsMap: Record<string, any> = {};
-    const allProjections = response.data;
 
     for (const playerId of player_ids) {
-      const playerProjection = allProjections.find(
-        (proj: any) => proj.player_id === playerId
-      );
+      const playerProjection = projectionsIndex[playerId];
       if (playerProjection) {
         projectionsMap[playerId] = playerProjection;
       }
@@ -374,31 +443,104 @@ export async function getBulkPlayerWeekRangeProjections(
       return;
     }
 
-    // Fetch projections for each week in parallel
+    // Check if we have a cached aggregated result for this exact week range
+    const aggregateCacheKey = `week_range_aggregated_${season}_${start_week}_${end_week}_${season_type}`;
+    let aggregatedData = projectionsCache.get<Record<string, any>>(aggregateCacheKey);
+
+    if (aggregatedData) {
+      console.log(`[ProjectionsCache] Aggregate cache hit for weeks ${start_week}-${end_week}`);
+
+      // Filter to only requested players from cached aggregate
+      const projectionsMap: Record<string, any> = {};
+      for (const playerId of player_ids) {
+        if (aggregatedData[playerId]) {
+          projectionsMap[playerId] = aggregatedData[playerId];
+        }
+      }
+
+      res.status(200).json({
+        success: true,
+        data: projectionsMap,
+        count: Object.keys(projectionsMap).length,
+        weeks_queried: end_week - start_week + 1,
+      });
+      return;
+    }
+
+    console.log(`[ProjectionsCache] Aggregate cache miss for weeks ${start_week}-${end_week}, building...`);
+
+    // Fetch projections for each week in parallel with caching and indexing
     const weekPromises = [];
     for (let week = start_week; week <= end_week; week++) {
+      const weekCacheKey = `week_projections_${season}_${week}_${season_type}`;
+      const weekIndexCacheKey = `${weekCacheKey}_index`;
+
       weekPromises.push(
-        axios.get(
-          `${SLEEPER_API_BASE}/projections/nfl/${season}/${week}?season_type=${season_type}`
-        )
+        (async () => {
+          // Check cache for indexed version first
+          let weekIndex = projectionsCache.get<Record<string, any>>(weekIndexCacheKey);
+
+          if (!weekIndex) {
+            // Try to get array version
+            let weekData = projectionsCache.get<any[]>(weekCacheKey);
+
+            if (!weekData) {
+              console.log(`[ProjectionsCache] Cache miss for ${weekCacheKey}, fetching from Sleeper...`);
+              const response = await axios.get(
+                `${SLEEPER_API_BASE}/projections/nfl/${season}/${week}?season_type=${season_type}`
+              );
+              weekData = response.data;
+              projectionsCache.set(weekCacheKey, weekData);
+            } else {
+              console.log(`[ProjectionsCache] Cache hit for ${weekCacheKey}`);
+            }
+
+            // Create index for fast lookups
+            weekIndex = {};
+            if (weekData) {
+              for (const proj of weekData) {
+                if (proj.player_id) {
+                  weekIndex[proj.player_id] = proj;
+                }
+              }
+            }
+
+            // Store indexed version
+            projectionsCache.set(weekIndexCacheKey, weekIndex);
+            console.log(`[ProjectionsCache] Created index for ${weekCacheKey}`);
+          } else {
+            console.log(`[ProjectionsCache] Index cache hit for ${weekCacheKey}`);
+          }
+
+          return { index: weekIndex };
+        })()
       );
     }
 
     const weekResponses = await Promise.all(weekPromises);
 
-    // Aggregate projections for each player
-    const projectionsMap: Record<string, any> = {};
+    // Build a complete aggregated dataset for ALL players (not just requested ones)
+    // This allows future requests for different player sets to use the same cached aggregate
+    const allPlayerAggregates: Record<string, any> = {};
 
-    for (const playerId of player_ids) {
+    // Collect all unique player IDs across all weeks
+    const allPlayerIds = new Set<string>();
+    for (const response of weekResponses) {
+      const weekIndex = response.index;
+      for (const playerId of Object.keys(weekIndex)) {
+        allPlayerIds.add(playerId);
+      }
+    }
+
+    // Aggregate stats for ALL players
+    for (const playerId of allPlayerIds) {
       const aggregatedStats: Record<string, number> = {};
       let weeksFound = 0;
 
-      // Sum up stats across all weeks
+      // Sum up stats across all weeks using indexed lookups
       for (const response of weekResponses) {
-        const weekProjections = response.data;
-        const playerWeekProjection = weekProjections.find(
-          (proj: any) => proj.player_id === playerId
-        );
+        const weekIndex = response.index;
+        const playerWeekProjection = weekIndex[playerId]; // O(1) lookup
 
         if (playerWeekProjection && playerWeekProjection.stats) {
           weeksFound++;
@@ -414,12 +556,24 @@ export async function getBulkPlayerWeekRangeProjections(
       }
 
       if (weeksFound > 0) {
-        projectionsMap[playerId] = {
+        allPlayerAggregates[playerId] = {
           player_id: playerId,
           stats: aggregatedStats,
           weeks_included: weeksFound,
           week_range: `${start_week}-${end_week}`,
         };
+      }
+    }
+
+    // Cache the complete aggregated dataset
+    projectionsCache.set(aggregateCacheKey, allPlayerAggregates);
+    console.log(`[ProjectionsCache] Cached aggregate for weeks ${start_week}-${end_week} with ${Object.keys(allPlayerAggregates).length} players`);
+
+    // Filter to only requested players
+    const projectionsMap: Record<string, any> = {};
+    for (const playerId of player_ids) {
+      if (allPlayerAggregates[playerId]) {
+        projectionsMap[playerId] = allPlayerAggregates[playerId];
       }
     }
 

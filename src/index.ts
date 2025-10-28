@@ -24,6 +24,7 @@ import { stopAllAutoPickMonitoring } from "./services/autoPickService";
 import { startScoreScheduler, stopScoreScheduler } from "./services/scoreScheduler";
 import { startLiveScoreUpdates, stopLiveScoreUpdates } from "./services/liveScoreService";
 import { startDraftScheduler } from "./services/draftScheduler";
+import { startStatsPreloader } from "./services/statsPreloader";
 
 // Load environment variables
 dotenv.config();
@@ -120,6 +121,9 @@ httpServer.listen(PORT, () => {
 
   // Start draft scheduler (checks every minute for overnight pause/resume)
   startDraftScheduler(io);
+
+  // Start stats preloader (precomputes and caches stats/projections)
+  startStatsPreloader();
 });
 
 // Graceful shutdown

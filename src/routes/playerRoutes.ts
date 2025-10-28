@@ -3,13 +3,16 @@ import {
   syncPlayersHandler,
   getPlayersHandler,
 } from "../controllers/playerController";
+import { bulkOperationLimiter, searchLimiter } from "../middleware/rateLimiter";
 
 const router = Router();
 
 // POST /api/players/sync - Sync players from Sleeper API (unprotected for initial setup)
-router.post("/sync", syncPlayersHandler);
+// Rate limit: 5 requests per 5 minutes (resource-intensive operation)
+router.post("/sync", bulkOperationLimiter, syncPlayersHandler);
 
 // GET /api/players - Get all players with optional filtering
-router.get("/", getPlayersHandler);
+// Rate limit: 20 searches per minute
+router.get("/", searchLimiter, getPlayersHandler);
 
 export default router;

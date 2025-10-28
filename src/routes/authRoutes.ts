@@ -5,19 +5,24 @@ import {
   requestPasswordReset,
   resetPassword,
 } from "../controllers/authController";
+import { authLimiter, passwordResetLimiter } from "../middleware/rateLimiter";
 
 const router = Router();
 
 // POST /api/auth/register - Register a new user
-router.post("/register", register);
+// Rate limit: 5 attempts per 15 minutes
+router.post("/register", authLimiter, register);
 
 // POST /api/auth/login - Login user
-router.post("/login", login);
+// Rate limit: 5 attempts per 15 minutes
+router.post("/login", authLimiter, login);
 
 // POST /api/auth/request-reset - Request password reset
-router.post("/request-reset", requestPasswordReset);
+// Rate limit: 3 attempts per hour (stricter to prevent email spam)
+router.post("/request-reset", passwordResetLimiter, requestPasswordReset);
 
 // POST /api/auth/reset-password - Reset password with token
-router.post("/reset-password", resetPassword);
+// Rate limit: 3 attempts per hour
+router.post("/reset-password", passwordResetLimiter, resetPassword);
 
 export default router;

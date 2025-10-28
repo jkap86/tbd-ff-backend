@@ -5,6 +5,7 @@ import {
   getPlayerSeasonStats,
   getBulkPlayerSeasonStats,
 } from "../controllers/playerStatsController";
+import { bulkOperationLimiter } from "../middleware/rateLimiter";
 
 const router = Router();
 
@@ -13,8 +14,9 @@ const router = Router();
  * POST /api/player-stats/bulk/:season
  * Body: { player_ids: string[] }
  * Note: This must come first to match before /:season/:playerId
+ * Rate limit: 5 requests per 5 minutes (resource-intensive)
  */
-router.post("/bulk/:season", getBulkPlayerSeasonStats);
+router.post("/bulk/:season", bulkOperationLimiter, getBulkPlayerSeasonStats);
 
 /**
  * Get full season stats for a specific player (no week)

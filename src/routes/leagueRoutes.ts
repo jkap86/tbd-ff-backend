@@ -8,6 +8,7 @@ import {
   updateLeagueSettingsHandler,
 } from "../controllers/leagueController";
 import { authenticate } from "../middleware/authMiddleware";
+import { publicDataLimiter } from "../middleware/rateLimiter";
 import { transferCommissionerHandler } from "../controllers/leagueController";
 import { isCommissionerHandler } from "../controllers/leagueController";
 import { removeLeagueMemberHandler } from "../controllers/leagueController";
@@ -26,7 +27,8 @@ const router = Router();
 router.post("/create", authenticate, createLeagueHandler);
 
 // GET /api/leagues/public - Get public leagues
-router.get("/public", getPublicLeaguesHandler);
+// Rate limit: 30 requests per minute (prevent scraping)
+router.get("/public", publicDataLimiter, getPublicLeaguesHandler);
 
 // GET /api/leagues/user/:userId - Get all leagues for a user
 router.get("/user/:userId", getUserLeaguesHandler);

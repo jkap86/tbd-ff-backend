@@ -6,6 +6,7 @@ import {
   getBulkPlayerSeasonProjections,
   getBulkPlayerWeekRangeProjections,
 } from "../controllers/playerStatsController";
+import { bulkOperationLimiter } from "../middleware/rateLimiter";
 
 const router = Router();
 
@@ -14,16 +15,18 @@ const router = Router();
  * POST /api/player-projections/bulk/:season/weeks
  * Body: { player_ids: string[], start_week: number, end_week: number, season_type?: string }
  * Note: This must come first to match before other bulk routes
+ * Rate limit: 5 requests per 5 minutes (resource-intensive)
  */
-router.post("/bulk/:season/weeks", getBulkPlayerWeekRangeProjections);
+router.post("/bulk/:season/weeks", bulkOperationLimiter, getBulkPlayerWeekRangeProjections);
 
 /**
  * Get bulk season projections for multiple players
  * POST /api/player-projections/bulk/:season
  * Body: { player_ids: string[] }
  * Note: This must come first to match before /:season/:playerId
+ * Rate limit: 5 requests per 5 minutes (resource-intensive)
  */
-router.post("/bulk/:season", getBulkPlayerSeasonProjections);
+router.post("/bulk/:season", bulkOperationLimiter, getBulkPlayerSeasonProjections);
 
 /**
  * Get full season projections for a specific player (no week)

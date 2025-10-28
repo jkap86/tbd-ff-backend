@@ -25,6 +25,8 @@ import { startScoreScheduler, stopScoreScheduler } from "./services/scoreSchedul
 import { startLiveScoreUpdates, stopLiveScoreUpdates } from "./services/liveScoreService";
 import { startDraftScheduler } from "./services/draftScheduler";
 import { startStatsPreloader } from "./services/statsPreloader";
+import { startTokenCleanupScheduler, stopTokenCleanupScheduler } from "./services/tokenCleanupService";
+import { globalApiLimiter } from "./middleware/rateLimiter";
 
 // Load environment variables
 dotenv.config();
@@ -53,6 +55,10 @@ app.use(helmet()); // Security headers
 app.use(cors()); // Enable CORS
 app.use(express.json()); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
+
+// Global rate limiting - applies to all API routes
+// 100 requests per minute per IP
+app.use("/api", globalApiLimiter);
 
 // Health check endpoint
 app.get("/health", (_req: Request, res: Response) => {
@@ -124,6 +130,9 @@ httpServer.listen(PORT, () => {
 
   // Start stats preloader (precomputes and caches stats/projections)
   startStatsPreloader();
+
+  // Start token cleanup scheduler (removes expired password reset tokens)
+  startTokenCleanupScheduler();
 });
 
 // Graceful shutdown
@@ -132,6 +141,7 @@ process.on("SIGTERM", () => {
   stopAllAutoPickMonitoring();
   stopScoreScheduler();
   stopLiveScoreUpdates();
+  stopTokenCleanupScheduler();
   httpServer.close(() => {
     console.log("HTTP server closed");
     process.exit(0);
@@ -143,6 +153,7 @@ process.on("SIGINT", () => {
   stopAllAutoPickMonitoring();
   stopScoreScheduler();
   stopLiveScoreUpdates();
+  stopTokenCleanupScheduler();
   httpServer.close(() => {
     console.log("HTTP server closed");
     process.exit(0);

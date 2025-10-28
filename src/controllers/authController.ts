@@ -181,6 +181,16 @@ export async function requestPasswordReset(
       return;
     }
 
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid email format",
+      });
+      return;
+    }
+
     // Find user by email
     const user = await getUserByEmail(email);
 
@@ -257,19 +267,23 @@ export async function resetPassword(
     // Hash new password
     const hashedPassword = await hashPassword(newPassword);
 
-    // Update user password
+    // Update user password first
     await updateUserPassword(userId, hashedPassword);
 
-    // Mark token as used
+    // Only mark token as used after successful password update
     await markTokenAsUsed(token);
 
     // Get user info for confirmation email
     const { getUserById } = await import("../models/User");
     const user = await getUserById(userId);
 
+    // Send confirmation email (non-blocking, log errors)
     if (user) {
-      // Send confirmation email
-      await sendPasswordChangedEmail(user.email, user.username);
+      sendPasswordChangedEmail(user.email, user.username).catch((error) => {
+        console.error("Failed to send password changed confirmation email:", error);
+      });
+    } else {
+      console.error("User not found after password reset, cannot send confirmation email");
     }
 
     res.status(200).json({

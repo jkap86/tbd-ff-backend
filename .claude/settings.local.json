@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/jkap8/Documents/DEV/tbd-ff/**)",
+      "Bash(flutter pub get:*)",
+      "Bash(flutter analyze:*)",
+      "Bash(flutter clean:*)",
+      "Bash(cat:*)",
+      "Bash(find:*)",
+      "Bash(dart fix:*)",
+      "Bash(for file in *.dart)",
+      "Bash(do grep -q \"import ''package:flutter/foundation.dart''\" \"$file\")",
+      "Bash(done)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -35,6 +35,7 @@ import {
   startAutoPickMonitoring,
   stopAutoPickMonitoring,
 } from "../services/autoPickService";
+import { checkAndAutoPauseDraft } from "../services/draftScheduler";
 
 /**
  * Calculate which roster should be picking based on current pick number
@@ -522,9 +523,15 @@ export async function startDraftHandler(
     // Start auto-pick monitoring
     startAutoPickMonitoring(parseInt(draftId));
 
+    // Check if draft should be immediately auto-paused for overnight
+    await checkAndAutoPauseDraft(parseInt(draftId));
+
+    // Get the latest draft state (may have been auto-paused)
+    const finalDraft = await getDraftById(parseInt(draftId));
+
     res.status(200).json({
       success: true,
-      data: updatedDraft,
+      data: finalDraft,
     });
   } catch (error: any) {
     console.error("Error starting draft:", error);

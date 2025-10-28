@@ -16,6 +16,7 @@ let ioInstance: any = null;
 
 /**
  * Check if current time is within the pause window for a draft
+ * All times are in UTC
  */
 function shouldBePaused(
   startHour: number,
@@ -24,8 +25,8 @@ function shouldBePaused(
   endMinute: number
 ): boolean {
   const now = new Date();
-  const currentHour = now.getHours();
-  const currentMinute = now.getMinutes();
+  const currentHour = now.getUTCHours();
+  const currentMinute = now.getUTCMinutes();
   const currentTimeInMinutes = currentHour * 60 + currentMinute;
   const startTimeInMinutes = startHour * 60 + startMinute;
   const endTimeInMinutes = endHour * 60 + endMinute;
@@ -52,10 +53,11 @@ function shouldBePaused(
 async function checkAndUpdateDraftStatuses(): Promise<void> {
   try {
     // Get all drafts that are either in_progress or paused with auto_pause settings
+    // Use ->> to get as text, or cast the boolean: (settings->>'auto_pause_enabled')::boolean = true
     const query = `
       SELECT * FROM drafts
       WHERE (status = 'in_progress' OR status = 'paused')
-        AND settings->>'auto_pause_enabled' = 'true'
+        AND (settings->>'auto_pause_enabled')::boolean = true
     `;
 
     const result = await pool.query(query);
@@ -83,7 +85,7 @@ async function checkAndUpdateDraftStatuses(): Promise<void> {
       // If draft should be paused but is currently in_progress
       if (shouldPause && draft.status === "in_progress") {
         console.log(
-          `[DraftScheduler] Auto-pausing draft ${draft.id} for overnight (${startHour}:${startMinute.toString().padStart(2, '0')} - ${endHour}:${endMinute.toString().padStart(2, '0')})`
+          `[DraftScheduler] Auto-pausing draft ${draft.id} for overnight (${startHour}:${startMinute.toString().padStart(2, '0')} - ${endHour}:${endMinute.toString().padStart(2, '0')} UTC)`
         );
 
         const updatedDraft = await pauseDraft(draft.id);
@@ -130,6 +132,53 @@ async function checkAndUpdateDraftStatuses(): Promise<void> {
     }
   } catch (error: any) {
     console.error("[DraftScheduler] Error checking draft statuses:", error);
+  }
+}
+
+/**
+ * Check and auto-pause a single draft immediately (e.g., when draft starts)
+ */
+export async function checkAndAutoPauseDraft(draftId: number): Promise<void> {
+  try {
+    const query = `SELECT * FROM drafts WHERE id = $1`;
+    const result = await pool.query(query, [draftId]);
+
+    if (result.rows.length === 0) return;
+
+    const draft: Draft = result.rows[0];
+
+    // Only check if draft has auto-pause enabled and is in progress
+    if (draft.status !== 'in_progress' || !draft.settings?.auto_pause_enabled) {
+      return;
+    }
+
+    const settings = draft.settings;
+    const startHour = settings.auto_pause_start_hour ?? 23;
+    const startMinute = settings.auto_pause_start_minute ?? 0;
+    const endHour = settings.auto_pause_end_hour ?? 8;
+    const endMinute = settings.auto_pause_end_minute ?? 0;
+
+    const shouldPause = shouldBePaused(startHour, startMinute, endHour, endMinute);
+
+    if (shouldPause) {
+      console.log(`[DraftScheduler] Immediately auto-pausing draft ${draftId} for overnight`);
+
+      const updatedDraft = await pauseDraft(draftId);
+
+      // Stop auto-pick monitoring when paused
+      stopAutoPickMonitoring(draftId);
+
+      // Emit status change via WebSocket (if io is available)
+      if (ioInstance) {
+        ioInstance.to(`draft_${draftId}`).emit("status_changed", {
+          status: "paused",
+          draft: updatedDraft,
+          timestamp: new Date(),
+        });
+      }
+    }
+  } catch (error: any) {
+    console.error("[DraftScheduler] Error checking draft for immediate pause:", error);
   }
 }
 

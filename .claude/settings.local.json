@@ -2,15 +2,19 @@
   "permissions": {
     "allow": [
       "Read(//c/Users/jkap8/Documents/DEV/tbd-ff/**)",
-      "Bash(flutter pub get:*)",
-      "Bash(flutter analyze:*)",
-      "Bash(flutter clean:*)",
-      "Bash(cat:*)",
-      "Bash(find:*)",
-      "Bash(dart fix:*)",
-      "Bash(for file in *.dart)",
-      "Bash(do grep -q \"import ''package:flutter/foundation.dart''\" \"$file\")",
-      "Bash(done)"
+      "Bash(npm run build:*)",
+      "Bash(psql:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(node -e:*)",
+      "Bash(git push)",
+      "Bash(git checkout:*)",
+      "Bash(git merge:*)",
+      "Bash(git pull:*)",
+      "WebSearch",
+      "Bash(npm run build:backend:*)",
+      "Bash(npm run:*)",
+      "Bash(node -r ts-node/register -e:*)"
     ],
     "deny": [],
     "ask": []

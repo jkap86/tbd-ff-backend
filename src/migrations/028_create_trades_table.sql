@@ -1,5 +1,5 @@
 -- Create trades table for trade proposals
-CREATE TABLE trades (
+CREATE TABLE IF NOT EXISTS trades (
   id SERIAL PRIMARY KEY,
   league_id INTEGER NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
 
@@ -31,9 +31,9 @@ CREATE TABLE trades (
   CHECK (status IN ('pending', 'accepted', 'rejected', 'cancelled'))
 );
 
-CREATE INDEX idx_trades_league ON trades(league_id);
-CREATE INDEX idx_trades_proposer ON trades(proposer_roster_id);
-CREATE INDEX idx_trades_receiver ON trades(receiver_roster_id);
-CREATE INDEX idx_trades_status ON trades(status);
+CREATE INDEX IF NOT EXISTS idx_trades_league ON trades(league_id);
+CREATE INDEX IF NOT EXISTS idx_trades_proposer ON trades(proposer_roster_id);
+CREATE INDEX IF NOT EXISTS idx_trades_receiver ON trades(receiver_roster_id);
+CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status);
 
 COMMENT ON TABLE trades IS 'Trade proposals between rosters';

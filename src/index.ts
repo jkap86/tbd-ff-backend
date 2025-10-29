@@ -31,6 +31,7 @@ import { startTokenCleanupScheduler, stopTokenCleanupScheduler } from "./service
 import { startWaiverScheduler } from "./services/waiverScheduler";
 import waiverRoutes from "./routes/waiverRoutes";
 import tradeRoutes from "./routes/tradeRoutes";
+import auctionRoutes from "./routes/auctionRoutes";
 import { globalApiLimiter } from "./middleware/rateLimiter";
 
 // Load environment variables
@@ -91,6 +92,7 @@ app.use("/api/weekly-lineups", weeklyLineupRoutes);
 app.use("/api/nfl", nflRoutes);
 app.use("/api", waiverRoutes);
 app.use("/api/trades", tradeRoutes);
+app.use("/api", auctionRoutes);
 
 // Protected route example (to test authentication)
 app.get("/api/profile", authenticate, (req: Request, res: Response) => {

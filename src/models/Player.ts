@@ -212,6 +212,30 @@ export async function upsertPlayer(playerData: {
 }
 
 /**
+ * Get multiple players by their IDs
+ */
+export async function getPlayersByIds(playerIds: number[]): Promise<Player[]> {
+  if (playerIds.length === 0) {
+    return [];
+  }
+
+  try {
+    const query = `
+      SELECT id, player_id, full_name, position, team, age, years_exp, search_rank, fantasy_data_id, created_at, updated_at
+      FROM players
+      WHERE id = ANY($1)
+      ORDER BY search_rank NULLS LAST, full_name
+    `;
+
+    const result = await pool.query(query, [playerIds]);
+    return result.rows;
+  } catch (error) {
+    console.error("Error getting players by IDs:", error);
+    throw new Error("Error getting players by IDs");
+  }
+}
+
+/**
  * Bulk upsert players from Sleeper API
  */
 export async function bulkUpsertPlayers(

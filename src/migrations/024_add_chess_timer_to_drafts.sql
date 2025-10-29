@@ -18,12 +18,19 @@ ADD COLUMN IF NOT EXISTS team_time_budget_seconds INTEGER;
 COMMENT ON COLUMN drafts.team_time_budget_seconds IS 'Total time budget per team in seconds (chess mode only). Example: 3600 = 1 hour';
 
 -- Add check constraint to ensure chess mode requires a time budget
-ALTER TABLE drafts
-ADD CONSTRAINT check_chess_timer_has_budget
-CHECK (
-    (timer_mode = 'traditional') OR
-    (timer_mode = 'chess' AND team_time_budget_seconds IS NOT NULL AND team_time_budget_seconds > 0)
-);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'check_chess_timer_has_budget'
+    ) THEN
+        ALTER TABLE drafts
+        ADD CONSTRAINT check_chess_timer_has_budget
+        CHECK (
+            (timer_mode = 'traditional') OR
+            (timer_mode = 'chess' AND team_time_budget_seconds IS NOT NULL AND team_time_budget_seconds > 0)
+        );
+    END IF;
+END $$;
 
 -- Add index for timer_mode queries
 CREATE INDEX IF NOT EXISTS idx_drafts_timer_mode ON drafts(timer_mode);

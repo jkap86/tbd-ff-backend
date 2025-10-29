@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { bulkUpsertPlayers, getAllPlayers } from "../models/Player";
+import { bulkUpsertPlayers, getAllPlayers, getPlayersByIds } from "../models/Player";
 import https from "https";
 
 /**
@@ -124,6 +124,53 @@ export async function getPlayersHandler(
     res.status(500).json({
       success: false,
       message: error.message || "Error getting players",
+    });
+  }
+}
+
+/**
+ * Get multiple players by IDs (bulk fetch)
+ * POST /api/players/bulk
+ */
+export async function getPlayersBulkHandler(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const { player_ids } = req.body;
+
+    if (!Array.isArray(player_ids)) {
+      res.status(400).json({
+        success: false,
+        message: "player_ids must be an array",
+      });
+      return;
+    }
+
+    // Convert to numbers and filter out invalid values
+    const playerIds = player_ids
+      .map((id) => parseInt(id, 10))
+      .filter((id) => !isNaN(id));
+
+    if (playerIds.length === 0) {
+      res.status(200).json({
+        success: true,
+        data: [],
+      });
+      return;
+    }
+
+    const players = await getPlayersByIds(playerIds);
+
+    res.status(200).json({
+      success: true,
+      data: players,
+    });
+  } catch (error: any) {
+    console.error("Error getting players by IDs:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error getting players by IDs",
     });
   }
 }

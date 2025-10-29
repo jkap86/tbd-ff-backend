@@ -1088,6 +1088,37 @@ export async function resumeDraftHandler(
 }
 
 /**
+ * Manually trigger roster assignment from draft picks
+ * POST /api/drafts/:draftId/assign-rosters
+ */
+export async function assignRostersHandler(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const { draftId } = req.params;
+
+    console.log(`[AssignRostersHandler] Manually triggering roster assignment for draft ${draftId}`);
+
+    const { assignDraftedPlayersToRosters } = await import("../models/Draft");
+    await assignDraftedPlayersToRosters(parseInt(draftId));
+
+    console.log(`[AssignRostersHandler] Roster assignment completed successfully`);
+
+    res.status(200).json({
+      success: true,
+      message: "Rosters assigned successfully",
+    });
+  } catch (error: any) {
+    console.error("Error assigning rosters:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error assigning rosters",
+    });
+  }
+}
+
+/**
  * Reset draft - clears all picks and resets to not_started
  * POST /api/drafts/:draftId/reset
  */

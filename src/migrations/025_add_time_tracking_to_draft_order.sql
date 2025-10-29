@@ -19,10 +19,4 @@ COMMENT ON COLUMN draft_order.time_used_seconds IS 'Total time used in seconds b
 CREATE INDEX IF NOT EXISTS idx_draft_order_time_remaining ON draft_order(draft_id, time_remaining_seconds);
 
 -- Add check constraint to ensure time values are non-negative when set
-ALTER TABLE draft_order
-ADD CONSTRAINT check_time_remaining_non_negative
-CHECK (time_remaining_seconds IS NULL OR time_remaining_seconds >= 0);
 
-ALTER TABLE draft_order
-ADD CONSTRAINT check_time_used_non_negative
-CHECK (time_used_seconds >= 0);

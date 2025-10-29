@@ -12,6 +12,7 @@ import {
   pauseDraftHandler,
   resumeDraftHandler,
   resetDraftHandler,
+  assignRostersHandler,
 } from "../controllers/draftController";
 import {
   sendChatMessageHandler,
@@ -47,6 +48,9 @@ router.post("/:draftId/resume", authenticate, resumeDraftHandler);
 
 // POST /api/drafts/:draftId/reset - Reset draft (protected)
 router.post("/:draftId/reset", authenticate, resetDraftHandler);
+
+// POST /api/drafts/:draftId/assign-rosters - Manually assign drafted players to rosters (protected)
+router.post("/:draftId/assign-rosters", authenticate, assignRostersHandler);
 
 // POST /api/drafts/:draftId/pick - Make a draft pick (protected)
 router.post("/:draftId/pick", authenticate, makeDraftPickHandler);

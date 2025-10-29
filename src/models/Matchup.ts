@@ -280,7 +280,7 @@ export async function getMatchupDetailsWithScores(
     }
 
     // Use weekly lineup starters for roster1
-    if (roster1Data) {
+    if (roster1Data && roster1Lineup) {
       roster1Data.starters = roster1Lineup.starters;
     }
 
@@ -366,7 +366,7 @@ export async function getMatchupDetailsWithScores(
       }
 
       // Use weekly lineup starters for roster2
-      if (roster2Data) {
+      if (roster2Data && roster2Lineup) {
         roster2Data.starters = roster2Lineup.starters;
       }
 

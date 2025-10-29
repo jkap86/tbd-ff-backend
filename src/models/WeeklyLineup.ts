@@ -129,8 +129,27 @@ export async function getWeeklyLineupWithPlayers(
   try {
     const lineup = await getOrCreateWeeklyLineup(rosterId, week, season);
 
+    // Get current roster to validate players are still owned
+    const { getRosterById, rosterHasPlayer } = await import("./Roster");
+    const currentRoster = await getRosterById(rosterId);
+
+    if (!currentRoster) {
+      throw new Error("Roster not found");
+    }
+
+    // Validate and clean the lineup - remove players no longer on roster
+    const validatedStarters = await Promise.all(
+      lineup.starters.map(async (slot: RosterSlot) => {
+        if (slot.player_id && !(await rosterHasPlayer(currentRoster.id, slot.player_id))) {
+          console.log(`[WeeklyLineup] Player ${slot.player_id} no longer on roster ${rosterId}, clearing from ${slot.slot}`);
+          return { slot: slot.slot, player_id: null };
+        }
+        return slot;
+      })
+    );
+
     // Get player details for each starter
-    const starterPlayerIds = lineup.starters
+    const starterPlayerIds = validatedStarters
       .map((slot: RosterSlot) => slot.player_id)
       .filter((id): id is number => id !== null);
 
@@ -153,7 +172,7 @@ export async function getWeeklyLineupWithPlayers(
 
     return {
       ...lineup,
-      starters: lineup.starters.map((slot: RosterSlot) => ({
+      starters: validatedStarters.map((slot: RosterSlot) => ({
         slot: slot.slot,
         player: slot.player_id ? playerMap[slot.player_id] || null : null,
       })),

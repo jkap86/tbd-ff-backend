@@ -42,12 +42,18 @@ export async function createRoster(
 
     const starterSlots: RosterSlot[] = [];
     if (league && league.roster_positions) {
-      // Create slots for each position including bench
+      // Create slots only for scoring positions (exclude BN, TAXI, IR)
       league.roster_positions.forEach((rp: any) => {
+        const position = rp.position;
+        // Skip bench, taxi, and IR - these use arrays instead
+        if (position === 'BN' || position.startsWith('BN') ||
+            position === 'TAXI' || position === 'IR') {
+          return;
+        }
         const count = rp.count || 1;
         for (let i = 0; i < count; i++) {
           starterSlots.push({
-            slot: count > 1 ? `${rp.position}${i + 1}` : rp.position,
+            slot: count > 1 ? `${position}${i + 1}` : position,
             player_id: null,
           });
         }
@@ -174,7 +180,7 @@ export async function getRosterWithPlayers(rosterId: number): Promise<any | null
       return acc;
     }, {});
 
-    return {
+    const result = {
       ...roster,
       starters: (roster.starters || []).map((slot: any) => ({
         slot: slot.slot,
@@ -184,6 +190,13 @@ export async function getRosterWithPlayers(rosterId: number): Promise<any | null
       taxi: (roster.taxi || []).map((id: any) => playerMap[id] || null),
       ir: (roster.ir || []).map((id: any) => playerMap[id] || null),
     };
+
+    // Debug logging
+    const bnSlots = result.starters.filter((s: any) => s.slot?.startsWith('BN'));
+    const filledBnSlots = bnSlots.filter((s: any) => s.player !== null);
+    console.log(`[getRosterWithPlayers] Roster ${rosterId}: Total starters=${result.starters.length}, BN slots=${bnSlots.length}, Filled BN=${filledBnSlots.length}, Bench array=${result.bench.length}`);
+
+    return result;
   } catch (error) {
     console.error("Error getting roster with players:", error);
     throw new Error("Error getting roster with players");
@@ -662,10 +675,15 @@ export async function removePlayerFromRoster(
       throw new Error("Roster not found");
     }
 
+    console.log(`[RemovePlayer] Removing player ${playerId} from roster ${rosterId}`);
+    console.log(`[RemovePlayer] Starters before:`, roster.starters);
+    console.log(`[RemovePlayer] Bench before:`, roster.bench);
+
     // Check and remove from starters (slot-based)
     const starters = roster.starters || [];
     const updatedStarters = starters.map((slot: any) => {
       if (slot.player_id === playerId) {
+        console.log(`[RemovePlayer] Found player in slot ${slot.slot}, clearing`);
         return { ...slot, player_id: null };
       }
       return slot;
@@ -679,6 +697,9 @@ export async function removePlayerFromRoster(
 
     // Check and remove from IR
     const ir = (roster.ir || []).filter((id: number) => id !== playerId);
+
+    console.log(`[RemovePlayer] Starters after:`, updatedStarters);
+    console.log(`[RemovePlayer] Bench after:`, bench);
 
     return await updateRoster(rosterId, {
       starters: updatedStarters,

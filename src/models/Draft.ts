@@ -12,6 +12,8 @@ export interface Draft {
   pick_time_seconds: number;
   pick_deadline: Date | null;
   rounds: number;
+  timer_mode: "traditional" | "chess";
+  team_time_budget_seconds: number | null;
   started_at: Date | null;
   completed_at: Date | null;
   settings: any;
@@ -28,15 +30,27 @@ export async function createDraft(draftData: {
   third_round_reversal?: boolean;
   pick_time_seconds?: number;
   rounds?: number;
+  timer_mode?: "traditional" | "chess";
+  team_time_budget_seconds?: number;
   settings?: any;
 }): Promise<Draft> {
   try {
+    // Validate chess timer mode requirements
+    const timerMode = draftData.timer_mode || "traditional";
+    const timeBudget = draftData.team_time_budget_seconds;
+
+    if (timerMode === "chess" && (!timeBudget || timeBudget <= 0)) {
+      throw new Error("Chess timer mode requires a positive team_time_budget_seconds value");
+    }
+
+    console.log(`[Draft] Creating draft with timer_mode: ${timerMode}, budget: ${timeBudget || 'N/A'}`);
+
     const query = `
       INSERT INTO drafts (
         league_id, draft_type, third_round_reversal, pick_time_seconds,
-        rounds, settings
+        rounds, timer_mode, team_time_budget_seconds, settings
       )
-      VALUES ($1, $2, $3, $4, $5, $6)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
     `;
 
@@ -46,6 +60,8 @@ export async function createDraft(draftData: {
       draftData.third_round_reversal || false,
       draftData.pick_time_seconds || 90,
       draftData.rounds || 15,
+      timerMode,
+      timeBudget || null,
       JSON.stringify(draftData.settings || {}),
     ]);
 
@@ -58,7 +74,12 @@ export async function createDraft(draftData: {
       throw new Error("Draft already exists for this league");
     }
 
-    throw new Error("Error creating draft");
+    // Check for check constraint violation (chess mode without budget)
+    if (error.code === "23514") {
+      throw new Error("Chess timer mode requires a valid team time budget");
+    }
+
+    throw error;
   }
 }
 

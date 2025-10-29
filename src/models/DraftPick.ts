@@ -11,6 +11,7 @@ export interface DraftPick {
   is_auto_pick: boolean;
   picked_at: Date;
   pick_time_seconds: number | null;
+  pick_started_at: Date | null;
   created_at: Date;
 }
 
@@ -26,14 +27,15 @@ export async function createDraftPick(pickData: {
   player_id: number;
   is_auto_pick?: boolean;
   pick_time_seconds?: number;
+  pick_started_at?: Date;
 }): Promise<DraftPick> {
   try {
     const query = `
       INSERT INTO draft_picks (
         draft_id, pick_number, round, pick_in_round,
-        roster_id, player_id, is_auto_pick, pick_time_seconds
+        roster_id, player_id, is_auto_pick, pick_time_seconds, pick_started_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
     `;
 
@@ -46,6 +48,7 @@ export async function createDraftPick(pickData: {
       pickData.player_id,
       pickData.is_auto_pick || false,
       pickData.pick_time_seconds || null,
+      pickData.pick_started_at || null,
     ]);
 
     return result.rows[0];

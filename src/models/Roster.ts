@@ -541,3 +541,202 @@ export async function clearAllRosterLineups(leagueId: number): Promise<void> {
     throw new Error("Error clearing roster lineups");
   }
 }
+
+/**
+ * Get FAAB budget for a roster
+ */
+export async function getRosterFAAB(rosterId: number): Promise<number> {
+  try {
+    const query = `SELECT faab_budget FROM rosters WHERE id = $1`;
+    const result = await pool.query(query, [rosterId]);
+
+    if (result.rows.length === 0) {
+      throw new Error("Roster not found");
+    }
+
+    return result.rows[0].faab_budget || 0;
+  } catch (error: any) {
+    console.error("Error getting roster FAAB:", error);
+    throw new Error("Error getting roster FAAB");
+  }
+}
+
+/**
+ * Update FAAB budget for a roster
+ */
+export async function updateFAAB(rosterId: number, amount: number): Promise<Roster | null> {
+  try {
+    const query = `
+      UPDATE rosters
+      SET faab_budget = $1,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [amount, rosterId]);
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return result.rows[0];
+  } catch (error: any) {
+    console.error("Error updating FAAB:", error);
+    throw new Error("Error updating FAAB");
+  }
+}
+
+/**
+ * Deduct FAAB from a roster (for waiver claims)
+ */
+export async function deductFAAB(rosterId: number, amount: number): Promise<Roster | null> {
+  try {
+    // Get current FAAB first
+    const currentFAAB = await getRosterFAAB(rosterId);
+
+    if (currentFAAB < amount) {
+      throw new Error("Insufficient FAAB budget");
+    }
+
+    const newFAAB = currentFAAB - amount;
+    return await updateFAAB(rosterId, newFAAB);
+  } catch (error: any) {
+    console.error("Error deducting FAAB:", error);
+    throw error;
+  }
+}
+
+/**
+ * Add a player to a roster (to starters, bench, taxi, or IR)
+ */
+export async function addPlayerToRoster(
+  rosterId: number,
+  playerId: number,
+  location: "starters" | "bench" | "taxi" | "ir" = "bench"
+): Promise<Roster | null> {
+  try {
+    const roster = await getRosterById(rosterId);
+    if (!roster) {
+      throw new Error("Roster not found");
+    }
+
+    // Add to the specified location
+    if (location === "bench") {
+      const bench = roster.bench || [];
+      if (!bench.includes(playerId)) {
+        bench.push(playerId);
+        return await updateRoster(rosterId, { bench });
+      }
+    } else if (location === "taxi") {
+      const taxi = roster.taxi || [];
+      if (!taxi.includes(playerId)) {
+        taxi.push(playerId);
+        return await updateRoster(rosterId, { taxi });
+      }
+    } else if (location === "ir") {
+      const ir = roster.ir || [];
+      if (!ir.includes(playerId)) {
+        ir.push(playerId);
+        return await updateRoster(rosterId, { ir });
+      }
+    }
+
+    return roster;
+  } catch (error: any) {
+    console.error("Error adding player to roster:", error);
+    throw new Error("Error adding player to roster");
+  }
+}
+
+/**
+ * Remove a player from a roster (from starters, bench, taxi, or IR)
+ */
+export async function removePlayerFromRoster(
+  rosterId: number,
+  playerId: number
+): Promise<Roster | null> {
+  try {
+    const roster = await getRosterById(rosterId);
+    if (!roster) {
+      throw new Error("Roster not found");
+    }
+
+    // Check and remove from starters (slot-based)
+    const starters = roster.starters || [];
+    const updatedStarters = starters.map((slot: any) => {
+      if (slot.player_id === playerId) {
+        return { ...slot, player_id: null };
+      }
+      return slot;
+    });
+
+    // Check and remove from bench
+    const bench = (roster.bench || []).filter((id: number) => id !== playerId);
+
+    // Check and remove from taxi
+    const taxi = (roster.taxi || []).filter((id: number) => id !== playerId);
+
+    // Check and remove from IR
+    const ir = (roster.ir || []).filter((id: number) => id !== playerId);
+
+    return await updateRoster(rosterId, {
+      starters: updatedStarters,
+      bench,
+      taxi,
+      ir,
+    });
+  } catch (error: any) {
+    console.error("Error removing player from roster:", error);
+    throw new Error("Error removing player from roster");
+  }
+}
+
+/**
+ * Check if a roster has a specific player
+ */
+export async function rosterHasPlayer(rosterId: number, playerId: number): Promise<boolean> {
+  try {
+    const roster = await getRosterById(rosterId);
+    if (!roster) {
+      return false;
+    }
+
+    // Check starters (slot-based)
+    const starterPlayerIds = (roster.starters || [])
+      .map((slot: any) => slot.player_id)
+      .filter((id: any) => id != null);
+
+    const hasInStarters = starterPlayerIds.includes(playerId);
+    const hasInBench = (roster.bench || []).includes(playerId);
+    const hasInTaxi = (roster.taxi || []).includes(playerId);
+    const hasInIR = (roster.ir || []).includes(playerId);
+
+    return hasInStarters || hasInBench || hasInTaxi || hasInIR;
+  } catch (error: any) {
+    console.error("Error checking if roster has player:", error);
+    throw new Error("Error checking if roster has player");
+  }
+}
+
+/**
+ * Get total roster size (starters + bench + taxi + IR)
+ */
+export async function getRosterSize(rosterId: number): Promise<number> {
+  try {
+    const roster = await getRosterById(rosterId);
+    if (!roster) {
+      return 0;
+    }
+
+    const starterCount = (roster.starters || []).filter((slot: any) => slot.player_id != null).length;
+    const benchCount = (roster.bench || []).length;
+    const taxiCount = (roster.taxi || []).length;
+    const irCount = (roster.ir || []).length;
+
+    return starterCount + benchCount + taxiCount + irCount;
+  } catch (error: any) {
+    console.error("Error getting roster size:", error);
+    throw new Error("Error getting roster size");
+  }
+}

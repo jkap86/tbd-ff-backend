@@ -20,12 +20,15 @@ import nflRoutes from "./routes/nflRoutes";
 import { setupDraftSocket } from "./socket/draftSocket";
 import { setupLeagueSocket } from "./socket/leagueSocket";
 import { setupMatchupSocket } from "./socket/matchupSocket";
+import { setupWaiverSocket } from "./socket/waiverSocket";
 import { stopAllAutoPickMonitoring } from "./services/autoPickService";
 import { startScoreScheduler, stopScoreScheduler } from "./services/scoreScheduler";
 import { startLiveScoreUpdates, stopLiveScoreUpdates } from "./services/liveScoreService";
 import { startDraftScheduler } from "./services/draftScheduler";
 import { startStatsPreloader } from "./services/statsPreloader";
 import { startTokenCleanupScheduler, stopTokenCleanupScheduler } from "./services/tokenCleanupService";
+import { startWaiverScheduler } from "./services/waiverScheduler";
+import waiverRoutes from "./routes/waiverRoutes";
 import { globalApiLimiter } from "./middleware/rateLimiter";
 
 // Load environment variables
@@ -42,10 +45,11 @@ const io = new Server(httpServer, {
 
 const PORT = process.env.PORT || 3000;
 
-// Setup Socket.io for draft, league, and matchup events
+// Setup Socket.io for draft, league, matchup, and waiver events
 setupDraftSocket(io);
 setupLeagueSocket(io);
 setupMatchupSocket(io);
+setupWaiverSocket(io);
 
 // Make io available globally for controllers
 export { io };
@@ -82,6 +86,7 @@ app.use("/api/rosters", rosterRoutes);
 app.use("/api/matchups", matchupRoutes);
 app.use("/api/weekly-lineups", weeklyLineupRoutes);
 app.use("/api/nfl", nflRoutes);
+app.use("/api", waiverRoutes);
 
 // Protected route example (to test authentication)
 app.get("/api/profile", authenticate, (req: Request, res: Response) => {
@@ -133,6 +138,9 @@ httpServer.listen(PORT, () => {
 
   // Start token cleanup scheduler (removes expired password reset tokens)
   startTokenCleanupScheduler();
+
+  // Start waiver scheduler (processes waivers daily at 3 AM UTC)
+  startWaiverScheduler();
 });
 
 // Graceful shutdown

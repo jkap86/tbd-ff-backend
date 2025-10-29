@@ -6,6 +6,8 @@ export interface DraftOrder {
   roster_id: number;
   draft_position: number;
   is_autodrafting: boolean;
+  time_remaining_seconds: number | null;
+  time_used_seconds: number;
   created_at: Date;
 }
 
@@ -211,5 +213,132 @@ export async function toggleAutodraft(
   } catch (error) {
     console.error("Error toggling autodraft:", error);
     throw new Error("Error toggling autodraft");
+  }
+}
+
+/**
+ * Initialize chess timer budgets for all rosters in a draft
+ * Called when a chess mode draft is started
+ */
+export async function initializeChessTimerBudgets(
+  draftId: number,
+  budgetSeconds: number
+): Promise<void> {
+  try {
+    console.log(`[DraftOrder] Initializing chess timer budgets for draft ${draftId}: ${budgetSeconds}s per team`);
+
+    const query = `
+      UPDATE draft_order
+      SET time_remaining_seconds = $1,
+          time_used_seconds = 0
+      WHERE draft_id = $2
+    `;
+
+    const result = await pool.query(query, [budgetSeconds, draftId]);
+
+    console.log(`[DraftOrder] Initialized ${result.rowCount} rosters with ${budgetSeconds}s budget`);
+  } catch (error) {
+    console.error("Error initializing chess timer budgets:", error);
+    throw new Error("Error initializing chess timer budgets");
+  }
+}
+
+/**
+ * Update a roster's time remaining after a pick
+ * Deducts time used and updates time_used_seconds
+ */
+export async function updateRosterTimeRemaining(
+  draftId: number,
+  rosterId: number,
+  timeUsedSeconds: number
+): Promise<DraftOrder | null> {
+  try {
+    console.log(`[DraftOrder] Updating time for roster ${rosterId} in draft ${draftId}: -${timeUsedSeconds}s`);
+
+    const query = `
+      UPDATE draft_order
+      SET time_remaining_seconds = GREATEST(0, time_remaining_seconds - $1),
+          time_used_seconds = time_used_seconds + $1
+      WHERE draft_id = $2 AND roster_id = $3
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [timeUsedSeconds, draftId, rosterId]);
+
+    if (result.rows.length === 0) {
+      console.error(`[DraftOrder] Roster ${rosterId} not found in draft ${draftId}`);
+      return null;
+    }
+
+    const updatedOrder = result.rows[0];
+    console.log(`[DraftOrder] Time updated for roster ${rosterId}: ${updatedOrder.time_remaining_seconds}s remaining, ${updatedOrder.time_used_seconds}s used`);
+
+    return updatedOrder;
+  } catch (error) {
+    console.error("Error updating roster time remaining:", error);
+    throw new Error("Error updating roster time remaining");
+  }
+}
+
+/**
+ * Adjust a roster's time budget (commissioner override)
+ * Can be positive (add time) or negative (remove time)
+ */
+export async function adjustRosterTime(
+  draftId: number,
+  rosterId: number,
+  timeAdjustmentSeconds: number
+): Promise<DraftOrder | null> {
+  try {
+    console.log(`[DraftOrder] Commissioner adjusting time for roster ${rosterId}: ${timeAdjustmentSeconds > 0 ? '+' : ''}${timeAdjustmentSeconds}s`);
+
+    const query = `
+      UPDATE draft_order
+      SET time_remaining_seconds = GREATEST(0, time_remaining_seconds + $1)
+      WHERE draft_id = $2 AND roster_id = $3
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [timeAdjustmentSeconds, draftId, rosterId]);
+
+    if (result.rows.length === 0) {
+      console.error(`[DraftOrder] Roster ${rosterId} not found in draft ${draftId}`);
+      return null;
+    }
+
+    const updatedOrder = result.rows[0];
+    console.log(`[DraftOrder] Time adjusted for roster ${rosterId}: ${updatedOrder.time_remaining_seconds}s remaining`);
+
+    return updatedOrder;
+  } catch (error) {
+    console.error("Error adjusting roster time:", error);
+    throw new Error("Error adjusting roster time");
+  }
+}
+
+/**
+ * Get time remaining for a specific roster
+ */
+export async function getRosterTimeRemaining(
+  draftId: number,
+  rosterId: number
+): Promise<number | null> {
+  try {
+    const query = `
+      SELECT time_remaining_seconds
+      FROM draft_order
+      WHERE draft_id = $1 AND roster_id = $2
+    `;
+
+    const result = await pool.query(query, [draftId, rosterId]);
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return result.rows[0].time_remaining_seconds;
+  } catch (error) {
+    console.error("Error getting roster time remaining:", error);
+    throw new Error("Error getting roster time remaining");
   }
 }

@@ -178,6 +178,42 @@ export async function acceptTradeController(req: Request, res: Response) {
     // Emit socket event
     if (tradeWithDetails) {
       emitTradeProcessed(io, tradeWithDetails.league_id, tradeWithDetails);
+
+      // Post trade completion to league chat with details
+      const proposerTeamName = tradeWithDetails.proposer_team_name || `Team ${tradeWithDetails.proposer_roster_id}`;
+      const receiverTeamName = tradeWithDetails.receiver_team_name || `Team ${tradeWithDetails.receiver_roster_id}`;
+
+      const chatMessageText = `Trade completed between ${proposerTeamName} and ${receiverTeamName}`;
+      const metadata = {
+        trade_id: tradeWithDetails.id,
+        show_details: true,
+        trade_details: {
+          proposer_team: proposerTeamName,
+          receiver_team: receiverTeamName,
+          proposer_roster_id: tradeWithDetails.proposer_roster_id,
+          receiver_roster_id: tradeWithDetails.receiver_roster_id,
+          items: tradeWithDetails.items || [],
+        },
+      };
+
+      const chatMessage = await createLeagueChatMessage({
+        league_id: tradeWithDetails.league_id,
+        user_id: null as any, // System message
+        message: chatMessageText,
+        message_type: "system",
+        metadata,
+      });
+
+      // Broadcast to league room
+      const roomName = `league_${tradeWithDetails.league_id}`;
+      io.to(roomName).emit("league_chat_message", {
+        ...chatMessage,
+        username: "System",
+        // Parse metadata if it's a string (from DB)
+        metadata: typeof chatMessage.metadata === 'string'
+          ? JSON.parse(chatMessage.metadata)
+          : chatMessage.metadata,
+      });
     }
 
     return res.status(200).json({

@@ -3,7 +3,7 @@ import pool from "../config/database";
 export interface Draft {
   id: number;
   league_id: number;
-  draft_type: "snake" | "linear";
+  draft_type: "snake" | "linear" | "auction" | "slow_auction";
   third_round_reversal: boolean;
   status: "not_started" | "in_progress" | "paused" | "completed";
   current_pick: number;
@@ -14,6 +14,12 @@ export interface Draft {
   rounds: number;
   timer_mode: "traditional" | "chess";
   team_time_budget_seconds: number | null;
+  // Auction-specific fields
+  starting_budget: number;
+  min_bid: number;
+  max_simultaneous_nominations: number;
+  nomination_timer_hours: number | null;
+  reserve_budget_per_slot: boolean;
   started_at: Date | null;
   completed_at: Date | null;
   settings: any;
@@ -26,12 +32,18 @@ export interface Draft {
  */
 export async function createDraft(draftData: {
   league_id: number;
-  draft_type: "snake" | "linear";
+  draft_type: "snake" | "linear" | "auction" | "slow_auction";
   third_round_reversal?: boolean;
   pick_time_seconds?: number;
   rounds?: number;
   timer_mode?: "traditional" | "chess";
   team_time_budget_seconds?: number;
+  // Auction-specific settings
+  starting_budget?: number;
+  min_bid?: number;
+  max_simultaneous_nominations?: number;
+  nomination_timer_hours?: number;
+  reserve_budget_per_slot?: boolean;
   settings?: any;
 }): Promise<Draft> {
   try {
@@ -43,14 +55,16 @@ export async function createDraft(draftData: {
       throw new Error("Chess timer mode requires a positive team_time_budget_seconds value");
     }
 
-    console.log(`[Draft] Creating draft with timer_mode: ${timerMode}, budget: ${timeBudget || 'N/A'}`);
+    console.log(`[Draft] Creating draft with timer_mode: ${timerMode}, budget: ${timeBudget || 'N/A'}, type: ${draftData.draft_type}`);
 
     const query = `
       INSERT INTO drafts (
         league_id, draft_type, third_round_reversal, pick_time_seconds,
-        rounds, timer_mode, team_time_budget_seconds, settings
+        rounds, timer_mode, team_time_budget_seconds,
+        starting_budget, min_bid, max_simultaneous_nominations,
+        nomination_timer_hours, reserve_budget_per_slot, settings
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `;
 
@@ -62,6 +76,11 @@ export async function createDraft(draftData: {
       draftData.rounds || 15,
       timerMode,
       timeBudget || null,
+      draftData.starting_budget || 200,
+      draftData.min_bid || 1,
+      draftData.max_simultaneous_nominations || 1,
+      draftData.nomination_timer_hours || null,
+      draftData.reserve_budget_per_slot || false,
       JSON.stringify(draftData.settings || {}),
     ]);
 

@@ -44,9 +44,13 @@ import { checkAndAutoPauseDraft } from "../services/draftScheduler";
 export function calculateCurrentRoster(
   pickNumber: number,
   totalRosters: number,
-  draftType: "snake" | "linear",
+  draftType: "snake" | "linear" | "auction" | "slow_auction",
   thirdRoundReversal: boolean
-): { round: number; pickInRound: number; draftPosition: number } {
+): { round: number; pickInRound: number; draftPosition: number} {
+  // Auction drafts don't use traditional pick order
+  if (draftType === "auction" || draftType === "slow_auction") {
+    return { round: 1, pickInRound: 1, draftPosition: 1 };
+  }
   const round = Math.ceil(pickNumber / totalRosters);
   const pickInRound = ((pickNumber - 1) % totalRosters) + 1;
 

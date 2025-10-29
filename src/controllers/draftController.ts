@@ -92,6 +92,8 @@ export async function createDraftHandler(
       third_round_reversal = false,
       pick_time_seconds = 90,
       rounds = 15,
+      timer_mode = "traditional",
+      team_time_budget_seconds,
       settings = {},
     } = req.body;
 
@@ -111,6 +113,26 @@ export async function createDraftHandler(
         message: "Draft type must be 'snake' or 'linear'",
       });
       return;
+    }
+
+    // Validate timer mode
+    if (!["traditional", "chess"].includes(timer_mode)) {
+      res.status(400).json({
+        success: false,
+        message: "Timer mode must be 'traditional' or 'chess'",
+      });
+      return;
+    }
+
+    // Validate chess timer requirements
+    if (timer_mode === "chess") {
+      if (!team_time_budget_seconds || team_time_budget_seconds <= 0) {
+        res.status(400).json({
+          success: false,
+          message: "Chess timer mode requires a positive team_time_budget_seconds value",
+        });
+        return;
+      }
     }
 
     // Check if league exists
@@ -140,6 +162,8 @@ export async function createDraftHandler(
       third_round_reversal,
       pick_time_seconds,
       rounds,
+      timer_mode,
+      team_time_budget_seconds,
       settings,
     });
 

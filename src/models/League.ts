@@ -11,6 +11,8 @@ export interface League {
   league_type: string; // redraft, keeper, dynasty
   roster_positions: any;
   total_rosters: number;
+  trade_notification_setting: 'always_off' | 'always_on' | 'proposer_choice';
+  trade_details_setting: 'always_off' | 'always_on' | 'proposer_choice';
   created_at: Date;
   updated_at: Date;
 }

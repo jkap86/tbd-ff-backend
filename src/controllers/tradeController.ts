@@ -18,6 +18,7 @@ import {
   getTradeWithDetails,
 } from "../models/Trade";
 import { createLeagueChatMessage } from "../models/LeagueChatMessage";
+import { getLeagueById } from "../models/League";
 
 /**
  * Propose a new trade
@@ -62,6 +63,30 @@ export async function proposeTradeController(req: Request, res: Response) {
         .json({ error: "Trade must include at least one player" });
     }
 
+    // Get league settings to check trade notification preferences
+    const league = await getLeagueById(league_id);
+    if (!league) {
+      return res.status(404).json({ error: "League not found" });
+    }
+
+    // Determine final notification settings based on league preferences
+    let finalNotifyChat = notify_league_chat;
+    let finalShowDetails = show_proposal_details;
+
+    if (league.trade_notification_setting === 'always_off') {
+      finalNotifyChat = false;
+    } else if (league.trade_notification_setting === 'always_on') {
+      finalNotifyChat = true;
+    }
+    // else 'proposer_choice' - use the proposer's preference
+
+    if (league.trade_details_setting === 'always_off') {
+      finalShowDetails = false;
+    } else if (league.trade_details_setting === 'always_on') {
+      finalShowDetails = true;
+    }
+    // else 'proposer_choice' - use the proposer's preference
+
     const trade = await proposeTrade({
       league_id,
       proposer_roster_id: proposerRosterId,
@@ -82,7 +107,7 @@ export async function proposeTradeController(req: Request, res: Response) {
     emitTradeProposed(io, league_id, tradeWithDetails);
 
     // Send league chat notification if enabled
-    if (notify_league_chat) {
+    if (finalNotifyChat) {
       const proposerTeamName = tradeWithDetails.proposer_team_name || `Team ${tradeWithDetails.proposer_roster_id}`;
       const receiverTeamName = tradeWithDetails.receiver_team_name || `Team ${tradeWithDetails.receiver_roster_id}`;
 
@@ -90,7 +115,7 @@ export async function proposeTradeController(req: Request, res: Response) {
       let metadata: any = { trade_id: tradeWithDetails.id };
 
       // Include trade details in metadata if requested
-      if (show_proposal_details) {
+      if (finalShowDetails) {
         metadata.show_details = true;
         metadata.trade_details = {
           proposer_team: proposerTeamName,

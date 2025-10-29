@@ -20,6 +20,7 @@ import {
   sendLeagueChatMessageHandler,
   getLeagueChatMessagesHandler,
 } from "../controllers/leagueChatController";
+import { getLeagueTradesController } from "../controllers/tradeController";
 
 const router = Router();
 
@@ -103,5 +104,9 @@ router.post("/:leagueId/reset", authenticate, resetLeagueHandler);
  * DELETE /api/leagues/:leagueId
  */
 router.delete("/:leagueId", authenticate, deleteLeagueHandler);
+
+
+// GET /api/leagues/:id/trades - Get all trades for a league
+router.get("/:id/trades", getLeagueTradesController);
 
 export default router;

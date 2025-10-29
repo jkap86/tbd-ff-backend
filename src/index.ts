@@ -21,6 +21,7 @@ import { setupDraftSocket } from "./socket/draftSocket";
 import { setupLeagueSocket } from "./socket/leagueSocket";
 import { setupMatchupSocket } from "./socket/matchupSocket";
 import { setupWaiverSocket } from "./socket/waiverSocket";
+import { setupTradeSocket } from "./socket/tradeSocket";
 import { stopAllAutoPickMonitoring } from "./services/autoPickService";
 import { startScoreScheduler, stopScoreScheduler } from "./services/scoreScheduler";
 import { startLiveScoreUpdates, stopLiveScoreUpdates } from "./services/liveScoreService";
@@ -29,6 +30,7 @@ import { startStatsPreloader } from "./services/statsPreloader";
 import { startTokenCleanupScheduler, stopTokenCleanupScheduler } from "./services/tokenCleanupService";
 import { startWaiverScheduler } from "./services/waiverScheduler";
 import waiverRoutes from "./routes/waiverRoutes";
+import tradeRoutes from "./routes/tradeRoutes";
 import { globalApiLimiter } from "./middleware/rateLimiter";
 
 // Load environment variables
@@ -50,6 +52,7 @@ setupDraftSocket(io);
 setupLeagueSocket(io);
 setupMatchupSocket(io);
 setupWaiverSocket(io);
+setupTradeSocket(io);
 
 // Make io available globally for controllers
 export { io };
@@ -87,6 +90,7 @@ app.use("/api/matchups", matchupRoutes);
 app.use("/api/weekly-lineups", weeklyLineupRoutes);
 app.use("/api/nfl", nflRoutes);
 app.use("/api", waiverRoutes);
+app.use("/api/trades", tradeRoutes);
 
 // Protected route example (to test authentication)
 app.get("/api/profile", authenticate, (req: Request, res: Response) => {

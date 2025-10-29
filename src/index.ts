@@ -22,6 +22,7 @@ import { setupLeagueSocket } from "./socket/leagueSocket";
 import { setupMatchupSocket } from "./socket/matchupSocket";
 import { setupWaiverSocket } from "./socket/waiverSocket";
 import { setupTradeSocket } from "./socket/tradeSocket";
+import { setupAuctionSocket } from "./socket/auctionSocket";
 import { stopAllAutoPickMonitoring } from "./services/autoPickService";
 import { startScoreScheduler, stopScoreScheduler } from "./services/scoreScheduler";
 import { startLiveScoreUpdates, stopLiveScoreUpdates } from "./services/liveScoreService";
@@ -48,12 +49,13 @@ const io = new Server(httpServer, {
 
 const PORT = process.env.PORT || 3000;
 
-// Setup Socket.io for draft, league, matchup, and waiver events
+// Setup Socket.io for draft, league, matchup, waiver, trade, and auction events
 setupDraftSocket(io);
 setupLeagueSocket(io);
 setupMatchupSocket(io);
 setupWaiverSocket(io);
 setupTradeSocket(io);
+setupAuctionSocket(io);
 
 // Make io available globally for controllers
 export { io };

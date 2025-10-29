@@ -108,9 +108,18 @@ async function checkAndUpdateDraftStatuses(): Promise<void> {
           `[DraftScheduler] Auto-resuming draft ${draft.id} after overnight pause`
         );
 
-        // Reset pick deadline when resuming
-        const pickDeadline = new Date();
-        pickDeadline.setSeconds(pickDeadline.getSeconds() + draft.pick_time_seconds);
+        // Calculate pick deadline based on timer mode
+        let pickDeadline = new Date();
+
+        if (draft.timer_mode === 'chess') {
+          // Chess timer mode: Set reasonable buffer to prevent immediate auto-pick
+          // The actual chess timer deadline should be managed separately
+          pickDeadline.setSeconds(pickDeadline.getSeconds() + 300); // 5 min buffer
+          console.log(`[DraftScheduler] Chess mode: Resuming with buffer time`);
+        } else {
+          // Traditional mode: Use standard pick time
+          pickDeadline.setSeconds(pickDeadline.getSeconds() + draft.pick_time_seconds);
+        }
 
         const updatedDraft = await updateDraft(draft.id, {
           status: "in_progress",

@@ -224,7 +224,7 @@ export async function updateDraftSettingsHandler(
 ): Promise<void> {
   try {
     const { draftId } = req.params;
-    const { draft_type, third_round_reversal, pick_time_seconds, rounds, settings } = req.body;
+    const { draft_type, third_round_reversal, pick_time_seconds, rounds, timer_mode, team_time_budget_seconds, settings } = req.body;
 
     const draft = await getDraftById(parseInt(draftId));
     if (!draft) {
@@ -237,11 +237,32 @@ export async function updateDraftSettingsHandler(
 
     // Only allow core draft settings updates if draft hasn't started
     // But allow settings (like overnight pause) to be updated anytime
-    const isCoreSettingsUpdate = draft_type || typeof third_round_reversal === 'boolean' || pick_time_seconds || rounds;
+    const isCoreSettingsUpdate = draft_type || typeof third_round_reversal === 'boolean' || pick_time_seconds || rounds || timer_mode || team_time_budget_seconds;
     if (isCoreSettingsUpdate && draft.status !== "not_started") {
       res.status(400).json({
         success: false,
-        message: "Cannot update draft type, rounds, or timer after draft has started",
+        message: "Cannot update draft type, rounds, or timer settings after draft has started",
+      });
+      return;
+    }
+
+    // Validate timer mode if provided
+    if (timer_mode && !["traditional", "chess"].includes(timer_mode)) {
+      res.status(400).json({
+        success: false,
+        message: "Timer mode must be 'traditional' or 'chess'",
+      });
+      return;
+    }
+
+    // Validate chess timer requirements
+    const finalTimerMode = timer_mode || draft.timer_mode;
+    const finalTimeBudget = team_time_budget_seconds !== undefined ? team_time_budget_seconds : draft.team_time_budget_seconds;
+
+    if (finalTimerMode === "chess" && (!finalTimeBudget || finalTimeBudget <= 0)) {
+      res.status(400).json({
+        success: false,
+        message: "Chess timer mode requires a positive team_time_budget_seconds value",
       });
       return;
     }
@@ -280,6 +301,8 @@ export async function updateDraftSettingsHandler(
     if (typeof third_round_reversal === 'boolean') updates.third_round_reversal = third_round_reversal;
     if (pick_time_seconds) updates.pick_time_seconds = pick_time_seconds;
     if (rounds) updates.rounds = rounds;
+    if (timer_mode) updates.timer_mode = timer_mode;
+    if (team_time_budget_seconds !== undefined) updates.team_time_budget_seconds = team_time_budget_seconds;
     if (settings) updates.settings = settings;
 
     const updatedDraft = await updateDraft(parseInt(draftId), updates);

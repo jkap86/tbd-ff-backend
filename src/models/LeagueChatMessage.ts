@@ -3,7 +3,7 @@ import pool from "../config/database";
 export interface LeagueChatMessage {
   id: number;
   league_id: number;
-  user_id: number;
+  user_id: number | null; // Null for system messages
   message: string;
   message_type: "chat" | "system";
   metadata: any;
@@ -15,7 +15,7 @@ export interface LeagueChatMessage {
  */
 export async function createLeagueChatMessage(messageData: {
   league_id: number;
-  user_id: number;
+  user_id: number | null; // Null for system messages
   message: string;
   message_type?: "chat" | "system";
   metadata?: any;
@@ -78,9 +78,9 @@ export async function getLeagueChatMessagesWithDetails(
     const query = `
       SELECT
         lcm.*,
-        u.username
+        COALESCE(u.username, 'System') as username
       FROM league_chat_messages lcm
-      JOIN users u ON lcm.user_id = u.id
+      LEFT JOIN users u ON lcm.user_id = u.id
       WHERE lcm.league_id = $1
       ORDER BY lcm.created_at DESC
       LIMIT $2
@@ -105,9 +105,9 @@ export async function getLeagueChatMessagesSince(
     const query = `
       SELECT
         lcm.*,
-        u.username
+        COALESCE(u.username, 'System') as username
       FROM league_chat_messages lcm
-      JOIN users u ON lcm.user_id = u.id
+      LEFT JOIN users u ON lcm.user_id = u.id
       WHERE lcm.league_id = $1 AND lcm.created_at > $2
       ORDER BY lcm.created_at ASC
     `;

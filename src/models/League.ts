@@ -332,6 +332,8 @@ export async function updateLeagueSettings(
     settings?: LeagueSettings;
     scoring_settings?: ScoringSettings;
     roster_positions?: RosterPosition[];
+    trade_notification_setting?: string;
+    trade_details_setting?: string;
   }
 ): Promise<League | null> {
   try {
@@ -389,6 +391,18 @@ export async function updateLeagueSettings(
     if (updates.roster_positions !== undefined) {
       fields.push(`roster_positions = $${paramCount}`);
       values.push(JSON.stringify(updates.roster_positions || []));
+      paramCount++;
+    }
+
+    if (updates.trade_notification_setting !== undefined) {
+      fields.push(`trade_notification_setting = $${paramCount}`);
+      values.push(updates.trade_notification_setting);
+      paramCount++;
+    }
+
+    if (updates.trade_details_setting !== undefined) {
+      fields.push(`trade_details_setting = $${paramCount}`);
+      values.push(updates.trade_details_setting);
       paramCount++;
     }
 

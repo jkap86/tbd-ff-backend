@@ -422,6 +422,8 @@ export async function updateLeagueSettingsHandler(
       settings,
       scoring_settings,
       roster_positions,
+      trade_notification_setting,
+      trade_details_setting,
     } = req.body;
 
     if (isNaN(leagueId)) {
@@ -530,6 +532,8 @@ export async function updateLeagueSettingsHandler(
       settings,
       scoring_settings,
       roster_positions,
+      trade_notification_setting,
+      trade_details_setting,
     });
 
     if (!updatedLeague) {

@@ -1,5 +1,19 @@
 import pool from "../config/database";
 
+export type PlayoffRound =
+  | "wildcard"
+  | "quarterfinal"
+  | "semifinal"
+  | "final"
+  | "third_place";
+
+export type TiebreakerMethod =
+  | "bench_points"
+  | "season_points_for"
+  | "h2h_record"
+  | "higher_seed"
+  | "manual";
+
 export interface Matchup {
   id: number;
   league_id: number;
@@ -12,6 +26,17 @@ export interface Matchup {
   status: "scheduled" | "in_progress" | "completed";
   created_at: Date;
   updated_at: Date;
+  // Playoff fields
+  is_playoff: boolean;
+  playoff_round: PlayoffRound | null;
+  bracket_position: string | null;
+  is_championship: boolean;
+  is_consolation: boolean;
+  seed1: number | null;
+  seed2: number | null;
+  tiebreaker_used: string | null;
+  tiebreaker_notes: string | null;
+  manual_winner_selected_by: number | null;
 }
 
 export interface MatchupWithRosters extends Matchup {
@@ -19,6 +44,13 @@ export interface MatchupWithRosters extends Matchup {
   roster1_username?: string;
   roster2_team_name?: string;
   roster2_username?: string;
+}
+
+export interface PlayoffMatchup extends Matchup {
+  is_playoff: true;
+  playoff_round: PlayoffRound;
+  seed1: number;
+  seed2: number | null; // null for bye week
 }
 
 /**

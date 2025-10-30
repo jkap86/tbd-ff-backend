@@ -33,6 +33,7 @@ import { startWaiverScheduler } from "./services/waiverScheduler";
 import waiverRoutes from "./routes/waiverRoutes";
 import tradeRoutes from "./routes/tradeRoutes";
 import auctionRoutes from "./routes/auctionRoutes";
+import playoffRoutes from "./routes/playoffRoutes";
 import { globalApiLimiter } from "./middleware/rateLimiter";
 import { checkDatabaseHealth } from "./config/database";
 
@@ -177,6 +178,7 @@ app.use("/api/nfl", nflRoutes);
 app.use("/api", waiverRoutes);
 app.use("/api/trades", tradeRoutes);
 app.use("/api", auctionRoutes);
+app.use("/api/playoffs", playoffRoutes);
 
 // Protected route example (to test authentication)
 app.get("/api/profile", authenticate, (req: Request, res: Response) => {

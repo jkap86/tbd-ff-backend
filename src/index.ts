@@ -34,6 +34,7 @@ import waiverRoutes from "./routes/waiverRoutes";
 import tradeRoutes from "./routes/tradeRoutes";
 import auctionRoutes from "./routes/auctionRoutes";
 import playoffRoutes from "./routes/playoffRoutes";
+import leagueMedianRoutes from "./routes/leagueMedianRoutes";
 import { globalApiLimiter } from "./middleware/rateLimiter";
 import { checkDatabaseHealth } from "./config/database";
 
@@ -179,6 +180,7 @@ app.use("/api", waiverRoutes);
 app.use("/api/trades", tradeRoutes);
 app.use("/api", auctionRoutes);
 app.use("/api/playoffs", playoffRoutes);
+app.use("/api/league-median", leagueMedianRoutes);
 
 // Protected route example (to test authentication)
 app.get("/api/profile", authenticate, (req: Request, res: Response) => {

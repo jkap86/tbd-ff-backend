@@ -37,6 +37,9 @@ export interface Matchup {
   tiebreaker_used: string | null;
   tiebreaker_notes: string | null;
   manual_winner_selected_by: number | null;
+  // League Median fields
+  is_median_matchup?: boolean;
+  median_score?: number;
 }
 
 export interface MatchupWithRosters extends Matchup {
@@ -53,6 +56,12 @@ export interface PlayoffMatchup extends Matchup {
   seed2: number | null; // null for bye week
 }
 
+export interface MedianMatchup extends Matchup {
+  is_median_matchup: true;
+  roster2_id: null; // Median matchups have no opponent
+  median_score: number;
+}
+
 /**
  * Create a matchup
  */
@@ -62,21 +71,41 @@ export async function createMatchup(matchupData: {
   season: string;
   roster1_id: number;
   roster2_id: number | null;
+  is_median_matchup?: boolean;
+  median_score?: number;
 }): Promise<Matchup> {
   try {
-    const query = `
-      INSERT INTO matchups (league_id, week, season, roster1_id, roster2_id)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING *
-    `;
-
-    const result = await pool.query(query, [
+    const fields = ['league_id', 'week', 'season', 'roster1_id', 'roster2_id'];
+    const values: (string | number | boolean | null)[] = [
       matchupData.league_id,
       matchupData.week,
       matchupData.season,
       matchupData.roster1_id,
       matchupData.roster2_id,
-    ]);
+    ];
+    let paramCount = values.length;
+
+    if (matchupData.is_median_matchup !== undefined) {
+      paramCount++;
+      fields.push('is_median_matchup');
+      values.push(matchupData.is_median_matchup);
+    }
+
+    if (matchupData.median_score !== undefined) {
+      paramCount++;
+      fields.push('median_score');
+      values.push(matchupData.median_score);
+    }
+
+    const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
+
+    const query = `
+      INSERT INTO matchups (${fields.join(', ')})
+      VALUES (${placeholders})
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, values);
 
     return result.rows[0];
   } catch (error) {

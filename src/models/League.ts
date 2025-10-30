@@ -13,6 +13,9 @@ export interface League {
   total_rosters: number;
   trade_notification_setting: 'always_off' | 'always_on' | 'proposer_choice';
   trade_details_setting: 'always_off' | 'always_on' | 'proposer_choice';
+  enable_league_median?: boolean;
+  median_matchup_week_start?: number;
+  median_matchup_week_end?: number;
   created_at: Date;
   updated_at: Date;
 }
@@ -184,7 +187,11 @@ export async function getLeaguesForUser(userId: number): Promise<League[]> {
  */
 export async function updateLeague(
   leagueId: number,
-  updates: Partial<CreateLeagueInput>
+  updates: Partial<CreateLeagueInput> & {
+    enable_league_median?: boolean;
+    median_matchup_week_start?: number;
+    median_matchup_week_end?: number;
+  }
 ): Promise<League | null> {
   try {
     const fields = [];
@@ -218,6 +225,24 @@ export async function updateLeague(
     if (updates.roster_positions !== undefined) {
       fields.push(`roster_positions = $${paramCount}`);
       values.push(JSON.stringify(updates.roster_positions));
+      paramCount++;
+    }
+
+    if (updates.enable_league_median !== undefined) {
+      fields.push(`enable_league_median = $${paramCount}`);
+      values.push(updates.enable_league_median);
+      paramCount++;
+    }
+
+    if (updates.median_matchup_week_start !== undefined) {
+      fields.push(`median_matchup_week_start = $${paramCount}`);
+      values.push(updates.median_matchup_week_start);
+      paramCount++;
+    }
+
+    if (updates.median_matchup_week_end !== undefined) {
+      fields.push(`median_matchup_week_end = $${paramCount}`);
+      values.push(updates.median_matchup_week_end);
       paramCount++;
     }
 

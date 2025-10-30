@@ -2,7 +2,7 @@ import pool from "../config/database";
 
 export interface RosterSlot {
   slot: string;
-  player_id: number | null;
+  player_id: string | null;
 }
 
 export interface Roster {

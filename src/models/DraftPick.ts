@@ -150,7 +150,7 @@ export async function getDraftPicksWithDetails(draftId: number): Promise<any[]> 
         r.roster_id as roster_number,
         u.username as picked_by_username
       FROM draft_picks dp
-      LEFT JOIN players p ON dp.player_id = p.id
+      LEFT JOIN players p ON dp.player_id = p.player_id
       LEFT JOIN rosters r ON dp.roster_id = r.id
       LEFT JOIN users u ON r.user_id = u.id
       WHERE dp.draft_id = $1

@@ -1,6 +1,11 @@
 import express from "express";
 import { authenticate } from "../middleware/authMiddleware";
 import {
+  requireCommissioner,
+  requireLeagueMember,
+  requireRosterOwnership,
+} from "../middleware/authorization";
+import {
   submitClaimHandler,
   getLeagueClaimsHandler,
   getRosterClaimsHandler,
@@ -19,25 +24,25 @@ const router = express.Router();
 router.use(authenticate);
 
 // Waiver claim routes
-router.post("/leagues/:leagueId/waivers/claim", submitClaimHandler);
-router.get("/leagues/:leagueId/waivers/claims", getLeagueClaimsHandler);
-router.get("/rosters/:rosterId/waivers/claims", getRosterClaimsHandler);
-router.delete("/waivers/claims/:claimId", cancelClaimHandler);
+router.post("/leagues/:leagueId/waivers/claim", requireLeagueMember, submitClaimHandler);
+router.get("/leagues/:leagueId/waivers/claims", requireLeagueMember, getLeagueClaimsHandler);
+router.get("/rosters/:rosterId/waivers/claims", requireRosterOwnership, getRosterClaimsHandler);
+router.delete("/waivers/claims/:claimId", cancelClaimHandler); // Note: ownership check in controller
 
 // Process waivers (commissioner only)
-router.post("/leagues/:leagueId/waivers/process", processWaiversHandler);
+router.post("/leagues/:leagueId/waivers/process", requireCommissioner, processWaiversHandler);
 
 // Free agent pickup
-router.post("/leagues/:leagueId/transactions/free-agent", pickupFreeAgentHandler);
+router.post("/leagues/:leagueId/transactions/free-agent", requireLeagueMember, pickupFreeAgentHandler);
 
 // Transaction history
-router.get("/leagues/:leagueId/transactions", getLeagueTransactionsHandler);
+router.get("/leagues/:leagueId/transactions", requireLeagueMember, getLeagueTransactionsHandler);
 
 // Available players
-router.get("/leagues/:leagueId/players/available", getAvailablePlayersHandler);
+router.get("/leagues/:leagueId/players/available", requireLeagueMember, getAvailablePlayersHandler);
 
 // Waiver settings (commissioner only for PUT)
-router.get("/leagues/:leagueId/waivers/settings", getWaiverSettingsHandler);
-router.put("/leagues/:leagueId/waivers/settings", updateWaiverSettingsHandler);
+router.get("/leagues/:leagueId/waivers/settings", requireLeagueMember, getWaiverSettingsHandler);
+router.put("/leagues/:leagueId/waivers/settings", requireCommissioner, updateWaiverSettingsHandler);
 
 export default router;

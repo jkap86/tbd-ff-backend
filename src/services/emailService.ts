@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { logger } from "../utils/logger";
 
 /**
  * Email service for sending password reset emails
@@ -43,14 +44,10 @@ export async function sendPasswordResetEmail(
     // For mobile apps, use custom scheme (tbdff://)
     // For web/desktop, use the frontend URL
     const useMobileDeepLink = process.env.USE_MOBILE_DEEP_LINK === "true";
-    console.log(`[Email] USE_MOBILE_DEEP_LINK = ${process.env.USE_MOBILE_DEEP_LINK}`);
-    console.log(`[Email] useMobileDeepLink = ${useMobileDeepLink}`);
 
     const resetLink = useMobileDeepLink
       ? `tbdff://reset-password?token=${resetToken}`
       : `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
-
-    console.log(`[Email] Reset link: ${resetLink}`);
 
     const mailOptions = {
       from: process.env.SMTP_FROM || '"TBD Fantasy Football" <noreply@tbdff.com>',
@@ -144,13 +141,12 @@ If you didn't request a password reset, you can safely ignore this email. Your p
       const info = await transporter.sendMail(mailOptions);
       console.log("✅ Password reset email sent:", info.messageId);
     } else {
-      // Development mode: Log to console
-      console.log("📧 Password Reset Email (Development Mode):");
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      console.log("To:", email);
-      console.log("Subject:", mailOptions.subject);
-      console.log("Reset Link:", resetLink);
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      // Development mode: Log to console (without sensitive token)
+      logger.info("Password reset email sent (dev mode)", {
+        to: email.substring(0, 3) + "***",
+        subject: mailOptions.subject,
+        // Do not log the actual reset token or link
+      });
     }
   } catch (error) {
     console.error("❌ Error sending password reset email:", error);

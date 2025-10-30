@@ -111,10 +111,10 @@ export async function createDraftHandler(
     }
 
     // Validate draft type
-    if (!["snake", "linear"].includes(draft_type)) {
+    if (!["snake", "linear", "auction", "slow_auction"].includes(draft_type)) {
       res.status(400).json({
         success: false,
-        message: "Draft type must be 'snake' or 'linear'",
+        message: "Draft type must be 'snake', 'linear', 'auction', or 'slow_auction'",
       });
       return;
     }
@@ -514,16 +514,6 @@ export async function startDraftHandler(
       return;
     }
 
-    // Check if draft order is set
-    const draftOrder = await getDraftOrder(parseInt(draftId));
-    if (draftOrder.length === 0) {
-      res.status(400).json({
-        success: false,
-        message: "Draft order must be set before starting",
-      });
-      return;
-    }
-
     // Check if already started
     if (draft.status !== "not_started") {
       res.status(400).json({
@@ -533,8 +523,65 @@ export async function startDraftHandler(
       return;
     }
 
-    // Calculate first roster to pick
     const league = await getLeagueById(draft.league_id);
+
+    // For auction drafts, start is simpler - just set status
+    if (draft.draft_type === "auction" || draft.draft_type === "slow_auction") {
+      // Get first roster for turn tracking using draft order
+      const draftOrder = await getDraftOrder(parseInt(draftId));
+      let firstRosterId = null;
+
+      if (draftOrder.length > 0) {
+        // Use draft order (sorted by draft_position)
+        const orderedRosters = draftOrder.sort((a, b) => a.draft_position - b.draft_position);
+        firstRosterId = orderedRosters[0].roster_id;
+      } else {
+        // Fallback: use rosters sorted by roster_id if no draft order exists
+        const { getRostersByLeagueId } = await import("../models/Roster");
+        const rosters = await getRostersByLeagueId(draft.league_id);
+        rosters.sort((a, b) => a.roster_id - b.roster_id);
+        firstRosterId = rosters.length > 0 ? rosters[0].id : null;
+      }
+
+      // Start the draft
+      const updatedDraft = await updateDraft(parseInt(draftId), {
+        status: "in_progress",
+        started_at: new Date(),
+        current_roster_id: firstRosterId,
+      });
+
+      // Update league status to 'drafting'
+      if (league) {
+        await updateLeague(league.id, { status: "drafting" });
+      }
+
+      // Emit draft status change via WebSocket
+      emitDraftStatusChange(io, parseInt(draftId), "in_progress", updatedDraft);
+
+      // For regular auctions (not slow), start turn timer
+      if (draft.draft_type === "auction" && firstRosterId) {
+        const { scheduleTurnTimer } = await import("../socket/auctionSocket");
+        scheduleTurnTimer(io, parseInt(draftId), firstRosterId, draft.pick_time_seconds);
+      }
+
+      res.status(200).json({
+        success: true,
+        data: updatedDraft,
+      });
+      return;
+    }
+
+    // For snake/linear drafts, check draft order and set current pick
+    const draftOrder = await getDraftOrder(parseInt(draftId));
+    if (draftOrder.length === 0) {
+      res.status(400).json({
+        success: false,
+        message: "Draft order must be set before starting",
+      });
+      return;
+    }
+
+    // Calculate first roster to pick
     const totalRosters = league?.total_rosters || draftOrder.length;
 
     const { draftPosition } = calculateCurrentRoster(
@@ -991,6 +1038,12 @@ export async function pauseDraftHandler(
     // Stop auto-pick monitoring when paused
     stopAutoPickMonitoring(parseInt(draftId));
 
+    // Cancel turn timer for auctions
+    if (draft.draft_type === "auction" || draft.draft_type === "slow_auction") {
+      const { cancelTurnTimer } = await import("../socket/auctionSocket");
+      cancelTurnTimer(parseInt(draftId));
+    }
+
     // Emit draft status change via WebSocket
     emitDraftStatusChange(io, parseInt(draftId), "paused", updatedDraft);
 
@@ -1074,6 +1127,12 @@ export async function resumeDraftHandler(
 
     // Restart auto-pick monitoring when resumed
     startAutoPickMonitoring(parseInt(draftId));
+
+    // Restart turn timer for auctions
+    if ((draft.draft_type === "auction" || draft.draft_type === "slow_auction") && updatedDraft.current_roster_id) {
+      const { scheduleTurnTimer } = await import("../socket/auctionSocket");
+      scheduleTurnTimer(io, parseInt(draftId), updatedDraft.current_roster_id, draft.pick_time_seconds);
+    }
 
     // Emit draft status change via WebSocket
     emitDraftStatusChange(io, parseInt(draftId), "in_progress", updatedDraft);

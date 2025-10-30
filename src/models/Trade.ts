@@ -237,7 +237,7 @@ export async function getTradeItems(tradeId: number): Promise<TradeItem[]> {
       ti.*,
       p.full_name as player_name
     FROM trade_items ti
-    LEFT JOIN players p ON ti.player_id = p.id
+    LEFT JOIN players p ON ti.player_id = p.player_id
     WHERE ti.trade_id = $1
   `;
 

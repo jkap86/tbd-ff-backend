@@ -14,7 +14,18 @@
       "WebSearch",
       "Bash(npm run build:backend:*)",
       "Bash(npm run:*)",
-      "Bash(node -r ts-node/register -e:*)"
+      "Bash(node -r ts-node/register -e:*)",
+      "Bash(flutter analyze:*)",
+      "Bash(findstr:*)",
+      "Bash(git -C \"C:\\Users\\jkap8\\Documents\\DEV\\tbd-ff\\flutter_app\" log --oneline --all -10)",
+      "Bash(git -C \"C:\\Users\\jkap8\\Documents\\DEV\\tbd-ff\\flutter_app\" diff HEAD lib/screens/auction_draft_screen.dart lib/models/auction_model.dart lib/services/socket_service.dart)",
+      "Bash(git -C \"C:\\Users\\jkap8\\Documents\\DEV\\tbd-ff\\flutter_app\" log --oneline --grep=\"Task\" -5)",
+      "Bash(git -C \"C:\\Users\\jkap8\\Documents\\DEV\\tbd-ff\\flutter_app\" show:*)",
+      "Bash(git -C \"C:\\Users\\jkap8\\Documents\\DEV\\tbd-ff\\flutter_app\" show 662f95e:lib/models/auction_model.dart)",
+      "Bash(git -C \"C:\\Users\\jkap8\\Documents\\DEV\\tbd-ff\\flutter_app\" diff HEAD lib/services/socket_service.dart)",
+      "Bash(git -C \"C:\\Users\\jkap8\\Documents\\DEV\\tbd-ff\\flutter_app\" show 662f95e:lib/services/socket_service.dart)",
+      "Bash(git -C \"C:\\Users\\jkap8\\Documents\\DEV\\tbd-ff\\flutter_app\" diff lib/screens/auction_draft_screen.dart)",
+      "Bash(git -C \"C:\\Users\\jkap8\\Documents\\DEV\\tbd-ff\\flutter_app\" show HEAD:lib/screens/auction_draft_screen.dart)"
     ],
     "deny": [],
     "ask": []

@@ -16,6 +16,7 @@ import {
   sendPasswordResetEmail,
   sendPasswordChangedEmail,
 } from "../services/emailService";
+import { logger } from "../utils/logger";
 
 /**
  * Register a new user
@@ -23,24 +24,6 @@ import {
 export async function register(req: Request, res: Response): Promise<void> {
   try {
     const { username, email, password, phone_number } = req.body;
-
-    // Validate required fields
-    if (!username || !email || !password) {
-      res.status(400).json({
-        success: false,
-        message: "Username, email, and password are required",
-      });
-      return;
-    }
-
-    // Validate password length
-    if (password.length < 6) {
-      res.status(400).json({
-        success: false,
-        message: "Password must be at least 6 characters long",
-      });
-      return;
-    }
 
     // Create user
     const hashedPassword = await hashPassword(password);
@@ -73,7 +56,11 @@ export async function register(req: Request, res: Response): Promise<void> {
       },
     });
   } catch (error: any) {
-    console.error("Registration error:", error);
+    logger.error("Registration failed", {
+      message: error.message,
+      username: req.body.username,
+      email: req.body.email,
+    });
 
     if (
       error.message === "Username already exists" ||
@@ -99,15 +86,6 @@ export async function register(req: Request, res: Response): Promise<void> {
 export async function login(req: Request, res: Response): Promise<void> {
   try {
     const { username, password } = req.body;
-
-    // Validate required fields
-    if (!username || !password) {
-      res.status(400).json({
-        success: false,
-        message: "Username and password are required",
-      });
-      return;
-    }
 
     // Find user
     const user = await getUserByUsernameWithPassword(username);
@@ -151,8 +129,11 @@ export async function login(req: Request, res: Response): Promise<void> {
         token,
       },
     });
-  } catch (error) {
-    console.error("Login error:", error);
+  } catch (error: any) {
+    logger.error("Login failed", {
+      message: error.message,
+      username: req.body.username,
+    });
     res.status(500).json({
       success: false,
       message: "Error logging in",
@@ -171,25 +152,6 @@ export async function requestPasswordReset(
 ): Promise<void> {
   try {
     const { email } = req.body;
-
-    // Validate email
-    if (!email) {
-      res.status(400).json({
-        success: false,
-        message: "Email is required",
-      });
-      return;
-    }
-
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid email format",
-      });
-      return;
-    }
 
     // Find user by email
     const user = await getUserByEmail(email);
@@ -215,7 +177,10 @@ export async function requestPasswordReset(
       message: "If an account with that email exists, a password reset link has been sent.",
     });
   } catch (error: any) {
-    console.error("Request password reset error:", error);
+    logger.error("Password reset request failed", {
+      message: error.message,
+      email: req.body.email,
+    });
     res.status(500).json({
       success: false,
       message: "Error processing password reset request",
@@ -234,24 +199,6 @@ export async function resetPassword(
 ): Promise<void> {
   try {
     const { token, newPassword } = req.body;
-
-    // Validate inputs
-    if (!token || !newPassword) {
-      res.status(400).json({
-        success: false,
-        message: "Token and new password are required",
-      });
-      return;
-    }
-
-    // Validate password length
-    if (newPassword.length < 6) {
-      res.status(400).json({
-        success: false,
-        message: "Password must be at least 6 characters long",
-      });
-      return;
-    }
 
     // Verify token
     const userId = await verifyPasswordResetToken(token);
@@ -291,7 +238,9 @@ export async function resetPassword(
       message: "Password has been reset successfully",
     });
   } catch (error: any) {
-    console.error("Reset password error:", error);
+    logger.error("Password reset failed", {
+      message: error.message,
+    });
     res.status(500).json({
       success: false,
       message: "Error resetting password",

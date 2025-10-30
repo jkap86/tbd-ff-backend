@@ -76,7 +76,7 @@ export async function getAvailablePlayersForDraft(
     let query = `
       SELECT p.id, p.player_id, p.full_name, p.position, p.team, p.age, p.years_exp, p.search_rank, p.fantasy_data_id, p.created_at, p.updated_at
       FROM players p
-      WHERE p.id NOT IN (
+      WHERE p.player_id NOT IN (
         SELECT player_id
         FROM draft_picks
         WHERE draft_id = $1 AND player_id IS NOT NULL

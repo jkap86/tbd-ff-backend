@@ -17,7 +17,8 @@ export interface Draft {
   // Auction-specific fields
   starting_budget: number;
   min_bid: number;
-  max_simultaneous_nominations: number;
+  bid_increment: number;
+  nominations_per_manager: number;
   nomination_timer_hours: number | null;
   reserve_budget_per_slot: boolean;
   started_at: Date | null;
@@ -41,7 +42,8 @@ export async function createDraft(draftData: {
   // Auction-specific settings
   starting_budget?: number;
   min_bid?: number;
-  max_simultaneous_nominations?: number;
+  bid_increment?: number;
+  nominations_per_manager?: number;
   nomination_timer_hours?: number;
   reserve_budget_per_slot?: boolean;
   settings?: any;
@@ -61,10 +63,10 @@ export async function createDraft(draftData: {
       INSERT INTO drafts (
         league_id, draft_type, third_round_reversal, pick_time_seconds,
         rounds, timer_mode, team_time_budget_seconds,
-        starting_budget, min_bid, max_simultaneous_nominations,
+        starting_budget, min_bid, bid_increment, nominations_per_manager,
         nomination_timer_hours, reserve_budget_per_slot, settings
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       RETURNING *
     `;
 
@@ -78,7 +80,8 @@ export async function createDraft(draftData: {
       timeBudget || null,
       draftData.starting_budget || 200,
       draftData.min_bid || 1,
-      draftData.max_simultaneous_nominations || 1,
+      draftData.bid_increment || 1,
+      draftData.nominations_per_manager || 3,
       draftData.nomination_timer_hours || null,
       draftData.reserve_budget_per_slot || false,
       JSON.stringify(draftData.settings || {}),
@@ -309,9 +312,9 @@ export async function completeDraft(draftId: number): Promise<Draft> {
  */
 async function autoPopulateStarters(
   rosterId: number,
-  playerIds: number[],
+  playerIds: string[],
   leagueId: number
-): Promise<{ starters: any[]; bench: number[] }> {
+): Promise<{ starters: any[]; bench: string[] }> {
   try {
     // Get league roster positions
     const { getLeagueById } = await import("./League");
@@ -344,7 +347,7 @@ async function autoPopulateStarters(
         player_id: null,
       }));
 
-    const assignedPlayerIds = new Set<number>();
+    const assignedPlayerIds = new Set<string>();
 
     // Fill starter slots (in order of draft position, which is playerIds order)
     // PRIORITIZE: Exact position matches first, then FLEX positions
@@ -445,7 +448,7 @@ export async function assignDraftedPlayersToRosters(draftId: number): Promise<vo
     console.log(`[AssignPlayers] Found ${picks.length} picks to assign`);
 
     // Group picks by roster (maintaining draft order)
-    const picksByRoster: { [key: number]: number[] } = {};
+    const picksByRoster: { [key: number]: string[] } = {};
     for (const pick of picks) {
       if (!picksByRoster[pick.roster_id]) {
         picksByRoster[pick.roster_id] = [];

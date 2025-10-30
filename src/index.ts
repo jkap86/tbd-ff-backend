@@ -34,16 +34,69 @@ import waiverRoutes from "./routes/waiverRoutes";
 import tradeRoutes from "./routes/tradeRoutes";
 import auctionRoutes from "./routes/auctionRoutes";
 import { globalApiLimiter } from "./middleware/rateLimiter";
+import { checkDatabaseHealth } from "./config/database";
 
 // Load environment variables
 dotenv.config();
+
+// Parse and validate allowed origins
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",").map(origin => origin.trim());
+
+if (!allowedOrigins || allowedOrigins.length === 0) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "FATAL: ALLOWED_ORIGINS environment variable is required in production. " +
+      "Example: ALLOWED_ORIGINS=https://yourdomain.com,https://app.yourdomain.com"
+    );
+  } else {
+    // Default for development only
+    console.warn(
+      "WARNING: ALLOWED_ORIGINS not set. Defaulting to localhost:3000 for development."
+    );
+  }
+}
+
+// Use default for development if not set
+const finalAllowedOrigins = allowedOrigins || ["http://localhost:3000"];
+
+// Validate origin format
+finalAllowedOrigins.forEach(origin => {
+  try {
+    new URL(origin);
+  } catch (error) {
+    throw new Error(`Invalid origin in ALLOWED_ORIGINS: ${origin}`);
+  }
+});
+
+console.log("CORS enabled for origins:", finalAllowedOrigins);
+
+// CORS configuration
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (finalAllowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    }
+  },
+  credentials: true, // Allow cookies/authorization headers
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  maxAge: 86400, // Cache preflight requests for 24 hours
+};
 
 const app: Application = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.ALLOWED_ORIGINS?.split(",") || "*",
+    origin: finalAllowedOrigins,
     methods: ["GET", "POST"],
+    credentials: true,
   },
 });
 
@@ -62,7 +115,7 @@ export { io };
 
 // Middleware
 app.use(helmet()); // Security headers
-app.use(cors()); // Enable CORS
+app.use(cors(corsOptions)); // Enable CORS with configured origins
 app.use(express.json()); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 
@@ -71,12 +124,22 @@ app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 app.use("/api", globalApiLimiter);
 
 // Health check endpoint
-app.get("/health", (_req: Request, res: Response) => {
-  res.status(200).json({
-    success: true,
-    message: "Server is running",
-    timestamp: new Date().toISOString(),
-  });
+app.get("/health", async (_req, res) => {
+  const dbHealthy = await checkDatabaseHealth();
+
+  if (dbHealthy) {
+    res.status(200).json({
+      status: "healthy",
+      database: "connected",
+      timestamp: new Date().toISOString(),
+    });
+  } else {
+    res.status(503).json({
+      status: "unhealthy",
+      database: "disconnected",
+      timestamp: new Date().toISOString(),
+    });
+  }
 });
 
 // API Routes

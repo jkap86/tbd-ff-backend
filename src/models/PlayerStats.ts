@@ -240,7 +240,7 @@ export async function getMultiplePlayersStatsByWeek(
         p.position as player_position,
         p.team as player_team
       FROM player_stats ps
-      LEFT JOIN players p ON ps.player_id = p.id
+      LEFT JOIN players p ON ps.player_id = p.player_id
       WHERE ps.player_id = ANY($1)
         AND ps.week = $2
         AND ps.season = $3

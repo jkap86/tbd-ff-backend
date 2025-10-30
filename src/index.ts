@@ -201,14 +201,9 @@ app.use((_req: Request, res: Response) => {
   });
 });
 
-// Error handler
-app.use((err: Error, _req: Request, res: Response, _next: Function) => {
-  console.error("Error:", err);
-  res.status(500).json({
-    success: false,
-    message: "Internal server error",
-  });
-});
+// Error handler - must be registered after all routes
+import { errorHandler } from "./middleware/errorHandler";
+app.use(errorHandler);
 
 // Start server
 httpServer.listen(PORT, () => {

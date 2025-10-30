@@ -539,6 +539,16 @@ export async function resetDraft(draftId: number): Promise<Draft> {
   try {
     await client.query("BEGIN");
 
+    // Lock the draft row to prevent concurrent resets
+    const lockResult = await client.query(
+      "SELECT id FROM drafts WHERE id = $1 FOR UPDATE",
+      [draftId]
+    );
+
+    if (lockResult.rows.length === 0) {
+      throw new Error("Draft not found");
+    }
+
     // Delete all draft picks
     await client.query("DELETE FROM draft_picks WHERE draft_id = $1", [
       draftId,

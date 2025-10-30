@@ -1,8 +1,6 @@
 import { Request, Response } from "express";
 import {
-  createNomination,
   getActiveNominations,
-  placeBid,
   getBidsForNomination,
   getRosterBudget,
   assignAuctionPlayersToRosters,
@@ -13,40 +11,90 @@ import { getLeagueById, updateLeague } from "../models/League";
 
 // POST /api/drafts/:id/nominate
 export async function nominatePlayerHandler(req: Request, res: Response) {
+  const pool = (await import("../config/database")).default;
+  const client = await pool.connect();
+
   try {
+    await client.query('BEGIN');
+
     const draftId = parseInt(req.params.id);
     const { player_id, roster_id, deadline } = req.body;
 
     if (!player_id || !roster_id) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    // Verify draft exists and is auction type
-    const draft = await getDraftById(draftId);
-    if (!draft) {
+    // Lock draft to check status and settings
+    const draftResult = await client.query(
+      'SELECT * FROM drafts WHERE id = $1 FOR UPDATE',
+      [draftId]
+    );
+
+    if (draftResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: "Draft not found" });
     }
 
+    const draft = draftResult.rows[0];
+
     if (draft.draft_type !== "auction" && draft.draft_type !== "slow_auction") {
+      await client.query('ROLLBACK');
       return res
         .status(400)
         .json({ error: "Draft is not an auction draft type" });
     }
 
+    if (draft.status !== "in_progress") {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: "Draft is not in progress" });
+    }
+
+    // Verify player is not already nominated/won in this draft
+    const existingNominationResult = await client.query(
+      `SELECT id, status FROM auction_nominations
+       WHERE draft_id = $1 AND player_id = $2`,
+      [draftId, player_id]
+    );
+
+    if (existingNominationResult.rows.length > 0) {
+      const existingNomination = existingNominationResult.rows[0];
+      if (existingNomination.status === 'active') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: "Player is already nominated" });
+      } else if (existingNomination.status === 'completed') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: "Player has already been drafted" });
+      }
+    }
+
     // For slow auction, check nominations per manager limit
     if (draft.draft_type === "slow_auction") {
-      const activeNominations = await getActiveNominations(draftId);
-      // Count how many active nominations this manager currently has
-      const managerActiveNominations = activeNominations.filter(
-        (nom: any) => nom.nominating_roster_id === roster_id
+      const activeNominationsResult = await client.query(
+        `SELECT id FROM auction_nominations
+         WHERE draft_id = $1 AND status = 'active' AND nominating_roster_id = $2`,
+        [draftId, roster_id]
       );
+
       const nominationsPerManager = draft.nominations_per_manager || 3;
 
-      if (managerActiveNominations.length >= nominationsPerManager) {
+      if (activeNominationsResult.rows.length >= nominationsPerManager) {
+        await client.query('ROLLBACK');
         return res.status(400).json({
           error: `You have reached your nomination limit (${nominationsPerManager} active nominations)`,
         });
       }
+    }
+
+    // Verify roster exists and belongs to this league
+    const rosterResult = await client.query(
+      'SELECT * FROM rosters WHERE id = $1 AND league_id = $2',
+      [roster_id, draft.league_id]
+    );
+
+    if (rosterResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: "Roster not found or does not belong to this league" });
     }
 
     // Calculate deadline based on draft type
@@ -59,89 +107,482 @@ export async function nominatePlayerHandler(req: Request, res: Response) {
       calculatedDeadline = new Date(Date.now() + draft.pick_time_seconds * 1000);
     }
 
-    const nomination = await createNomination({
-      draft_id: draftId,
-      player_id,
-      nominating_roster_id: roster_id,
-      deadline: calculatedDeadline,
-    });
+    // Get draft min_bid for auto-creating opening bid
+    const minBid = Math.max(draft.min_bid || 1, 1);
+
+    // Create nomination
+    const nominationResult = await client.query(
+      `INSERT INTO auction_nominations
+        (draft_id, player_id, nominating_roster_id, deadline)
+      VALUES ($1, $2, $3, $4)
+      RETURNING *`,
+      [draftId, player_id, roster_id, calculatedDeadline]
+    );
+
+    const nominationId = nominationResult.rows[0].id;
+
+    // Automatically place opening bid at minimum bid amount for nominating team
+    await client.query(
+      `INSERT INTO auction_bids
+        (nomination_id, roster_id, max_bid, bid_amount, is_winning)
+      VALUES ($1, $2, $3, $4, true)`,
+      [nominationId, roster_id, minBid, minBid]
+    );
+
+    // Update nomination with winning bid info
+    await client.query(
+      `UPDATE auction_nominations
+       SET winning_roster_id = $1, winning_bid = $2
+       WHERE id = $3`,
+      [roster_id, minBid, nominationId]
+    );
+
+    // Commit transaction
+    await client.query('COMMIT');
+
+    // Fetch the nomination with player and team details (after commit)
+    const detailedResult = await pool.query(
+      `SELECT an.*,
+        p.full_name as player_name,
+        p.position as player_position,
+        p.team as player_team,
+        COALESCE(r.settings->>'team_name', u.username) as nominating_team_name
+      FROM auction_nominations an
+      LEFT JOIN players p ON an.player_id = p.player_id
+      LEFT JOIN rosters r ON an.nominating_roster_id = r.id
+      LEFT JOIN users u ON r.user_id = u.id
+      WHERE an.id = $1`,
+      [nominationId]
+    );
+
+    const nomination = detailedResult.rows[0];
 
     // Broadcast to all clients in the auction room via socket
-    const { io } = await import("../index");
-    const room = `auction_${draftId}`;
-    io.to(room).emit("player_nominated", nomination);
+    try {
+      const { io } = await import("../index");
+      const room = `auction_${draftId}`;
+      io.to(room).emit("player_nominated", nomination);
 
-    // Schedule timer for this nomination if there's a deadline
-    if (calculatedDeadline) {
-      const { scheduleNominationExpiry } = await import("../socket/auctionSocket");
-      scheduleNominationExpiry(io, nomination.id, draftId, calculatedDeadline);
-    }
-
-    // Advance turn to next roster (for regular auctions, not slow auctions)
-    if (draft.draft_type === "auction") {
-      const nextRosterId = await advanceAuctionTurn(draftId);
-      if (nextRosterId) {
-        await updateDraft(draftId, { current_roster_id: nextRosterId });
-
-        // Emit turn change via socket
-        io.to(room).emit("turn_changed", {
-          currentRosterId: nextRosterId,
-          draftId: draftId,
-        });
-
-        // Schedule turn timer for next roster
-        const { scheduleTurnTimer } = await import("../socket/auctionSocket");
-        scheduleTurnTimer(io, draftId, nextRosterId, draft.pick_time_seconds);
+      // Schedule timer for this nomination if there's a deadline
+      if (calculatedDeadline) {
+        const { scheduleNominationExpiry } = await import("../socket/auctionSocket");
+        scheduleNominationExpiry(io, nomination.id, draftId, calculatedDeadline);
       }
+
+      // Advance turn to next roster (for regular auctions, not slow auctions)
+      if (draft.draft_type === "auction") {
+        const nextRosterId = await advanceAuctionTurn(draftId);
+        if (nextRosterId) {
+          await updateDraft(draftId, { current_roster_id: nextRosterId });
+
+          // Emit turn change via socket
+          io.to(room).emit("turn_changed", {
+            currentRosterId: nextRosterId,
+            draftId: draftId,
+          });
+
+          // Schedule turn timer for next roster
+          const { scheduleTurnTimer } = await import("../socket/auctionSocket");
+          scheduleTurnTimer(io, draftId, nextRosterId, draft.pick_time_seconds);
+        }
+      }
+    } catch (socketError) {
+      console.error('Socket/turn handling failed:', socketError);
     }
 
     return res.status(201).json(nomination);
   } catch (error: any) {
+    await client.query('ROLLBACK');
     console.error("Error nominating player:", error);
     return res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
 }
 
 // POST /api/drafts/:id/bid
 export async function placeBidHandler(req: Request, res: Response) {
+  const pool = (await import("../config/database")).default;
+  const client = await pool.connect();
+
   try {
+    await client.query('BEGIN');
+
     const draftId = parseInt(req.params.id);
     const { nomination_id, roster_id, max_bid } = req.body;
 
     if (!nomination_id || !roster_id || !max_bid) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    // Verify draft exists
-    const draft = await getDraftById(draftId);
-    if (!draft) {
+    // Lock the nomination row to prevent concurrent bids
+    const nominationResult = await client.query(
+      'SELECT * FROM auction_nominations WHERE id = $1 FOR UPDATE',
+      [nomination_id]
+    );
+
+    if (nominationResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: "Nomination not found" });
+    }
+
+    const nomination = nominationResult.rows[0];
+
+    // Validate nomination is active
+    if (nomination.status !== 'active') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: "Nomination is not active" });
+    }
+
+    // Verify nomination belongs to this draft
+    if (nomination.draft_id !== draftId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: "Nomination does not belong to this draft" });
+    }
+
+    // Check if deadline passed (for slow auction)
+    if (nomination.deadline && new Date(nomination.deadline) < new Date()) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: "Bidding period has ended" });
+    }
+
+    // Get draft settings to validate bid
+    const draftResult = await client.query(
+      'SELECT * FROM drafts WHERE id = $1',
+      [draftId]
+    );
+
+    if (draftResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: "Draft not found" });
     }
 
-    const result = await placeBid({
-      nomination_id,
-      roster_id,
-      max_bid,
-    });
+    const draft = draftResult.rows[0];
+    const minBid = Math.max(draft.min_bid || 1, 1);
+    const bidIncrement = draft.bid_increment || 1;
 
-    // Get team name for the bidder
+    // Get current bids for this nomination
+    const currentBidsResult = await client.query(
+      `SELECT ab.*,
+        COALESCE(r.settings->>'team_name', u.username) as team_name
+       FROM auction_bids ab
+       LEFT JOIN rosters r ON ab.roster_id = r.id
+       LEFT JOIN users u ON r.user_id = u.id
+       WHERE ab.nomination_id = $1
+       ORDER BY ab.max_bid DESC, ab.created_at ASC`,
+      [nomination_id]
+    );
+
+    const currentBids = currentBidsResult.rows;
+    const currentWinningBid = currentBids.find((b: any) => b.is_winning);
+    const currentBidAmount = currentWinningBid?.bid_amount || 0;
+
+    // Validate bid amount meets minimum requirements
+    const requiredBid = currentBidAmount === 0 ? minBid : currentBidAmount + bidIncrement;
+
+    if (max_bid < requiredBid) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: `Bid must be at least $${requiredBid} (current bid: $${currentBidAmount}, increment: $${bidIncrement})`
+      });
+    }
+
+    // Get roster budget (with lock to prevent over-spending)
+    // Use a separate query to lock the roster and calculate budget
+    const rosterLockResult = await client.query(
+      'SELECT * FROM rosters WHERE id = $1 FOR UPDATE',
+      [roster_id]
+    );
+
+    if (rosterLockResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: "Roster not found" });
+    }
+
+    // Calculate spent budget (completed auction purchases)
+    const spentResult = await client.query(
+      `SELECT COALESCE(SUM(winning_bid), 0) as spent
+       FROM auction_nominations
+       WHERE draft_id = $1
+         AND winning_roster_id = $2
+         AND status = 'completed'`,
+      [draftId, roster_id]
+    );
+    const spent = parseInt(spentResult.rows[0].spent);
+
+    // Get active bids (sum of winning bids on active nominations, excluding current nomination)
+    const activeBidsResult = await client.query(
+      `SELECT COALESCE(SUM(ab.bid_amount), 0) as active_bids
+       FROM auction_bids ab
+       JOIN auction_nominations an ON ab.nomination_id = an.id
+       WHERE an.draft_id = $1
+         AND ab.roster_id = $2
+         AND ab.is_winning = true
+         AND an.status = 'active'
+         AND an.id != $3`,
+      [draftId, roster_id, nomination_id]
+    );
+    const activeBids = parseInt(activeBidsResult.rows[0].active_bids);
+
+    // Get roster size to calculate minimum reserve
+    const rosterCountResult = await client.query(
+      `SELECT COUNT(*) as player_count
+       FROM auction_nominations
+       WHERE draft_id = $1
+         AND winning_roster_id = $2
+         AND status = 'completed'`,
+      [draftId, roster_id]
+    );
+    const playerCount = parseInt(rosterCountResult.rows[0].player_count);
+
+    // Get count of active nominations being won (excluding current nomination)
+    const activeWinsResult = await client.query(
+      `SELECT COUNT(*) as active_wins
+       FROM auction_nominations
+       WHERE draft_id = $1
+         AND winning_roster_id = $2
+         AND status = 'active'
+         AND id != $3`,
+      [draftId, roster_id, nomination_id]
+    );
+    const activeWins = parseInt(activeWinsResult.rows[0].active_wins);
+
+    const rosterSize = draft.rounds || 15;
+    const currentPlayerCount = playerCount + activeWins;
+    const remainingSlots = rosterSize - currentPlayerCount - 1; // -1 for current bid
+
+    // Calculate reserved amount if reserve_budget_per_slot is enabled
+    let reserved = 0;
+    if (draft.reserve_budget_per_slot && remainingSlots > 0) {
+      reserved = remainingSlots * minBid;
+    }
+
+    const startingBudget = draft.starting_budget;
+    const available = startingBudget - spent - activeBids - reserved;
+
+    if (max_bid > available) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: `Insufficient budget. Available: $${available} (must reserve $${reserved} for remaining ${remainingSlots} slots)`,
+      });
+    }
+
+    // Check roster size (don't allow bidding if roster is full)
+    if (playerCount >= rosterSize) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: `Roster is full (${playerCount}/${rosterSize} players)`,
+      });
+    }
+
+    // Process the bid (proxy or direct depending on draft type)
+    let result;
+    if (draft.draft_type === "slow_auction") {
+      result = await processProxyBidTransaction(
+        client,
+        nomination_id,
+        roster_id,
+        max_bid,
+        minBid,
+        currentBids
+      );
+    } else {
+      result = await processDirectBidTransaction(
+        client,
+        nomination_id,
+        roster_id,
+        max_bid,
+        currentBids
+      );
+    }
+
+    // Commit transaction
+    await client.query('COMMIT');
+
+    // Get team name for the bidder (after successful commit)
     const { getRosterTeamName } = await import("../models/Auction");
     const teamName = await getRosterTeamName(roster_id);
 
     // Broadcast to all clients in the auction room via socket
-    const { io } = await import("../index");
-    const room = `auction_${draftId}`;
-    const bidWithTeamName = {
-      ...result.currentBid,
-      team_name: teamName,
-    };
-    io.to(room).emit("bid_placed", bidWithTeamName);
+    try {
+      const { io } = await import("../index");
+      const room = `auction_${draftId}`;
+      const bidWithTeamName = {
+        ...result.currentBid,
+        team_name: teamName,
+      };
+      io.to(room).emit("bid_placed", bidWithTeamName);
+    } catch (socketError) {
+      console.error('Socket emit failed:', socketError);
+    }
 
     return res.status(200).json(result);
   } catch (error: any) {
+    await client.query('ROLLBACK');
     console.error("Error placing bid:", error);
     return res.status(400).json({ error: error.message });
+  } finally {
+    client.release();
   }
+}
+
+// Helper function to process proxy bid within a transaction
+async function processProxyBidTransaction(
+  client: any,
+  nomination_id: number,
+  new_roster_id: number,
+  new_max_bid: number,
+  min_bid: number,
+  existing_bids: any[]
+): Promise<{
+  success: boolean;
+  currentBid: any;
+  previousWinner?: number;
+  newWinner: number;
+}> {
+  // Sort bids by max_bid DESC
+  const sortedBids = [...existing_bids].sort((a, b) => b.max_bid - a.max_bid);
+
+  // Get current winning bid amount (or 0 if no bids)
+  const currentBidAmount =
+    sortedBids.find((b) => b.is_winning)?.bid_amount || 0;
+  const currentWinner = sortedBids.find((b) => b.is_winning);
+
+  // Insert new bid
+  const newBidResult = await client.query(
+    `INSERT INTO auction_bids
+      (nomination_id, roster_id, bid_amount, max_bid, is_winning)
+    VALUES ($1, $2, $3, $4, false)
+    RETURNING *`,
+    [
+      nomination_id,
+      new_roster_id,
+      Math.max(currentBidAmount + min_bid, min_bid),
+      new_max_bid,
+    ]
+  );
+
+  const newBid = newBidResult.rows[0];
+
+  // Add new bid to sorted list and re-sort
+  const allBids = [...sortedBids, newBid].sort(
+    (a, b) => b.max_bid - a.max_bid
+  );
+
+  // Determine winner using proxy bidding logic
+  let winningBid;
+  let winningAmount;
+
+  if (allBids.length === 1) {
+    // First bid - wins at min_bid
+    winningBid = allBids[0];
+    winningAmount = min_bid;
+  } else {
+    // Multiple bids - highest max_bid wins
+    const highestBidder = allBids[0];
+    const secondHighestBidder = allBids[1];
+
+    winningBid = highestBidder;
+
+    // Winner pays second highest max_bid + min_bid, or their own bid if it's less
+    if (secondHighestBidder.max_bid + min_bid <= highestBidder.max_bid) {
+      winningAmount = secondHighestBidder.max_bid + min_bid;
+    } else {
+      winningAmount = highestBidder.max_bid;
+    }
+
+    // Ensure winning amount is at least min_bid
+    winningAmount = Math.max(winningAmount, min_bid);
+  }
+
+  // Update all bids - mark winner and update winning bid amount
+  await client.query(
+    `UPDATE auction_bids
+    SET is_winning = false
+    WHERE nomination_id = $1`,
+    [nomination_id]
+  );
+
+  const updatedWinningBid = await client.query(
+    `UPDATE auction_bids
+    SET is_winning = true,
+        bid_amount = $2,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1
+    RETURNING *`,
+    [winningBid.id, winningAmount]
+  );
+
+  // Update nomination with current winning info
+  await client.query(
+    `UPDATE auction_nominations
+    SET winning_roster_id = $2,
+        winning_bid = $3,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1`,
+    [nomination_id, winningBid.roster_id, winningAmount]
+  );
+
+  return {
+    success: true,
+    currentBid: updatedWinningBid.rows[0],
+    previousWinner: currentWinner?.roster_id,
+    newWinner: winningBid.roster_id,
+  };
+}
+
+// Helper function to process direct bid within a transaction
+async function processDirectBidTransaction(
+  client: any,
+  nomination_id: number,
+  new_roster_id: number,
+  bid_amount: number,
+  existing_bids: any[]
+): Promise<{
+  success: boolean;
+  currentBid: any;
+  previousWinner?: number;
+  newWinner: number;
+}> {
+  // Get current winning bid
+  const currentWinner = existing_bids.find((b) => b.is_winning);
+
+  // In direct bidding, bid_amount and max_bid are the same
+  const newBidResult = await client.query(
+    `INSERT INTO auction_bids
+      (nomination_id, roster_id, bid_amount, max_bid, is_winning)
+    VALUES ($1, $2, $3, $4, true)
+    RETURNING *`,
+    [nomination_id, new_roster_id, bid_amount, bid_amount]
+  );
+
+  const newBid = newBidResult.rows[0];
+
+  // Mark all other bids as not winning
+  await client.query(
+    `UPDATE auction_bids
+    SET is_winning = false
+    WHERE nomination_id = $1 AND id != $2`,
+    [nomination_id, newBid.id]
+  );
+
+  // Update nomination with current winning info
+  await client.query(
+    `UPDATE auction_nominations
+    SET winning_roster_id = $2,
+        winning_bid = $3,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1`,
+    [nomination_id, new_roster_id, bid_amount]
+  );
+
+  return {
+    success: true,
+    currentBid: newBid,
+    previousWinner: currentWinner?.roster_id,
+    newWinner: new_roster_id,
+  };
 }
 
 // GET /api/drafts/:id/nominations
@@ -166,14 +607,14 @@ export async function getNominationBidsHandler(req: Request, res: Response) {
     const bids = await getBidsForNomination(nominationId);
 
     // Don't expose max_bid to clients
-    const sanitizedBids = bids.map((bid) => ({
+    const sanitizedBids = bids.map((bid: any) => ({
       id: bid.id,
       nomination_id: bid.nomination_id,
       roster_id: bid.roster_id,
       bid_amount: bid.bid_amount,
       is_winning: bid.is_winning,
       created_at: bid.created_at,
-      team_name: (bid as any).team_name,
+      team_name: bid.team_name,
     }));
 
     res.status(200).json(sanitizedBids);

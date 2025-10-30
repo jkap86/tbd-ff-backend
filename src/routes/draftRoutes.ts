@@ -13,6 +13,7 @@ import {
   resumeDraftHandler,
   resetDraftHandler,
   assignRostersHandler,
+  getDraftHealthHandler,
 } from "../controllers/draftController";
 import {
   sendChatMessageHandler,
@@ -66,5 +67,8 @@ router.post("/:draftId/chat", authenticate, sendChatMessageHandler);
 
 // GET /api/drafts/:draftId/chat - Get chat messages
 router.get("/:draftId/chat", getChatMessagesHandler);
+
+// GET /api/drafts/:draftId/health - Get draft health status
+router.get("/:draftId/health", getDraftHealthHandler);
 
 export default router;

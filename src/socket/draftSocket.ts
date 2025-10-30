@@ -310,3 +310,81 @@ export function emitDraftOrderUpdate(io: Server, draftId: number, draftOrder: an
     timestamp: new Date(),
   });
 }
+
+/**
+ * Broadcast timer update with deadline timestamp
+ * This is the source of truth for all clients to calculate remaining time
+ */
+export function broadcastTimerUpdate(io: Server, draftId: number, deadline: Date, pickNumber: number) {
+  const roomName = `draft_${draftId}`;
+  io.to(roomName).emit("timer_update", {
+    deadline: deadline.toISOString(),
+    pick_number: pickNumber,
+    server_time: new Date().toISOString(),
+  });
+}
+
+// Store interval IDs for cleanup
+declare global {
+  var draftTimerIntervals: { [key: number]: NodeJS.Timeout } | undefined;
+}
+
+/**
+ * Start periodic timer broadcasts for a draft
+ * Broadcasts every 5 seconds to keep all clients synchronized
+ */
+export async function startTimerBroadcast(io: Server, draftId: number) {
+  const { getDraftById } = await import("../models/Draft");
+  const pool = (await import("../config/database")).default;
+
+  const intervalId = setInterval(async () => {
+    try {
+      const draft = await getDraftById(draftId);
+
+      if (!draft || draft.status !== "in_progress") {
+        console.log(`[TimerBroadcast] Draft ${draftId} is not in progress, stopping broadcast`);
+        clearInterval(intervalId);
+        if (global.draftTimerIntervals) {
+          delete global.draftTimerIntervals[draftId];
+        }
+        return;
+      }
+
+      // Query the current pick's deadline from draft_order
+      const turn = await pool.query(
+        `SELECT pick_expiration FROM draft_order
+         WHERE draft_id = $1 AND pick_number = $2`,
+        [draftId, draft.current_pick]
+      );
+
+      if (turn.rows.length > 0 && turn.rows[0].pick_expiration) {
+        broadcastTimerUpdate(
+          io,
+          draftId,
+          new Date(turn.rows[0].pick_expiration),
+          draft.current_pick
+        );
+      }
+
+    } catch (error) {
+      console.error("[TimerBroadcast] Error:", error);
+    }
+  }, 5000); // Every 5 seconds
+
+  // Store interval ID for cleanup
+  global.draftTimerIntervals = global.draftTimerIntervals || {};
+  global.draftTimerIntervals[draftId] = intervalId;
+
+  console.log(`[TimerBroadcast] Started timer broadcast for draft ${draftId}`);
+}
+
+/**
+ * Stop timer broadcasts for a draft
+ */
+export function stopTimerBroadcast(draftId: number) {
+  if (global.draftTimerIntervals?.[draftId]) {
+    clearInterval(global.draftTimerIntervals[draftId]);
+    delete global.draftTimerIntervals[draftId];
+    console.log(`[TimerBroadcast] Stopped timer broadcast for draft ${draftId}`);
+  }
+}

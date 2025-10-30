@@ -3,11 +3,8 @@ import {
   createNomination,
   placeBid,
   getActiveNominations,
-  completeNomination,
   getRosterBudget,
   getNominationById,
-  getBidsForNomination,
-  updateNominationStatus,
   isAuctionComplete,
   assignAuctionPlayersToRosters,
 } from "../models/Auction";
@@ -236,30 +233,76 @@ export function scheduleNominationExpiry(
 }
 
 async function processNominationExpiry(io: Server, nominationId: number, draftId: number) {
+  const pool = (await import("../config/database")).default;
+  const client = await pool.connect();
+
   try {
-    // Get nomination and check if still active
-    const nomination = await getNominationById(nominationId);
-    if (!nomination || nomination.status !== "active") {
+    await client.query('BEGIN');
+
+    // Lock the nomination to prevent concurrent completion
+    const nominationResult = await client.query(
+      'SELECT * FROM auction_nominations WHERE id = $1 FOR UPDATE',
+      [nominationId]
+    );
+
+    if (nominationResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       nominationTimers.delete(nominationId);
       return;
     }
 
-    // Get highest bidder
-    const bids = await getBidsForNomination(nominationId);
+    const nomination = nominationResult.rows[0];
+
+    // Check if still active
+    if (nomination.status !== "active") {
+      await client.query('ROLLBACK');
+      nominationTimers.delete(nominationId);
+      return;
+    }
+
     const room = `auction_${draftId}`;
+
+    // Get highest bidder (within transaction)
+    const bidsResult = await client.query(
+      `SELECT ab.*,
+        COALESCE(r.settings->>'team_name', u.username) as team_name
+       FROM auction_bids ab
+       LEFT JOIN rosters r ON ab.roster_id = r.id
+       LEFT JOIN users u ON r.user_id = u.id
+       WHERE ab.nomination_id = $1
+       ORDER BY ab.max_bid DESC, ab.created_at ASC`,
+      [nominationId]
+    );
+
+    const bids = bidsResult.rows;
 
     if (bids.length > 0) {
       // Award to highest bidder
       const winningBid = bids.find((b) => b.is_winning);
       if (winningBid) {
-        await completeNomination(
-          nominationId,
-          winningBid.roster_id,
-          winningBid.bid_amount
+        // Mark all bids as not winning (final state)
+        await client.query(
+          `UPDATE auction_bids
+           SET is_winning = false
+           WHERE nomination_id = $1`,
+          [nominationId]
         );
 
-        // Get team name for the winner
-        const pool = (await import("../config/database")).default;
+        // Complete the nomination
+        await client.query(
+          `UPDATE auction_nominations
+           SET status = 'completed',
+               winning_roster_id = $2,
+               winning_bid = $3,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1`,
+          [nominationId, winningBid.roster_id, winningBid.bid_amount]
+        );
+
+        // Commit transaction
+        await client.query('COMMIT');
+
+        // Get team name for the winner (after commit)
         const teamResult = await pool.query(
           `SELECT COALESCE(r.settings->>'team_name', u.username) as team_name
            FROM rosters r
@@ -269,10 +312,20 @@ async function processNominationExpiry(io: Server, nominationId: number, draftId
         );
         const teamName = teamResult.rows[0]?.team_name;
 
+        // Get player details (after commit)
+        const playerResult = await pool.query(
+          `SELECT p.full_name as player_name
+           FROM auction_nominations an
+           LEFT JOIN players p ON an.player_id = p.player_id
+           WHERE an.id = $1`,
+          [nominationId]
+        );
+        const playerName = playerResult.rows[0]?.player_name;
+
         io.to(room).emit("player_won", {
           nominationId,
           playerId: nomination.player_id,
-          playerName: (nomination as any).player_name,
+          playerName: playerName,
           winningRosterId: winningBid.roster_id,
           teamName: teamName,
           amount: winningBid.bid_amount,
@@ -375,22 +428,45 @@ async function processNominationExpiry(io: Server, nominationId: number, draftId
             timestamp: new Date(),
           });
         }
+      } else {
+        await client.query('ROLLBACK');
       }
     } else {
       // No bids - mark as passed
-      await updateNominationStatus(nominationId, "passed");
+      await client.query(
+        `UPDATE auction_nominations
+         SET status = 'passed',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [nominationId]
+      );
+
+      await client.query('COMMIT');
+
+      // Get player details (after commit)
+      const playerResult = await pool.query(
+        `SELECT p.full_name as player_name
+         FROM auction_nominations an
+         LEFT JOIN players p ON an.player_id = p.player_id
+         WHERE an.id = $1`,
+        [nominationId]
+      );
+      const playerName = playerResult.rows[0]?.player_name;
 
       io.to(room).emit("nomination_expired", {
         nominationId,
         playerId: nomination.player_id,
-        playerName: (nomination as any).player_name,
+        playerName: playerName,
       });
     }
 
     nominationTimers.delete(nominationId);
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error("Error processing nomination expiry:", error);
     nominationTimers.delete(nominationId);
+  } finally {
+    client.release();
   }
 }
 

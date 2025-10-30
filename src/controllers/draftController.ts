@@ -5,8 +5,6 @@ import {
   getDraftById,
   getDraftByLeagueId,
   updateDraft,
-  pauseDraft,
-  completeDraft,
   resetDraft,
 } from "../models/Draft";
 import { io } from "../index";
@@ -14,6 +12,8 @@ import {
   emitDraftPick,
   emitDraftStatusChange,
   emitDraftOrderUpdate,
+  startTimerBroadcast,
+  stopTimerBroadcast,
 } from "../socket/draftSocket";
 import {
   setDraftOrder,
@@ -23,10 +23,8 @@ import {
   getRosterAtPosition,
 } from "../models/DraftOrder";
 import {
-  createDraftPick,
   getDraftPicks,
   getDraftPicksWithDetails,
-  isPlayerDrafted,
 } from "../models/DraftPick";
 import { getAvailablePlayersForDraft } from "../models/Player";
 import { getRostersByLeagueId, getRosterById } from "../models/Roster";
@@ -36,6 +34,7 @@ import {
   stopAutoPickMonitoring,
 } from "../services/autoPickService";
 import { checkAndAutoPauseDraft } from "../services/draftScheduler";
+import pool from "../config/database";
 
 /**
  * Calculate which roster should be picking based on current pick number
@@ -502,11 +501,21 @@ export async function startDraftHandler(
   req: Request,
   res: Response
 ): Promise<void> {
+  const client = await pool.connect();
+
   try {
+    await client.query('BEGIN');
+
     const { draftId } = req.params;
 
-    const draft = await getDraftById(parseInt(draftId));
-    if (!draft) {
+    // Lock the draft row to prevent concurrent state changes
+    const draftResult = await client.query(
+      'SELECT * FROM drafts WHERE id = $1 FOR UPDATE',
+      [draftId]
+    );
+
+    if (draftResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       res.status(404).json({
         success: false,
         message: "Draft not found",
@@ -514,8 +523,11 @@ export async function startDraftHandler(
       return;
     }
 
+    const draft = draftResult.rows[0];
+
     // Check if already started
     if (draft.status !== "not_started") {
+      await client.query('ROLLBACK');
       res.status(400).json({
         success: false,
         message: "Draft has already started",
@@ -543,12 +555,21 @@ export async function startDraftHandler(
         firstRosterId = rosters.length > 0 ? rosters[0].id : null;
       }
 
-      // Start the draft
-      const updatedDraft = await updateDraft(parseInt(draftId), {
-        status: "in_progress",
-        started_at: new Date(),
-        current_roster_id: firstRosterId,
-      });
+      // Start the draft using transaction client
+      const updateDraftResult = await client.query(
+        `UPDATE drafts
+         SET status = 'in_progress',
+             started_at = CURRENT_TIMESTAMP,
+             current_roster_id = $1,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2
+         RETURNING *`,
+        [firstRosterId, draftId]
+      );
+      const updatedDraft = updateDraftResult.rows[0];
+
+      // Commit transaction
+      await client.query('COMMIT');
 
       // Update league status to 'drafting'
       if (league) {
@@ -574,6 +595,7 @@ export async function startDraftHandler(
     // For snake/linear drafts, check draft order and set current pick
     const draftOrder = await getDraftOrder(parseInt(draftId));
     if (draftOrder.length === 0) {
+      await client.query('ROLLBACK');
       res.status(400).json({
         success: false,
         message: "Draft order must be set before starting",
@@ -596,27 +618,54 @@ export async function startDraftHandler(
       draftPosition
     );
 
-    // Set pick deadline
+    // Set pick deadline for first pick
     const pickDeadline = new Date();
     pickDeadline.setSeconds(pickDeadline.getSeconds() + draft.pick_time_seconds);
 
-    // Start the draft
-    const updatedDraft = await updateDraft(parseInt(draftId), {
-      status: "in_progress",
-      started_at: new Date(),
-      current_pick: 1,
-      current_round: 1,
-      current_roster_id: firstRosterId!,
-      pick_deadline: pickDeadline,
-    });
+    // Update draft_order with deadline for first pick using transaction client
+    await client.query(
+      `UPDATE draft_order
+       SET pick_expiration = $1, pick_number = $2
+       WHERE draft_id = $3 AND roster_id = $4`,
+      [pickDeadline, 1, draftId, firstRosterId]
+    );
+
+    // Start the draft using transaction client
+    const updateDraftResult = await client.query(
+      `UPDATE drafts
+       SET status = 'in_progress',
+           started_at = CURRENT_TIMESTAMP,
+           current_pick = 1,
+           current_round = 1,
+           current_roster_id = $1,
+           pick_deadline = $2,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3
+       RETURNING *`,
+      [firstRosterId, pickDeadline, draftId]
+    );
+    const updatedDraft = updateDraftResult.rows[0];
+
+    // Commit transaction
+    await client.query('COMMIT');
 
     // Update league status to 'drafting'
     if (league) {
       await updateLeague(league.id, { status: "drafting" });
     }
 
-    // Emit draft status change via WebSocket
+    // Start timer broadcast
+    startTimerBroadcast(io, parseInt(draftId));
+
+    // Emit draft status change via WebSocket with deadline
     emitDraftStatusChange(io, parseInt(draftId), "in_progress", updatedDraft);
+
+    // Broadcast initial timer state
+    io.to(`draft_${draftId}`).emit("draft_started", {
+      draft: updatedDraft,
+      deadline: pickDeadline.toISOString(),
+      server_time: new Date().toISOString(),
+    });
 
     // Start auto-pick monitoring
     startAutoPickMonitoring(parseInt(draftId));
@@ -632,11 +681,14 @@ export async function startDraftHandler(
       data: finalDraft,
     });
   } catch (error: any) {
+    await client.query('ROLLBACK');
     console.error("Error starting draft:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error starting draft",
     });
+  } finally {
+    client.release();
   }
 }
 
@@ -648,11 +700,17 @@ export async function makeDraftPickHandler(
   req: Request,
   res: Response
 ): Promise<void> {
+  const pool = (await import("../config/database")).default;
+  const client = await pool.connect();
+
   try {
+    await client.query('BEGIN');
+
     const { draftId } = req.params;
     const { roster_id, player_id, is_auto_pick = false } = req.body;
 
     if (!roster_id || !player_id) {
+      await client.query('ROLLBACK');
       res.status(400).json({
         success: false,
         message: "roster_id and player_id are required",
@@ -660,8 +718,14 @@ export async function makeDraftPickHandler(
       return;
     }
 
-    const draft = await getDraftById(parseInt(draftId));
-    if (!draft) {
+    // Lock the draft row to prevent concurrent picks
+    const draftResult = await client.query(
+      'SELECT * FROM drafts WHERE id = $1 FOR UPDATE',
+      [draftId]
+    );
+
+    if (draftResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       res.status(404).json({
         success: false,
         message: "Draft not found",
@@ -669,8 +733,11 @@ export async function makeDraftPickHandler(
       return;
     }
 
+    const draft = draftResult.rows[0];
+
     // Check if draft is in progress
     if (draft.status !== "in_progress") {
+      await client.query('ROLLBACK');
       res.status(400).json({
         success: false,
         message: "Draft is not in progress",
@@ -680,6 +747,7 @@ export async function makeDraftPickHandler(
 
     // Check if it's this roster's turn
     if (draft.current_roster_id !== roster_id) {
+      await client.query('ROLLBACK');
       res.status(400).json({
         success: false,
         message: "It is not this roster's turn to pick",
@@ -691,6 +759,7 @@ export async function makeDraftPickHandler(
     if (!is_auto_pick) {
       const userId = req.user?.userId;
       if (!userId) {
+        await client.query('ROLLBACK');
         res.status(401).json({
           success: false,
           message: "User not authenticated",
@@ -700,6 +769,7 @@ export async function makeDraftPickHandler(
 
       const roster = await getRosterById(roster_id);
       if (!roster) {
+        await client.query('ROLLBACK');
         res.status(404).json({
           success: false,
           message: "Roster not found",
@@ -708,6 +778,7 @@ export async function makeDraftPickHandler(
       }
 
       if (roster.user_id !== userId) {
+        await client.query('ROLLBACK');
         res.status(403).json({
           success: false,
           message: "You can only make picks for your own roster",
@@ -716,12 +787,14 @@ export async function makeDraftPickHandler(
       }
     }
 
-    // Check if player is already drafted
-    const alreadyDrafted = await isPlayerDrafted(
-      parseInt(draftId),
-      player_id
+    // Check if player is already drafted (prevent double-draft)
+    const existingPickResult = await client.query(
+      'SELECT id FROM draft_picks WHERE draft_id = $1 AND player_id = $2',
+      [draftId, player_id]
     );
-    if (alreadyDrafted) {
+
+    if (existingPickResult.rows.length > 0) {
+      await client.query('ROLLBACK');
       res.status(400).json({
         success: false,
         message: "Player has already been drafted",
@@ -742,7 +815,7 @@ export async function makeDraftPickHandler(
         )
       : null;
 
-    // Create the pick
+    // Get league and draft order for calculations
     const league = await getLeagueById(draft.league_id);
     const draftOrder = await getDraftOrder(parseInt(draftId));
     const totalRosters = league?.total_rosters || draftOrder.length;
@@ -754,16 +827,28 @@ export async function makeDraftPickHandler(
       draft.third_round_reversal
     );
 
-    const pick = await createDraftPick({
-      draft_id: parseInt(draftId),
-      pick_number: draft.current_pick,
-      round,
-      pick_in_round: pickInRound,
-      roster_id,
-      player_id,
-      is_auto_pick,
-      pick_time_seconds: pickTimeSeconds ?? undefined,
-    });
+    // Create the pick using the transaction client
+    const pickResult = await client.query(
+      `INSERT INTO draft_picks (
+        draft_id, pick_number, round, pick_in_round,
+        roster_id, player_id, is_auto_pick, pick_time_seconds, pick_started_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *`,
+      [
+        parseInt(draftId),
+        draft.current_pick,
+        round,
+        pickInRound,
+        roster_id,
+        player_id,
+        is_auto_pick,
+        pickTimeSeconds,
+        null
+      ]
+    );
+
+    const pick = pickResult.rows[0];
 
     // Calculate next pick
     const nextPickNumber = draft.current_pick + 1;
@@ -776,7 +861,23 @@ export async function makeDraftPickHandler(
     if (nextPickNumber > totalPicks) {
       // Draft is complete
       console.log(`Draft ${draftId} is complete! Total picks: ${totalPicks}`);
-      updatedDraft = await completeDraft(parseInt(draftId));
+
+      // Update draft status to completed
+      const completeDraftResult = await client.query(
+        `UPDATE drafts
+         SET status = 'completed',
+             completed_at = CURRENT_TIMESTAMP,
+             pick_deadline = NULL,
+             current_roster_id = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING *`,
+        [draftId]
+      );
+      updatedDraft = completeDraftResult.rows[0];
+
+      // Commit transaction before performing side effects
+      await client.query('COMMIT');
 
       // Assign drafted players to rosters
       const { assignDraftedPlayersToRosters } = await import("../models/Draft");
@@ -833,6 +934,9 @@ export async function makeDraftPickHandler(
         }
       }
 
+      // Stop timer broadcasts
+      stopTimerBroadcast(parseInt(draftId));
+
       // Stop auto-pick monitoring
       stopAutoPickMonitoring(parseInt(draftId));
 
@@ -858,15 +962,32 @@ export async function makeDraftPickHandler(
         nextPickDeadline.getSeconds() + draft.pick_time_seconds
       );
 
-      updatedDraft = await updateDraft(parseInt(draftId), {
-        current_pick: nextPickNumber,
-        current_round: nextPickInfo.round,
-        current_roster_id: nextRosterId!,
-        pick_deadline: nextPickDeadline,
-      });
+      // Update draft_order with deadline for next pick
+      await client.query(
+        `UPDATE draft_order
+         SET pick_expiration = $1, pick_number = $2
+         WHERE draft_id = $3 AND roster_id = $4`,
+        [nextPickDeadline, nextPickNumber, draftId, nextRosterId]
+      );
+
+      const updateDraftResult = await client.query(
+        `UPDATE drafts
+         SET current_pick = $1,
+             current_round = $2,
+             current_roster_id = $3,
+             pick_deadline = $4,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $5
+         RETURNING *`,
+        [nextPickNumber, nextPickInfo.round, nextRosterId, nextPickDeadline, draftId]
+      );
+      updatedDraft = updateDraftResult.rows[0];
+
+      // Commit transaction
+      await client.query('COMMIT');
     }
 
-    // Get player details and roster info for WebSocket emission
+    // Get player details and roster info for WebSocket emission (after successful commit)
     const { getPlayerById } = await import("../models/Player");
     const player = await getPlayerById(player_id);
     const roster = await getRosterById(roster_id);
@@ -886,7 +1007,7 @@ export async function makeDraftPickHandler(
     });
     console.log(`[MakePick] User details:`, { username: user?.username });
 
-    // Emit draft pick via WebSocket with player details
+    // Emit draft pick via WebSocket with player details and next deadline
     const pickWithDetails = {
       ...pick,
       player_name: player?.full_name,
@@ -896,7 +1017,19 @@ export async function makeDraftPickHandler(
       picked_by_username: user?.username,
     };
     console.log(`[MakePick] Emitting pick with details:`, pickWithDetails);
-    emitDraftPick(io, parseInt(draftId), pickWithDetails, updatedDraft);
+
+    // Include next deadline if draft continues
+    if (updatedDraft.status === "in_progress" && updatedDraft.pick_deadline) {
+      io.to(`draft_${draftId}`).emit("pick_made", {
+        pick: pickWithDetails,
+        draft: updatedDraft,
+        next_deadline: updatedDraft.pick_deadline.toISOString(),
+        server_time: new Date().toISOString(),
+        timestamp: new Date(),
+      });
+    } else {
+      emitDraftPick(io, parseInt(draftId), pickWithDetails, updatedDraft);
+    }
 
     res.status(201).json({
       success: true,
@@ -906,11 +1039,14 @@ export async function makeDraftPickHandler(
       },
     });
   } catch (error: any) {
+    await client.query('ROLLBACK');
     console.error("Error making draft pick:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error making draft pick",
     });
+  } finally {
+    client.release();
   }
 }
 
@@ -985,11 +1121,21 @@ export async function pauseDraftHandler(
   req: Request,
   res: Response
 ): Promise<void> {
+  const client = await pool.connect();
+
   try {
+    await client.query('BEGIN');
+
     const { draftId } = req.params;
 
-    const draft = await getDraftById(parseInt(draftId));
-    if (!draft) {
+    // Lock the draft row to prevent concurrent state changes
+    const draftResult = await client.query(
+      'SELECT * FROM drafts WHERE id = $1 FOR UPDATE',
+      [draftId]
+    );
+
+    if (draftResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       res.status(404).json({
         success: false,
         message: "Draft not found",
@@ -997,9 +1143,12 @@ export async function pauseDraftHandler(
       return;
     }
 
+    const draft = draftResult.rows[0];
+
     // Check if user is commissioner
     const userId = req.user?.userId;
     if (!userId) {
+      await client.query('ROLLBACK');
       res.status(401).json({
         success: false,
         message: "User not authenticated",
@@ -1009,6 +1158,7 @@ export async function pauseDraftHandler(
 
     const league = await getLeagueById(draft.league_id);
     if (!league) {
+      await client.query('ROLLBACK');
       res.status(404).json({
         success: false,
         message: "League not found",
@@ -1018,6 +1168,7 @@ export async function pauseDraftHandler(
 
     const commissionerId = league.settings?.commissioner_id;
     if (!commissionerId || commissionerId !== userId) {
+      await client.query('ROLLBACK');
       res.status(403).json({
         success: false,
         message: "Only the commissioner can pause the draft",
@@ -1026,6 +1177,7 @@ export async function pauseDraftHandler(
     }
 
     if (draft.status !== "in_progress") {
+      await client.query('ROLLBACK');
       res.status(400).json({
         success: false,
         message: "Draft is not in progress",
@@ -1033,7 +1185,23 @@ export async function pauseDraftHandler(
       return;
     }
 
-    const updatedDraft = await pauseDraft(parseInt(draftId));
+    // Pause the draft using transaction client
+    const updateDraftResult = await client.query(
+      `UPDATE drafts
+       SET status = 'paused',
+           pick_deadline = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING *`,
+      [draftId]
+    );
+    const updatedDraft = updateDraftResult.rows[0];
+
+    // Commit transaction
+    await client.query('COMMIT');
+
+    // Stop timer broadcasts
+    stopTimerBroadcast(parseInt(draftId));
 
     // Stop auto-pick monitoring when paused
     stopAutoPickMonitoring(parseInt(draftId));
@@ -1047,16 +1215,23 @@ export async function pauseDraftHandler(
     // Emit draft status change via WebSocket
     emitDraftStatusChange(io, parseInt(draftId), "paused", updatedDraft);
 
+    io.to(`draft_${draftId}`).emit("draft_paused", {
+      draft: updatedDraft,
+    });
+
     res.status(200).json({
       success: true,
       data: updatedDraft,
     });
   } catch (error: any) {
+    await client.query('ROLLBACK');
     console.error("Error pausing draft:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error pausing draft",
     });
+  } finally {
+    client.release();
   }
 }
 
@@ -1068,11 +1243,21 @@ export async function resumeDraftHandler(
   req: Request,
   res: Response
 ): Promise<void> {
+  const client = await pool.connect();
+
   try {
+    await client.query('BEGIN');
+
     const { draftId } = req.params;
 
-    const draft = await getDraftById(parseInt(draftId));
-    if (!draft) {
+    // Lock the draft row to prevent concurrent state changes
+    const draftResult = await client.query(
+      'SELECT * FROM drafts WHERE id = $1 FOR UPDATE',
+      [draftId]
+    );
+
+    if (draftResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       res.status(404).json({
         success: false,
         message: "Draft not found",
@@ -1080,9 +1265,12 @@ export async function resumeDraftHandler(
       return;
     }
 
+    const draft = draftResult.rows[0];
+
     // Check if user is commissioner
     const userId = req.user?.userId;
     if (!userId) {
+      await client.query('ROLLBACK');
       res.status(401).json({
         success: false,
         message: "User not authenticated",
@@ -1092,6 +1280,7 @@ export async function resumeDraftHandler(
 
     const league = await getLeagueById(draft.league_id);
     if (!league) {
+      await client.query('ROLLBACK');
       res.status(404).json({
         success: false,
         message: "League not found",
@@ -1101,6 +1290,7 @@ export async function resumeDraftHandler(
 
     const commissionerId = league.settings?.commissioner_id;
     if (!commissionerId || commissionerId !== userId) {
+      await client.query('ROLLBACK');
       res.status(403).json({
         success: false,
         message: "Only the commissioner can resume the draft",
@@ -1109,6 +1299,7 @@ export async function resumeDraftHandler(
     }
 
     if (draft.status !== "paused") {
+      await client.query('ROLLBACK');
       res.status(400).json({
         success: false,
         message: "Draft is not paused",
@@ -1116,14 +1307,51 @@ export async function resumeDraftHandler(
       return;
     }
 
-    // Reset pick deadline
-    const pickDeadline = new Date();
-    pickDeadline.setSeconds(pickDeadline.getSeconds() + draft.pick_time_seconds);
+    // Calculate new deadline based on remaining time if possible
+    let newDeadline: Date;
 
-    const updatedDraft = await updateDraft(parseInt(draftId), {
-      status: "in_progress",
-      pick_deadline: pickDeadline,
-    });
+    // Query the current pick's expiration using transaction client
+    const currentTurn = await client.query(
+      `SELECT pick_expiration FROM draft_order
+       WHERE draft_id = $1 AND pick_number = $2`,
+      [draftId, draft.current_pick]
+    );
+
+    if (currentTurn.rows.length > 0 && currentTurn.rows[0].pick_expiration) {
+      const previousDeadline = new Date(currentTurn.rows[0].pick_expiration);
+      const pausedAt = new Date(draft.updated_at);
+      const remainingMs = previousDeadline.getTime() - pausedAt.getTime();
+      // Minimum 10 seconds
+      newDeadline = new Date(Date.now() + Math.max(remainingMs, 10000));
+    } else {
+      newDeadline = new Date(Date.now() + draft.pick_time_seconds * 1000);
+    }
+
+    // Update draft_order with new deadline using transaction client
+    await client.query(
+      `UPDATE draft_order
+       SET pick_expiration = $1
+       WHERE draft_id = $2 AND pick_number = $3`,
+      [newDeadline, draftId, draft.current_pick]
+    );
+
+    // Resume the draft using transaction client
+    const updateDraftResult = await client.query(
+      `UPDATE drafts
+       SET status = 'in_progress',
+           pick_deadline = $1,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING *`,
+      [newDeadline, draftId]
+    );
+    const updatedDraft = updateDraftResult.rows[0];
+
+    // Commit transaction
+    await client.query('COMMIT');
+
+    // Restart timer broadcasts
+    startTimerBroadcast(io, parseInt(draftId));
 
     // Restart auto-pick monitoring when resumed
     startAutoPickMonitoring(parseInt(draftId));
@@ -1137,16 +1365,25 @@ export async function resumeDraftHandler(
     // Emit draft status change via WebSocket
     emitDraftStatusChange(io, parseInt(draftId), "in_progress", updatedDraft);
 
+    io.to(`draft_${draftId}`).emit("draft_resumed", {
+      draft: updatedDraft,
+      deadline: newDeadline.toISOString(),
+      server_time: new Date().toISOString(),
+    });
+
     res.status(200).json({
       success: true,
       data: updatedDraft,
     });
   } catch (error: any) {
+    await client.query('ROLLBACK');
     console.error("Error resuming draft:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error resuming draft",
     });
+  } finally {
+    client.release();
   }
 }
 
@@ -1248,6 +1485,83 @@ export async function resetDraftHandler(
     res.status(500).json({
       success: false,
       message: error.message || "Error resetting draft",
+    });
+  }
+}
+
+/**
+ * Get draft health status
+ * GET /api/drafts/:draftId/health
+ */
+export async function getDraftHealthHandler(req: Request, res: Response) {
+  try {
+    const { draftId } = req.params;
+
+    const draft = await getDraftById(parseInt(draftId));
+    if (!draft) {
+      return res.status(404).json({ success: false, message: 'Draft not found' });
+    }
+
+    // Check for issues
+    const issues: string[] = [];
+
+    // Check if stuck (hasn't progressed in >10 minutes while in_progress)
+    if (draft.status === 'in_progress') {
+      const lastUpdate = new Date(draft.updated_at);
+      const minutesSinceUpdate = (Date.now() - lastUpdate.getTime()) / 60000;
+
+      if (minutesSinceUpdate > 10) {
+        issues.push(`Draft hasn't progressed in ${minutesSinceUpdate.toFixed(0)} minutes`);
+      }
+    }
+
+    // Check for duplicate picks
+    const duplicateCheck = await pool.query(
+      `SELECT player_id, COUNT(*) as count
+       FROM draft_picks
+       WHERE draft_id = $1
+       GROUP BY player_id
+       HAVING COUNT(*) > 1`,
+      [draftId]
+    );
+
+    if (duplicateCheck.rows.length > 0) {
+      issues.push(`${duplicateCheck.rows.length} players drafted multiple times`);
+    }
+
+    // Check budget integrity for auctions
+    if (draft.draft_type === 'auction' || draft.draft_type === 'slow_auction') {
+      const budgetCheck = await pool.query(
+        `SELECT r.id, r.settings->>'team_name' as team_name,
+          COALESCE(SUM(ab.bid_amount), 0) as spent,
+          $1 as budget
+         FROM rosters r
+         LEFT JOIN auction_bids ab ON ab.roster_id = r.id AND ab.is_winning = true
+         WHERE r.league_id = (SELECT league_id FROM drafts WHERE id = $2)
+         GROUP BY r.id
+         HAVING COALESCE(SUM(ab.bid_amount), 0) > $1`,
+        [draft.starting_budget, draftId]
+      );
+
+      if (budgetCheck.rows.length > 0) {
+        issues.push(`${budgetCheck.rows.length} rosters exceeded budget`);
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        draft,
+        health: issues.length === 0 ? 'healthy' : 'issues_detected',
+        issues,
+      },
+    });
+
+  } catch (error: any) {
+    console.error('Error checking draft health:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 }

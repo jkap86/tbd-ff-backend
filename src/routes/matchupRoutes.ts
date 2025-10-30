@@ -7,6 +7,7 @@ import {
   getMatchupDetailsHandler,
   getMatchupScoresHandler,
   recalculateRecordsHandler,
+  generateFullSeasonMatchups,
 } from "../controllers/matchupController";
 import { authenticate } from "../middleware/authMiddleware";
 
@@ -26,6 +27,9 @@ router.get("/:matchupId/scores", getMatchupScoresHandler);
 
 // POST /api/matchups/league/:leagueId/week/:week/generate - Generate matchups (commissioner only)
 router.post("/league/:leagueId/week/:week/generate", authenticate, generateMatchups);
+
+// POST /api/matchups/league/:leagueId/generate-season - Generate full season matchups (commissioner only)
+router.post("/league/:leagueId/generate-season", authenticate, generateFullSeasonMatchups);
 
 // POST /api/matchups/league/:leagueId/week/:week/update-scores - Sync stats and update scores
 router.post("/league/:leagueId/week/:week/update-scores", authenticate, updateScoresForWeek);

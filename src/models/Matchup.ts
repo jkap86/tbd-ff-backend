@@ -477,8 +477,8 @@ export async function updateMatchupStatus(
 }
 
 /**
- * Generate matchups for a league week (simple round-robin)
- * This creates head-to-head matchups for all rosters
+ * Generate matchups for a league week using round-robin algorithm
+ * This creates head-to-head matchups for all rosters with proper rotation
  */
 export async function generateMatchupsForWeek(
   leagueId: number,
@@ -493,6 +493,20 @@ export async function generateMatchupsForWeek(
     if (rosters.length < 2) {
       throw new Error("League must have at least 2 teams to generate matchups");
     }
+
+    // Get league settings to determine week range
+    const { getLeagueById } = await import("./League");
+    const league = await getLeagueById(leagueId);
+
+    if (!league) {
+      throw new Error("League not found");
+    }
+
+    const settings = league.settings || {};
+    const startWeek = settings.start_week || 1;
+
+    // Calculate which week number this is in the season (for round-robin rotation)
+    const weekOffset = week - startWeek + 1;
 
     const matchups: Matchup[] = [];
 
@@ -516,18 +530,21 @@ export async function generateMatchupsForWeek(
       }
     }
 
-    // Simple round-robin: pair rosters sequentially
-    // For odd number of teams, last team gets a bye
-    for (let i = 0; i < rosters.length; i += 2) {
-      const roster1 = rosters[i];
-      const roster2 = i + 1 < rosters.length ? rosters[i + 1] : null;
+    // Use round-robin algorithm to generate matchups
+    const { generateRoundRobinWeek } = await import("../services/scheduleGeneratorService");
+    const rosterIds = rosters.map((r) => r.id);
+    const weekMatchups = generateRoundRobinWeek(rosterIds, weekOffset);
 
+    console.log(`[GenerateMatchups] Using round-robin for week ${week} (offset ${weekOffset}): Generated ${weekMatchups.length} matchups`);
+
+    // Create matchups in database
+    for (const matchupData of weekMatchups) {
       const matchup = await createMatchup({
         league_id: leagueId,
         week,
         season,
-        roster1_id: roster1.id,
-        roster2_id: roster2 ? roster2.id : null,
+        roster1_id: matchupData.roster1_id,
+        roster2_id: matchupData.roster2_id,
       });
 
       matchups.push(matchup);

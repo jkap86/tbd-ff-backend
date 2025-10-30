@@ -10,6 +10,10 @@ import {
 import { updateMatchupScoresForWeek } from "../services/scoringService";
 import { syncSleeperStatsForWeek } from "../services/sleeperStatsService";
 import { finalizeWeekScores, recalculateAllRecords } from "../services/recordService";
+import { generateFullSeasonSchedule } from "../services/scheduleGeneratorService";
+import { getLeagueById } from "../models/League";
+import { getOrCreateWeeklyLineup, updateWeeklyLineup } from "../models/WeeklyLineup";
+import { getRostersByLeagueId } from "../models/Roster";
 
 // Simple in-memory cache for last update times
 const lastUpdateCache = new Map<string, number>();
@@ -337,6 +341,106 @@ export async function recalculateRecordsHandler(
     res.status(500).json({
       success: false,
       message: error.message || "Error recalculating records",
+    });
+  }
+}
+
+/**
+ * Generate matchups for entire regular season using round-robin algorithm
+ * POST /api/matchups/league/:leagueId/generate-season
+ */
+export async function generateFullSeasonMatchups(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const { leagueId } = req.params;
+    const { season, regenerate = false } = req.body;
+
+    if (!season) {
+      res.status(400).json({
+        success: false,
+        message: "Season is required",
+      });
+      return;
+    }
+
+    // Get league to access settings
+    const league = await getLeagueById(parseInt(leagueId));
+    if (!league) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    const settings = league.settings || {};
+    const startWeek = settings.start_week || 1;
+    const playoffWeekStart = settings.playoff_week_start || 15;
+    const endWeek = playoffWeekStart - 1; // Regular season ends before playoffs
+
+    console.log(
+      `[GenerateFullSeason] Generating matchups for league ${leagueId}, weeks ${startWeek}-${endWeek}...`
+    );
+
+    // Generate the full season schedule
+    const result = await generateFullSeasonSchedule(
+      parseInt(leagueId),
+      season,
+      startWeek,
+      endWeek,
+      regenerate
+    );
+
+    if (!result.success) {
+      res.status(400).json({
+        success: false,
+        message: result.message,
+        errors: result.errors,
+      });
+      return;
+    }
+
+    // Auto-populate weekly lineups for all weeks
+    console.log(`[GenerateFullSeason] Auto-populating weekly lineups for all weeks...`);
+    const rosters = await getRostersByLeagueId(parseInt(leagueId));
+
+    for (let week = startWeek; week <= endWeek; week++) {
+      for (const roster of rosters) {
+        // Get or create weekly lineup
+        await getOrCreateWeeklyLineup(roster.id, week, season);
+
+        // Copy starters from default roster to weekly lineup (exclude BN slots)
+        if (roster.starters && Array.isArray(roster.starters)) {
+          const nonBenchStarters = roster.starters.filter((slot: any) => {
+            const slotName = slot.slot || "";
+            return !slotName.startsWith("BN");
+          });
+          await updateWeeklyLineup(roster.id, week, season, nonBenchStarters);
+        }
+      }
+    }
+
+    console.log(
+      `[GenerateFullSeason] Successfully generated ${result.matchups.length} matchups and populated lineups`
+    );
+
+    res.status(201).json({
+      success: true,
+      message: result.message,
+      data: {
+        matchups: result.matchups,
+        weeks_generated: endWeek - startWeek + 1,
+        start_week: startWeek,
+        end_week: endWeek,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error generating full season matchups:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error generating full season matchups",
     });
   }
 }

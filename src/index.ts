@@ -30,11 +30,16 @@ import { startDraftScheduler } from "./services/draftScheduler";
 import { startStatsPreloader } from "./services/statsPreloader";
 import { startTokenCleanupScheduler, stopTokenCleanupScheduler } from "./services/tokenCleanupService";
 import { startWaiverScheduler } from "./services/waiverScheduler";
+import { syncInjuriesFromSleeper } from "./services/injuryService";
+import { calculateADP } from "./services/adpService";
+import cron from "node-cron";
 import waiverRoutes from "./routes/waiverRoutes";
 import tradeRoutes from "./routes/tradeRoutes";
 import auctionRoutes from "./routes/auctionRoutes";
 import playoffRoutes from "./routes/playoffRoutes";
 import leagueMedianRoutes from "./routes/leagueMedianRoutes";
+import injuryRoutes from "./routes/injuryRoutes";
+import adpRoutes from "./routes/adpRoutes";
 import { globalApiLimiter } from "./middleware/rateLimiter";
 import { checkDatabaseHealth } from "./config/database";
 
@@ -181,6 +186,8 @@ app.use("/api/trades", tradeRoutes);
 app.use("/api", auctionRoutes);
 app.use("/api/playoffs", playoffRoutes);
 app.use("/api/league-median", leagueMedianRoutes);
+app.use("/api/injuries", injuryRoutes);
+app.use("/api/adp", adpRoutes);
 
 // Protected route example (to test authentication)
 app.get("/api/profile", authenticate, (req: Request, res: Response) => {
@@ -230,6 +237,34 @@ httpServer.listen(PORT, () => {
 
   // Start waiver scheduler (processes waivers daily at 3 AM UTC)
   startWaiverScheduler();
+
+  // Schedule injury sync (daily at 8 AM ET / 12 PM UTC)
+  cron.schedule('0 12 * * *', async () => {
+    console.log('[Cron] Starting daily injury sync...');
+    try {
+      await syncInjuriesFromSleeper();
+    } catch (error) {
+      console.error('[Cron] Injury sync failed:', error);
+    }
+  }, {
+    timezone: 'UTC'
+  });
+
+  // Calculate ADP weekly (Tuesdays at 3 AM ET / 7 AM UTC)
+  cron.schedule('0 7 * * 2', async () => {
+    console.log('[Cron] Starting weekly ADP calculation...');
+    try {
+      const currentSeason = new Date().getFullYear().toString();
+      await calculateADP(currentSeason);
+    } catch (error) {
+      console.error('[Cron] ADP calculation failed:', error);
+    }
+  }, {
+    timezone: 'UTC'
+  });
+
+  // Sync injuries on server startup
+  syncInjuriesFromSleeper().catch(console.error);
 });
 
 // Graceful shutdown

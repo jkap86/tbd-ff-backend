@@ -1,6 +1,7 @@
 import { PlayerStats } from "../models/PlayerStats";
 
 export interface ScoringSettings {
+  // Legacy flat structure
   passing_touchdowns?: number;
   passing_yards?: number;
   passing_interceptions?: number;
@@ -41,6 +42,40 @@ export interface ScoringSettings {
   tackles_for_loss?: number;
   quarterback_hits?: number;
   passes_defended?: number;
+
+  // Advanced scoring - nested structure (optional)
+  passing?: {
+    pass_yd?: number;
+    pass_td?: number;
+    pass_int?: number;
+    pass_2pt?: number;
+    pass_first_down?: number;
+    pass_40plus?: number;
+    pass_300_bonus?: number;
+  };
+  rushing?: {
+    rush_yd?: number;
+    rush_td?: number;
+    rush_2pt?: number;
+    rush_first_down?: number;
+    rush_40plus?: number;
+    rush_100_bonus?: number;
+  };
+  receiving?: {
+    rec?: number;
+    rec_yd?: number;
+    rec_td?: number;
+    rec_2pt?: number;
+    rec_first_down?: number;
+    rec_40plus?: number;
+    rec_100_bonus?: number;
+    tiered_ppr?: {
+      enabled: boolean;
+      rb?: number;
+      wr?: number;
+      te?: number;
+    };
+  };
 }
 
 /**
@@ -48,26 +83,93 @@ export interface ScoringSettings {
  */
 export function calculateFantasyPoints(
   stats: PlayerStats,
-  scoringSettings: ScoringSettings
+  scoringSettings: ScoringSettings,
+  playerPosition?: string
 ): number {
   let points = 0;
 
-  // Passing
-  points += (stats.passing_touchdowns || 0) * (scoringSettings.passing_touchdowns || 0);
-  points += (stats.passing_yards || 0) * (scoringSettings.passing_yards || 0);
-  points += (stats.passing_interceptions || 0) * (scoringSettings.passing_interceptions || 0);
-  points += (stats.passing_2pt_conversions || 0) * (scoringSettings.passing_2pt_conversions || 0);
+  // Passing - check for nested structure first, then fall back to flat structure
+  if (scoringSettings.passing) {
+    points += (stats.passing_yards || 0) * (scoringSettings.passing.pass_yd || 0);
+    points += (stats.passing_touchdowns || 0) * (scoringSettings.passing.pass_td || 0);
+    points += (stats.passing_interceptions || 0) * (scoringSettings.passing.pass_int || 0);
+    points += (stats.passing_2pt_conversions || 0) * (scoringSettings.passing.pass_2pt || 0);
 
-  // Rushing
-  points += (stats.rushing_touchdowns || 0) * (scoringSettings.rushing_touchdowns || 0);
-  points += (stats.rushing_yards || 0) * (scoringSettings.rushing_yards || 0);
-  points += (stats.rushing_2pt_conversions || 0) * (scoringSettings.rushing_2pt_conversions || 0);
+    // Advanced: Passing first downs
+    points += (stats.passing_first_downs || 0) * (scoringSettings.passing.pass_first_down || 0);
 
-  // Receiving
-  points += (stats.receiving_touchdowns || 0) * (scoringSettings.receiving_touchdowns || 0);
-  points += (stats.receiving_yards || 0) * (scoringSettings.receiving_yards || 0);
-  points += (stats.receiving_receptions || 0) * (scoringSettings.receiving_receptions || 0);
-  points += (stats.receiving_2pt_conversions || 0) * (scoringSettings.receiving_2pt_conversions || 0);
+    // Advanced: 40+ yard pass bonus
+    points += (stats.pass_40plus || 0) * (scoringSettings.passing.pass_40plus || 0);
+
+    // Advanced: 300 yard bonus
+    if (scoringSettings.passing.pass_300_bonus && (stats.passing_yards || 0) >= 300) {
+      points += scoringSettings.passing.pass_300_bonus;
+    }
+  } else {
+    // Legacy flat structure
+    points += (stats.passing_touchdowns || 0) * (scoringSettings.passing_touchdowns || 0);
+    points += (stats.passing_yards || 0) * (scoringSettings.passing_yards || 0);
+    points += (stats.passing_interceptions || 0) * (scoringSettings.passing_interceptions || 0);
+    points += (stats.passing_2pt_conversions || 0) * (scoringSettings.passing_2pt_conversions || 0);
+  }
+
+  // Rushing - check for nested structure first, then fall back to flat structure
+  if (scoringSettings.rushing) {
+    points += (stats.rushing_yards || 0) * (scoringSettings.rushing.rush_yd || 0);
+    points += (stats.rushing_touchdowns || 0) * (scoringSettings.rushing.rush_td || 0);
+    points += (stats.rushing_2pt_conversions || 0) * (scoringSettings.rushing.rush_2pt || 0);
+
+    // Advanced: Rushing first downs
+    points += (stats.rushing_first_downs || 0) * (scoringSettings.rushing.rush_first_down || 0);
+
+    // Advanced: 40+ yard rush bonus
+    points += (stats.rush_40plus || 0) * (scoringSettings.rushing.rush_40plus || 0);
+
+    // Advanced: 100 yard bonus
+    if (scoringSettings.rushing.rush_100_bonus && (stats.rushing_yards || 0) >= 100) {
+      points += scoringSettings.rushing.rush_100_bonus;
+    }
+  } else {
+    // Legacy flat structure
+    points += (stats.rushing_touchdowns || 0) * (scoringSettings.rushing_touchdowns || 0);
+    points += (stats.rushing_yards || 0) * (scoringSettings.rushing_yards || 0);
+    points += (stats.rushing_2pt_conversions || 0) * (scoringSettings.rushing_2pt_conversions || 0);
+  }
+
+  // Receiving - check for nested structure first, then fall back to flat structure
+  if (scoringSettings.receiving) {
+    // Advanced: Tiered PPR
+    let receptionPoints = scoringSettings.receiving.rec || 0;
+
+    if (scoringSettings.receiving.tiered_ppr?.enabled && playerPosition) {
+      const tierValue = scoringSettings.receiving.tiered_ppr[playerPosition.toLowerCase() as 'rb' | 'wr' | 'te'];
+      if (tierValue !== undefined) {
+        receptionPoints = tierValue;
+      }
+    }
+
+    points += (stats.receiving_receptions || 0) * receptionPoints;
+    points += (stats.receiving_yards || 0) * (scoringSettings.receiving.rec_yd || 0);
+    points += (stats.receiving_touchdowns || 0) * (scoringSettings.receiving.rec_td || 0);
+    points += (stats.receiving_2pt_conversions || 0) * (scoringSettings.receiving.rec_2pt || 0);
+
+    // Advanced: Receiving first downs
+    points += (stats.receiving_first_downs || 0) * (scoringSettings.receiving.rec_first_down || 0);
+
+    // Advanced: 40+ yard reception bonus
+    points += (stats.rec_40plus || 0) * (scoringSettings.receiving.rec_40plus || 0);
+
+    // Advanced: 100 yard bonus
+    if (scoringSettings.receiving.rec_100_bonus && (stats.receiving_yards || 0) >= 100) {
+      points += scoringSettings.receiving.rec_100_bonus;
+    }
+  } else {
+    // Legacy flat structure
+    points += (stats.receiving_touchdowns || 0) * (scoringSettings.receiving_touchdowns || 0);
+    points += (stats.receiving_yards || 0) * (scoringSettings.receiving_yards || 0);
+    points += (stats.receiving_receptions || 0) * (scoringSettings.receiving_receptions || 0);
+    points += (stats.receiving_2pt_conversions || 0) * (scoringSettings.receiving_2pt_conversions || 0);
+  }
 
   // Fumbles
   points += (stats.fumbles_lost || 0) * (scoringSettings.fumbles_lost || 0);
@@ -131,7 +233,9 @@ export async function calculateRosterScore(
 
   // Calculate points for each player
   for (const playerStats of playersStats) {
-    const points = calculateFantasyPoints(playerStats, scoringSettings);
+    // Pass player position if available (from PlayerStatsWithInfo)
+    const position = (playerStats as any).player_position;
+    const points = calculateFantasyPoints(playerStats, scoringSettings, position);
     totalScore += points;
   }
 

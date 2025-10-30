@@ -35,6 +35,7 @@ import {
 } from "../services/autoPickService";
 import { checkAndAutoPauseDraft } from "../services/draftScheduler";
 import pool from "../config/database";
+import { calculateADP } from "../services/adpService";
 
 /**
  * Calculate which roster should be picking based on current pick number
@@ -943,6 +944,12 @@ export async function makeDraftPickHandler(
       // Emit status change to notify clients that draft is complete
       console.log(`Emitting draft completion status for draft ${draftId}`);
       emitDraftStatusChange(io, parseInt(draftId), "completed", updatedDraft);
+
+      // Trigger ADP recalculation (don't await - run in background)
+      const season = league?.season || new Date().getFullYear().toString();
+      calculateADP(season).catch(err =>
+        console.error('Failed to update ADP after draft:', err)
+      );
     } else {
       // Advance to next pick
       const nextPickInfo = calculateCurrentRoster(

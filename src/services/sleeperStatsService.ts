@@ -113,6 +113,18 @@ export async function syncSleeperStatsForWeek(
           tackles_for_loss: stats.idp_tkl_loss || 0,
           quarterback_hits: stats.idp_qb_hit || 0,
           passes_defended: stats.idp_pass_def || 0,
+
+          // Advanced stats - First downs (if Sleeper provides them)
+          rushing_first_downs: stats.rush_fd || 0,
+          receiving_first_downs: stats.rec_fd || 0,
+          passing_first_downs: stats.pass_fd || 0,
+
+          // Advanced stats - Big plays
+          // Note: Sleeper may not provide these directly; they may need to be calculated
+          // from play-by-play data or derived from other stats
+          rush_40plus: stats.rush_40p || 0,
+          rec_40plus: stats.rec_40p || 0,
+          pass_40plus: stats.pass_40p || 0,
         });
 
         synced++;

@@ -12,6 +12,10 @@ export interface Player {
   fantasy_data_id: string | null;
   created_at: Date;
   updated_at: Date;
+  injury_status?: string;
+  injury_designation?: string;
+  injury_return_date?: Date;
+  injury_updated_at?: Date;
 }
 
 /**
@@ -295,4 +299,61 @@ export async function bulkUpsertPlayers(
   } finally {
     client.release();
   }
+}
+
+/**
+ * Update player injury status
+ */
+export async function updatePlayerInjuryStatus(
+  playerId: string,
+  injuryData: {
+    injury_status?: string;
+    injury_designation?: string;
+    injury_return_date?: Date | null;
+  }
+): Promise<void> {
+  const updates: string[] = [];
+  const values: any[] = [];
+  let paramCount = 1;
+
+  if (injuryData.injury_status !== undefined) {
+    updates.push(`injury_status = $${paramCount++}`);
+    values.push(injuryData.injury_status);
+  }
+
+  if (injuryData.injury_designation !== undefined) {
+    updates.push(`injury_designation = $${paramCount++}`);
+    values.push(injuryData.injury_designation);
+  }
+
+  if (injuryData.injury_return_date !== undefined) {
+    updates.push(`injury_return_date = $${paramCount++}`);
+    values.push(injuryData.injury_return_date);
+  }
+
+  if (updates.length > 0) {
+    updates.push(`injury_updated_at = CURRENT_TIMESTAMP`);
+    values.push(playerId);
+
+    const query = `
+      UPDATE players
+      SET ${updates.join(', ')}
+      WHERE player_id = $${paramCount}
+    `;
+
+    await pool.query(query, values);
+  }
+}
+
+/**
+ * Get all injured players
+ */
+export async function getInjuredPlayers(): Promise<Player[]> {
+  const result = await pool.query(
+    `SELECT * FROM players
+     WHERE injury_status IS NOT NULL
+     AND injury_status != 'Healthy'
+     ORDER BY injury_updated_at DESC`
+  );
+  return result.rows;
 }

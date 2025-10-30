@@ -59,6 +59,16 @@ export interface PlayerStats {
   quarterback_hits: number;
   passes_defended: number;
 
+  // Advanced stats - First downs
+  rushing_first_downs: number;
+  receiving_first_downs: number;
+  passing_first_downs: number;
+
+  // Advanced stats - Big plays
+  rush_40plus: number;
+  rec_40plus: number;
+  pass_40plus: number;
+
   created_at: Date;
   updated_at: Date;
 }
@@ -91,14 +101,17 @@ export async function upsertPlayerStats(
         defensive_touchdowns, special_teams_touchdowns, defensive_interceptions,
         defensive_fumbles_recovered, defensive_sacks, defensive_safeties,
         defensive_points_allowed, defensive_yards_allowed,
-        tackles_solo, tackles_assisted, tackles_for_loss, quarterback_hits, passes_defended
+        tackles_solo, tackles_assisted, tackles_for_loss, quarterback_hits, passes_defended,
+        rushing_first_downs, receiving_first_downs, passing_first_downs,
+        rush_40plus, rec_40plus, pass_40plus
       )
       VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
         $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
         $21, $22, $23, $24, $25, $26, $27, $28, $29,
         $30, $31, $32, $33, $34, $35, $36, $37,
-        $38, $39, $40, $41, $42
+        $38, $39, $40, $41, $42, $43, $44, $45,
+        $46, $47, $48
       )
       ON CONFLICT (player_id, week, season, season_type)
       DO UPDATE SET
@@ -140,6 +153,12 @@ export async function upsertPlayerStats(
         tackles_for_loss = EXCLUDED.tackles_for_loss,
         quarterback_hits = EXCLUDED.quarterback_hits,
         passes_defended = EXCLUDED.passes_defended,
+        rushing_first_downs = EXCLUDED.rushing_first_downs,
+        receiving_first_downs = EXCLUDED.receiving_first_downs,
+        passing_first_downs = EXCLUDED.passing_first_downs,
+        rush_40plus = EXCLUDED.rush_40plus,
+        rec_40plus = EXCLUDED.rec_40plus,
+        pass_40plus = EXCLUDED.pass_40plus,
         updated_at = CURRENT_TIMESTAMP
       RETURNING *
     `;
@@ -187,6 +206,12 @@ export async function upsertPlayerStats(
       statsData.tackles_for_loss || 0,
       statsData.quarterback_hits || 0,
       statsData.passes_defended || 0,
+      statsData.rushing_first_downs || 0,
+      statsData.receiving_first_downs || 0,
+      statsData.passing_first_downs || 0,
+      statsData.rush_40plus || 0,
+      statsData.rec_40plus || 0,
+      statsData.pass_40plus || 0,
     ]);
 
     return result.rows[0];

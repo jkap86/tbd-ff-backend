@@ -9,6 +9,7 @@ import NodeCache from "node-cache";
  */
 
 const SLEEPER_API_BASE = "https://api.sleeper.com";
+const API_TIMEOUT = 30000; // 30 seconds
 
 // Cache references (same instances used by playerStatsController)
 // Export these so the controller can import them
@@ -50,7 +51,8 @@ async function preloadSeasonStats(): Promise<void> {
       console.log(`[StatsPreloader] Preloading season stats for ${season}...`);
 
       const response = await axios.get(
-        `${SLEEPER_API_BASE}/stats/nfl/${season}?season_type=${SEASON_TYPE}`
+        `${SLEEPER_API_BASE}/stats/nfl/${season}?season_type=${SEASON_TYPE}`,
+        { timeout: API_TIMEOUT }
       );
       const allStats = response.data;
 
@@ -106,7 +108,8 @@ async function preloadWeekRangeProjections(): Promise<void> {
         (async () => {
           try {
             const response = await axios.get(
-              `${SLEEPER_API_BASE}/projections/nfl/${season}/${week}?season_type=${SEASON_TYPE}`
+              `${SLEEPER_API_BASE}/projections/nfl/${season}/${week}?season_type=${SEASON_TYPE}`,
+              { timeout: API_TIMEOUT }
             );
             const weekData = response.data;
 
@@ -215,7 +218,8 @@ async function preloadSeasonProjections(): Promise<void> {
     console.log(`[StatsPreloader] Preloading season projections for ${season}...`);
 
     const response = await axios.get(
-      `${SLEEPER_API_BASE}/projections/nfl/${season}?season_type=${SEASON_TYPE}`
+      `${SLEEPER_API_BASE}/projections/nfl/${season}?season_type=${SEASON_TYPE}`,
+      { timeout: API_TIMEOUT }
     );
     const allProjections = response.data;
 

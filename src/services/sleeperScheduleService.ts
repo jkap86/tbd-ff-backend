@@ -1,6 +1,7 @@
 import axios from "axios";
 
 const SLEEPER_GRAPHQL_URL = "https://sleeper.com/graphql";
+const API_TIMEOUT = 30000; // 30 seconds
 
 interface GameSchedule {
   game_id: string;
@@ -45,7 +46,8 @@ export async function getWeekSchedule(
 
     const response = await axios.post<ScheduleResponse>(
       SLEEPER_GRAPHQL_URL,
-      graphqlQuery
+      graphqlQuery,
+      { timeout: API_TIMEOUT }
     );
 
     return response.data.data.scores || [];

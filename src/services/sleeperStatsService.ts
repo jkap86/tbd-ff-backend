@@ -2,6 +2,7 @@ import axios from "axios";
 import { upsertPlayerStats } from "../models/PlayerStats";
 
 const SLEEPER_API_BASE = "https://api.sleeper.com";
+const API_TIMEOUT = 30000; // 30 seconds
 
 /**
  * Map Sleeper player ID to our database player ID
@@ -24,7 +25,8 @@ export async function syncSleeperStatsForWeek(
     console.log(`Fetching Sleeper stats for ${season} week ${week}...`);
 
     const response = await axios.get(
-      `${SLEEPER_API_BASE}/stats/nfl/${season}/${week}?season_type=${seasonType}`
+      `${SLEEPER_API_BASE}/stats/nfl/${season}/${week}?season_type=${seasonType}`,
+      { timeout: API_TIMEOUT }
     );
 
     // Response is an array of player stat objects

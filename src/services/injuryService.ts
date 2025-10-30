@@ -1,6 +1,8 @@
 import pool from '../config/database';
 import { updatePlayerInjuryStatus } from '../models/Player';
 
+const API_TIMEOUT = 30000; // 30 seconds
+
 /**
  * Sync injury data from Sleeper API
  * Sleeper provides injury_status in their player data
@@ -15,8 +17,15 @@ export async function syncInjuriesFromSleeper(): Promise<{
   const errors: string[] = [];
 
   try {
-    // Fetch all players from Sleeper
-    const response = await fetch('https://api.sleeper.app/v1/players/nfl');
+    // Fetch all players from Sleeper with timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
+
+    const response = await fetch('https://api.sleeper.app/v1/players/nfl', {
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       throw new Error(`Sleeper API error: ${response.status}`);
@@ -50,6 +59,10 @@ export async function syncInjuriesFromSleeper(): Promise<{
     return { updated, errors };
 
   } catch (error: any) {
+    if (error.name === 'AbortError') {
+      console.error('[InjuryService] Request timed out after 30 seconds');
+      throw new Error('Request timed out - Sleeper API took too long to respond');
+    }
     console.error('[InjuryService] Sync failed:', error);
     throw error;
   }

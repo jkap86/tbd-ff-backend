@@ -2,6 +2,7 @@ import axios from "axios";
 import { PlayerStats } from "../models/PlayerStats";
 
 const SLEEPER_API_BASE = "https://api.sleeper.com";
+const API_TIMEOUT = 30000; // 30 seconds
 
 interface SleeperProjections {
   [playerId: string]: {
@@ -75,7 +76,8 @@ export async function fetchSleeperProjections(
     );
 
     const response = await axios.get(
-      `${SLEEPER_API_BASE}/projections/nfl/${season}/${week}?season_type=${seasonType}`
+      `${SLEEPER_API_BASE}/projections/nfl/${season}/${week}?season_type=${seasonType}`,
+      { timeout: API_TIMEOUT }
     );
 
     const rawData = response.data || [];

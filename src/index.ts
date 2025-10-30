@@ -78,6 +78,11 @@ const corsOptions: cors.CorsOptions = {
       return callback(null, true);
     }
 
+    // In development, allow any localhost port
+    if (process.env.NODE_ENV !== "production" && origin.startsWith("http://localhost:")) {
+      return callback(null, true);
+    }
+
     if (finalAllowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -94,7 +99,21 @@ const app: Application = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: finalAllowedOrigins,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps)
+      if (!origin) {
+        return callback(null, true);
+      }
+      // In development, allow any localhost port
+      if (process.env.NODE_ENV !== "production" && origin.startsWith("http://localhost:")) {
+        return callback(null, true);
+      }
+      // Check against allowed origins
+      if (finalAllowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      callback(null, false);
+    },
     methods: ["GET", "POST"],
     credentials: true,
   },

@@ -38,6 +38,7 @@ import pool from "../config/database";
 import { calculateADP } from "../services/adpService";
 import { validatePositiveInteger, ValidationError } from "../utils/validation";
 import { TRANSACTION_TIMEOUTS, DB_ERROR_CODES } from "../config/constants";
+import { setTransactionTimeouts } from "../utils/transactionTimeout";
 
 /**
  * Calculate which roster should be picking based on current pick number
@@ -609,6 +610,7 @@ export async function startDraftHandler(
   res: Response
 ): Promise<void> {
   const client = await pool.connect();
+    await setTransactionTimeouts(client);
 
   try {
     await client.query('BEGIN');
@@ -824,6 +826,7 @@ export async function makeDraftPickHandler(
 ): Promise<void> {
   const pool = (await import("../config/database")).default;
   const client = await pool.connect();
+    await setTransactionTimeouts(client);
 
   try {
     await client.query('BEGIN');
@@ -1308,6 +1311,7 @@ export async function pauseDraftHandler(
   res: Response
 ): Promise<void> {
   const client = await pool.connect();
+    await setTransactionTimeouts(client);
 
   try {
     await client.query('BEGIN');
@@ -1430,6 +1434,7 @@ export async function resumeDraftHandler(
   res: Response
 ): Promise<void> {
   const client = await pool.connect();
+    await setTransactionTimeouts(client);
 
   try {
     await client.query('BEGIN');

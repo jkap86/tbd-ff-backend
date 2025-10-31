@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { setTransactionTimeouts } from "../utils/transactionTimeout";
 
 /**
  * League Median Service
@@ -183,6 +184,7 @@ export async function generateMedianMatchups(
 
     // 6. Create median matchup for each roster
     const client = await pool.connect();
+    await setTransactionTimeouts(client);
     try {
       await client.query("BEGIN");
 
@@ -280,6 +282,7 @@ export async function updateMedianMatchupResults(
     }
 
     const client = await pool.connect();
+    await setTransactionTimeouts(client);
     try {
       await client.query("BEGIN");
 

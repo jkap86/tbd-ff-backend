@@ -8,6 +8,8 @@ import {
 } from "../models/Auction";
 import { getDraftById, completeDraft, updateDraft } from "../models/Draft";
 import { getLeagueById, updateLeague } from "../models/League";
+import { setTransactionTimeouts } from "../utils/transactionTimeout";
+import { DB_ERROR_CODES } from "../config/constants";
 
 // POST /api/drafts/:id/nominate
 export async function nominatePlayerHandler(req: Request, res: Response) {
@@ -16,6 +18,7 @@ export async function nominatePlayerHandler(req: Request, res: Response) {
 
   try {
     await client.query('BEGIN');
+    await setTransactionTimeouts(client);
 
     const draftId = parseInt(req.params.id);
     const { player_id, roster_id, deadline } = req.body;
@@ -194,6 +197,16 @@ export async function nominatePlayerHandler(req: Request, res: Response) {
     return res.status(201).json(nomination);
   } catch (error: any) {
     await client.query('ROLLBACK');
+
+    // Handle timeout errors
+    if (error.code === DB_ERROR_CODES.STATEMENT_TIMEOUT) {
+      console.error('[Transaction] Statement timeout in nominatePlayer');
+      return res.status(503).json({
+        error: 'Operation timed out, please try again',
+        code: 'TIMEOUT'
+      });
+    }
+
     console.error("Error nominating player:", error);
     return res.status(500).json({ error: error.message });
   } finally {
@@ -208,6 +221,7 @@ export async function placeBidHandler(req: Request, res: Response) {
 
   try {
     await client.query('BEGIN');
+    await setTransactionTimeouts(client);
 
     const draftId = parseInt(req.params.id);
     const { nomination_id, roster_id, max_bid } = req.body;
@@ -469,6 +483,16 @@ export async function placeBidHandler(req: Request, res: Response) {
     return res.status(200).json(result);
   } catch (error: any) {
     await client.query('ROLLBACK');
+
+    // Handle timeout errors
+    if (error.code === DB_ERROR_CODES.STATEMENT_TIMEOUT) {
+      console.error('[Transaction] Statement timeout in placeBid');
+      return res.status(503).json({
+        error: 'Operation timed out, please try again',
+        code: 'TIMEOUT'
+      });
+    }
+
     console.error("Error placing bid:", error);
     return res.status(400).json({ error: error.message });
   } finally {

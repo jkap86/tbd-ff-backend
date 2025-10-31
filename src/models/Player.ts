@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { setTransactionTimeouts } from "../utils/transactionTimeout";
 
 export interface Player {
   id: number;
@@ -259,6 +260,7 @@ export async function bulkUpsertPlayers(
   }
 
   const client = await pool.connect();
+    await setTransactionTimeouts(client);
   try {
     await client.query("BEGIN");
 

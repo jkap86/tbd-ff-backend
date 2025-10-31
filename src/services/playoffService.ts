@@ -1,5 +1,6 @@
 import pool from "../config/database";
 import { getPlayoffTeams, StandingsEntry } from "./standingsService";
+import { setTransactionTimeouts } from "../utils/transactionTimeout";
 
 /**
  * Playoff round types matching database enum
@@ -569,6 +570,7 @@ async function insertBracketMatchups(
 ): Promise<void> {
   try {
     const client = await pool.connect();
+    await setTransactionTimeouts(client);
 
     try {
       await client.query("BEGIN");

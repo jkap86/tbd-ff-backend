@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { setTransactionTimeouts } from "../utils/transactionTimeout";
 
 export interface Draft {
   id: number;
@@ -559,6 +560,7 @@ export async function assignDraftedPlayersToRosters(draftId: number): Promise<vo
  */
 export async function resetDraft(draftId: number): Promise<Draft> {
   const client = await pool.connect();
+    await setTransactionTimeouts(client);
   try {
     await client.query("BEGIN");
 

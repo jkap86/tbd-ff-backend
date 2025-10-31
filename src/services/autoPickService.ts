@@ -7,6 +7,8 @@ import { emitDraftPick, emitDraftStatusChange } from "../socket/draftSocket";
 import { io } from "../index";
 import { AutoPickFailedError } from "../errors/DraftErrors";
 import pool from "../config/database";
+import { setTransactionTimeouts } from "../utils/transactionTimeout";
+import { DB_ERROR_CODES } from "../config/constants";
 
 // Map to track active timers for each draft
 const activeTimers: Map<number, NodeJS.Timeout> = new Map();
@@ -171,6 +173,7 @@ async function skipPick(draftId: number, rosterId: number): Promise<void> {
   // Skip this pick and move to next
   // This is a last resort when no players are available or all retries fail
   const client = await pool.connect();
+    await setTransactionTimeouts(client);
   try {
     await client.query('BEGIN');
 
@@ -196,8 +199,15 @@ async function skipPick(draftId: number, rosterId: number): Promise<void> {
     await client.query('COMMIT');
 
     console.log(`[AutoPick] Skipped pick ${draft.current_pick} for roster ${rosterId}`);
-  } catch (error) {
+  } catch (error: any) {
     await client.query('ROLLBACK');
+
+    // Handle timeout errors
+    if (error.code === DB_ERROR_CODES.STATEMENT_TIMEOUT) {
+      console.error('[Transaction] Statement timeout in skipPick');
+      throw new Error('Operation timed out, please try again');
+    }
+
     throw error;
   } finally {
     client.release();
@@ -229,6 +239,7 @@ async function createAutoPickFailureEvent(
  */
 async function makeDraftPick(draftId: number, rosterId: number, playerId: number, draft: any): Promise<void> {
   const client = await pool.connect();
+    await setTransactionTimeouts(client);
 
   try {
     await client.query('BEGIN');
@@ -426,8 +437,15 @@ async function makeDraftPick(draftId: number, rosterId: number, playerId: number
     console.log(
       `[AutoPick] Successfully auto-picked ${player?.full_name} for roster ${rosterId}`
     );
-  } catch (error) {
+  } catch (error: any) {
     await client.query('ROLLBACK');
+
+    // Handle timeout errors
+    if (error.code === DB_ERROR_CODES.STATEMENT_TIMEOUT) {
+      console.error('[Transaction] Statement timeout in makeDraftPick');
+      throw new Error('Operation timed out, please try again');
+    }
+
     console.error(`[AutoPick] Error performing auto-pick:`, error);
     throw error;
   } finally {

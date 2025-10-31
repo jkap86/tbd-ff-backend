@@ -13,6 +13,7 @@ import {
 } from "../models/Roster";
 import { createTransaction } from "../models/Transaction";
 import pool from "../config/database";
+import { setTransactionTimeouts } from "../utils/transactionTimeout";
 
 /**
  * Submit a waiver claim for a player
@@ -87,6 +88,7 @@ export async function submitWaiverClaim(
  */
 export async function processWaivers(leagueId: number): Promise<void> {
   const client = await pool.connect();
+    await setTransactionTimeouts(client);
 
   try {
     // Begin transaction with SERIALIZABLE isolation level
@@ -283,6 +285,7 @@ export async function pickupFreeAgent(
   dropPlayerId: number | null
 ): Promise<any> {
   const client = await pool.connect();
+    await setTransactionTimeouts(client);
 
   try {
     await client.query("BEGIN");

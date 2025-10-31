@@ -43,6 +43,10 @@ import playoffRoutes from "./routes/playoffRoutes";
 import leagueMedianRoutes from "./routes/leagueMedianRoutes";
 import injuryRoutes from "./routes/injuryRoutes";
 import adpRoutes from "./routes/adpRoutes";
+import keeperRoutes from "./routes/keeperRoutes";
+import dynastyRoutes from "./routes/dynastyRoutes";
+import draftPickTradeRoutes from "./routes/draftPickTradeRoutes";
+import notificationRoutes from "./routes/notificationRoutes";
 import { globalApiLimiter } from "./middleware/rateLimiter";
 import { requestIdMiddleware } from "./middleware/requestId";
 import pool from "./config/database";
@@ -147,6 +151,9 @@ setupAuctionSocket(io);
 // Make io available globally for controllers
 export { io };
 
+// Trust proxy for Heroku (enables x-forwarded-* headers)
+app.set('trust proxy', true);
+
 // Middleware
 app.use(helmet()); // Security headers
 app.use(requestIdMiddleware); // Request ID tracking
@@ -234,6 +241,10 @@ v1Router.use("/playoffs", playoffRoutes);
 v1Router.use("/league-median", leagueMedianRoutes);
 v1Router.use("/injuries", injuryRoutes);
 v1Router.use("/adp", adpRoutes);
+v1Router.use("/", keeperRoutes);
+v1Router.use("/", dynastyRoutes);
+v1Router.use("/", draftPickTradeRoutes);
+v1Router.use("/notifications", notificationRoutes);
 
 // Protected route example (to test authentication)
 v1Router.get("/profile", authenticate, (req: Request, res: Response) => {
@@ -270,7 +281,7 @@ app.use("/api/player-projections", playerProjectionsRoutes);
 app.use("/api/rosters", rosterRoutes);
 app.use("/api/matchups", matchupRoutes);
 app.use("/api/weekly-lineups", weeklyLineupRoutes);
-app.use("/api/nfl", nflRoutes);
+// Removed: /api/nfl - use /api/v1/nfl instead
 app.use("/api", waiverRoutes);
 app.use("/api/trades", tradeRoutes);
 app.use("/api", auctionRoutes);

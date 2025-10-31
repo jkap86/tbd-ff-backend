@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
 import pool from "../config/database";
 import {
-  createLeague,
   getLeagueById,
   getLeaguesForUser,
   validateLeagueSettings,
@@ -10,10 +9,11 @@ import {
 } from "../models/League";
 import {
   createRoster,
-  getRostersByLeagueId,
   getRosterByLeagueAndUser,
+  getRostersByLeagueId,
   getNextRosterId,
 } from "../models/Roster";
+import { leagueBusinessService } from "../services/leagueBusinessService";
 
 /**
  * Create a new league with all settings
@@ -144,35 +144,21 @@ export async function createLeagueHandler(
       return;
     }
 
-    // Create league
-    const league = await createLeague({
-      name,
+    // Create league with business logic handled by service layer
+    const league = await leagueBusinessService.createLeagueWithDefaults(
       commissioner_id,
-      season,
-      season_type,
-      league_type,
-      total_rosters,
-      settings,
-      scoring_settings,
-      roster_positions,
-    });
-
-    // Auto-generate matchups for all regular season weeks
-    const startWeek = settings.start_week || 1;
-    const playoffWeekStart = settings.playoff_week_start || 15;
-    const { generateMatchupsForWeek } = await import("../models/Matchup");
-
-    console.log(`[CreateLeague] Auto-generating matchups for weeks ${startWeek} to ${playoffWeekStart - 1}...`);
-
-    for (let week = startWeek; week < playoffWeekStart; week++) {
-      try {
-        await generateMatchupsForWeek(league.id, week, season);
-        console.log(`[CreateLeague] Generated matchups for week ${week}`);
-      } catch (error) {
-        console.error(`[CreateLeague] Failed to generate matchups for week ${week}:`, error);
-        // Continue with other weeks even if one fails
+      {
+        name,
+        commissioner_id,
+        season,
+        season_type,
+        league_type,
+        total_rosters,
+        settings,
+        scoring_settings,
+        roster_positions,
       }
-    }
+    );
 
     res.status(201).json({
       success: true,
@@ -271,10 +257,43 @@ export async function getLeagueDetailsHandler(
       return;
     }
 
-    // Get league details
-    const league = await getLeagueById(leagueId);
+    // Optimized query: Use a single query with JOINs to fetch league and all rosters
+    // This eliminates the N+1 query problem
+    const result = await pool.query(`
+      SELECT
+        l.*,
+        json_agg(
+          json_build_object(
+            'id', r.id,
+            'league_id', r.league_id,
+            'user_id', r.user_id,
+            'roster_id', r.roster_id,
+            'settings', r.settings,
+            'starters', r.starters,
+            'bench', r.bench,
+            'taxi', r.taxi,
+            'ir', r.ir,
+            'wins', r.wins,
+            'losses', r.losses,
+            'ties', r.ties,
+            'points_for', r.points_for,
+            'points_against', r.points_against,
+            'faab_budget', r.faab_budget,
+            'waiver_position', r.waiver_position,
+            'created_at', r.created_at,
+            'updated_at', r.updated_at,
+            'username', u.username,
+            'email', u.email
+          ) ORDER BY r.roster_id ASC
+        ) FILTER (WHERE r.id IS NOT NULL) as rosters
+      FROM leagues l
+      LEFT JOIN rosters r ON r.league_id = l.id
+      LEFT JOIN users u ON u.id = r.user_id
+      WHERE l.id = $1
+      GROUP BY l.id
+    `, [leagueId]);
 
-    if (!league) {
+    if (result.rows.length === 0) {
       res.status(404).json({
         success: false,
         message: "League not found",
@@ -282,18 +301,20 @@ export async function getLeagueDetailsHandler(
       return;
     }
 
-    // Get all rosters for this league
-    const rosters = await getRostersByLeagueId(leagueId);
+    const row = result.rows[0];
+
+    // Extract league data (all columns except rosters)
+    const { rosters, ...leagueData } = row;
 
     // Extract commissioner ID from settings and add it to league object at top level
     const commissionerId =
-      league.settings && league.settings.commissioner_id
-        ? league.settings.commissioner_id
+      leagueData.settings && leagueData.settings.commissioner_id
+        ? leagueData.settings.commissioner_id
         : null;
 
     // Add commissioner_id to league object so Flutter can parse it
     const leagueWithCommissioner = {
-      ...league,
+      ...leagueData,
       commissioner_id: commissionerId,
     };
 
@@ -301,7 +322,7 @@ export async function getLeagueDetailsHandler(
       success: true,
       data: {
         league: leagueWithCommissioner,
-        rosters,
+        rosters: rosters || [],
       },
     });
   } catch (error: any) {

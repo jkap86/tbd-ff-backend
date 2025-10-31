@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { AppError } from "../errors/AppError";
+import { logger } from "../config/logger";
 
 export function errorHandler(
   error: Error | AppError,
@@ -15,7 +16,7 @@ export function errorHandler(
   }
 
   // Log unexpected errors
-  console.error("[Unexpected Error]", error);
+  logger.error('[Unexpected Error]', { error: error.message, stack: error.stack });
 
   // Don't leak error details in production
   const message =

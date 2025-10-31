@@ -4,6 +4,8 @@ import cors from "cors";
 import helmet from "helmet";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import swaggerUi from "swagger-ui-express";
+import { swaggerSpec } from "./config/swagger";
 import authRoutes from "./routes/authRoutes";
 import { authenticate } from "./middleware/authMiddleware";
 import leagueRoutes from "./routes/leagueRoutes";
@@ -44,6 +46,8 @@ import adpRoutes from "./routes/adpRoutes";
 import { globalApiLimiter } from "./middleware/rateLimiter";
 import { checkDatabaseHealth } from "./config/database";
 import { requestIdMiddleware } from "./middleware/requestId";
+import pool from "./config/database";
+import { logger } from "./config/logger";
 
 // Load environment variables
 dotenv.config();
@@ -59,8 +63,8 @@ if (!allowedOrigins || allowedOrigins.length === 0) {
     );
   } else {
     // Default for development only
-    console.warn(
-      "WARNING: ALLOWED_ORIGINS not set. Defaulting to localhost:3000 for development."
+    logger.warn(
+      "ALLOWED_ORIGINS not set. Defaulting to localhost:3000 for development."
     );
   }
 }
@@ -77,7 +81,7 @@ finalAllowedOrigins.forEach(origin => {
   }
 });
 
-console.log("CORS enabled for origins:", finalAllowedOrigins);
+logger.info("CORS enabled for origins", { origins: finalAllowedOrigins });
 
 // CORS configuration
 const corsOptions: cors.CorsOptions = {
@@ -94,7 +98,7 @@ const corsOptions: cors.CorsOptions = {
     }
 
     // Check against whitelist
-    if (finalAllowedOrigins.includes(origin)) {
+    if (origin && finalAllowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error(`Origin ${origin} not allowed by CORS`));
@@ -156,26 +160,105 @@ app.use(express.urlencoded({ extended: true, limit: '100kb' })); // Parse URL-en
 // 100 requests per minute per IP
 app.use("/api", globalApiLimiter);
 
-// Health check endpoint
-app.get("/health", async (_req, res) => {
-  const dbHealthy = await checkDatabaseHealth();
+// Swagger API documentation
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-  if (dbHealthy) {
-    res.status(200).json({
-      status: "healthy",
-      database: "connected",
-      timestamp: new Date().toISOString(),
-    });
-  } else {
-    res.status(503).json({
-      status: "unhealthy",
-      database: "disconnected",
-      timestamp: new Date().toISOString(),
-    });
+// Health check endpoint
+app.get("/health", async (req, res) => {
+  const health = {
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    checks: {
+      database: "unknown",
+      memory: "unknown",
+    },
+  };
+
+  try {
+    // Check database
+    await pool.query("SELECT 1");
+    health.checks.database = "healthy";
+  } catch (error) {
+    health.checks.database = "unhealthy";
+    health.status = "degraded";
+  }
+
+  // Check memory usage
+  const memoryUsage = process.memoryUsage();
+  const memoryUsageMB = {
+    rss: Math.round(memoryUsage.rss / 1024 / 1024),
+    heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024),
+    heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024),
+  };
+
+  health.checks.memory = memoryUsageMB.heapUsed < 500 ? "healthy" : "warning";
+
+  const statusCode = health.status === "healthy" ? 200 : 503;
+  res.status(statusCode).json(health);
+});
+
+// Liveness probe endpoint
+app.get("/health/live", (req, res) => {
+  res.status(200).json({ status: "alive" });
+});
+
+// Readiness probe endpoint
+app.get("/health/ready", async (req, res) => {
+  try {
+    await pool.query("SELECT 1");
+    res.status(200).json({ status: "ready" });
+  } catch (error) {
+    res.status(503).json({ status: "not ready" });
   }
 });
 
-// API Routes
+// Version 1 API routes
+const v1Router = express.Router();
+v1Router.use("/auth", authRoutes);
+v1Router.use("/leagues", leagueRoutes);
+v1Router.use("/invites", inviteRoutes);
+v1Router.use("/users", userRoutes);
+v1Router.use("/drafts", draftRoutes);
+v1Router.use("/players", playerRoutes);
+v1Router.use("/player-stats", playerStatsRoutes);
+v1Router.use("/player-projections", playerProjectionsRoutes);
+v1Router.use("/rosters", rosterRoutes);
+v1Router.use("/matchups", matchupRoutes);
+v1Router.use("/weekly-lineups", weeklyLineupRoutes);
+v1Router.use("/nfl", nflRoutes);
+v1Router.use("/", waiverRoutes);
+v1Router.use("/trades", tradeRoutes);
+v1Router.use("/", auctionRoutes);
+v1Router.use("/playoffs", playoffRoutes);
+v1Router.use("/league-median", leagueMedianRoutes);
+v1Router.use("/injuries", injuryRoutes);
+v1Router.use("/adp", adpRoutes);
+
+// Protected route example (to test authentication)
+v1Router.get("/profile", authenticate, (req: Request, res: Response) => {
+  res.status(200).json({
+    success: true,
+    message: "Protected route accessed successfully",
+    data: {
+      user: req.user,
+    },
+  });
+});
+
+// Mount v1 API
+app.use("/api/v1", v1Router);
+
+// Middleware to log deprecation warning for non-versioned routes
+app.use("/api", (req, res, next) => {
+  if (!req.path.startsWith("/v1/")) {
+    logger.warn("Non-versioned API route accessed", { method: req.method, path: req.path });
+    res.setHeader("X-API-Warn", "This endpoint is deprecated. Use /api/v1 instead");
+  }
+  next();
+});
+
+// Legacy routes (redirect to v1 for backward compatibility)
 app.use("/api/auth", authRoutes);
 app.use("/api/leagues", leagueRoutes);
 app.use("/api/invites", inviteRoutes);
@@ -196,7 +279,7 @@ app.use("/api/league-median", leagueMedianRoutes);
 app.use("/api/injuries", injuryRoutes);
 app.use("/api/adp", adpRoutes);
 
-// Protected route example (to test authentication)
+// Protected route example (to test authentication) - legacy
 app.get("/api/profile", authenticate, (req: Request, res: Response) => {
   res.status(200).json({
     success: true,
@@ -221,11 +304,12 @@ app.use(errorHandler);
 
 // Start server
 httpServer.listen(PORT, () => {
-  console.log(`🚀 Server is running on port ${PORT}`);
-  console.log(`📍 Health check: http://localhost:${PORT}/health`);
-  console.log(`🔐 Auth endpoints: http://localhost:${PORT}/api/auth`);
-  console.log(`🔌 WebSocket server running for real-time draft updates`);
-  console.log(`⏱️  Auto-pick service initialized`);
+  logger.info(`Server is running on port ${PORT}`);
+  logger.info(`Health check: http://localhost:${PORT}/health`);
+  logger.info(`API Documentation: http://localhost:${PORT}/api-docs`);
+  logger.info(`Auth endpoints: http://localhost:${PORT}/api/auth`);
+  logger.info(`WebSocket server running for real-time draft updates`);
+  logger.info(`Auto-pick service initialized`);
 
   // Start background score scheduler (10 minute checks)
   startScoreScheduler();
@@ -271,30 +355,32 @@ httpServer.listen(PORT, () => {
   });
 
   // Sync injuries on server startup
-  syncInjuriesFromSleeper().catch(console.error);
+  syncInjuriesFromSleeper().catch((error) => {
+    logger.error('Failed to sync injuries on startup', { error: error.message, stack: error.stack });
+  });
 });
 
 // Graceful shutdown
 process.on("SIGTERM", () => {
-  console.log("SIGTERM signal received: closing HTTP server");
+  logger.info("SIGTERM signal received: closing HTTP server");
   stopAllAutoPickMonitoring();
   stopScoreScheduler();
   stopLiveScoreUpdates();
   stopTokenCleanupScheduler();
   httpServer.close(() => {
-    console.log("HTTP server closed");
+    logger.info("HTTP server closed");
     process.exit(0);
   });
 });
 
 process.on("SIGINT", () => {
-  console.log("SIGINT signal received: closing HTTP server");
+  logger.info("SIGINT signal received: closing HTTP server");
   stopAllAutoPickMonitoring();
   stopScoreScheduler();
   stopLiveScoreUpdates();
   stopTokenCleanupScheduler();
   httpServer.close(() => {
-    console.log("HTTP server closed");
+    logger.info("HTTP server closed");
     process.exit(0);
   });
 });

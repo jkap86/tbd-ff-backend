@@ -10,6 +10,7 @@ import {
 } from "../models/Auction";
 import { getDraftById, completeDraft } from "../models/Draft";
 import { socketAuthMiddleware } from "../middleware/socketAuthMiddleware";
+import { setTransactionTimeouts } from "../utils/transactionTimeout";
 import {
   isUserDraftParticipant,
   doesUserOwnRoster,
@@ -320,6 +321,7 @@ export function scheduleNominationExpiry(
 async function processNominationExpiry(io: Server, nominationId: number, draftId: number) {
   const pool = (await import("../config/database")).default;
   const client = await pool.connect();
+    await setTransactionTimeouts(client);
 
   try {
     await client.query('BEGIN');

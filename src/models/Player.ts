@@ -90,7 +90,7 @@ export async function getAvailablePlayersForDraft(
         SELECT 1
         FROM draft_picks dp
         WHERE dp.draft_id = $1
-          AND dp.player_id = p.id
+          AND dp.player_id = p.player_id
           AND dp.player_id IS NOT NULL
       )
     `;

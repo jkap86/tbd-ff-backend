@@ -23,6 +23,11 @@ export function authenticate(
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      console.error('[Auth] Missing or invalid Authorization header', {
+        endpoint: `${req.method} ${req.path}`,
+        hasAuthHeader: !!authHeader,
+        authHeaderValue: authHeader ? authHeader.substring(0, 20) + '...' : 'none',
+      });
       res.status(401).json({
         success: false,
         message: "No token provided",
@@ -41,6 +46,11 @@ export function authenticate(
 
     next();
   } catch (error: any) {
+    console.error('[Auth] Authentication error', {
+      endpoint: `${req.method} ${req.path}`,
+      errorMessage: error.message,
+    });
+
     if (error.message === "Token expired") {
       res.status(401).json({
         success: false,

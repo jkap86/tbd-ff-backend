@@ -334,6 +334,13 @@ export async function getDraftByLeagueHandler(
 ): Promise<void> {
   try {
     const { leagueId } = req.params;
+    const userId = req.user?.userId;
+
+    console.log('[Draft] getDraftByLeagueHandler called', {
+      leagueId,
+      userId,
+      authenticated: !!userId,
+    });
 
     const draft = await getDraftByLeagueId(parseInt(leagueId));
 

@@ -1,4 +1,6 @@
 import rateLimit from "express-rate-limit";
+import { Request, Response, NextFunction } from "express";
+import { projectionsCache } from "../services/statsPreloader";
 
 /**
  * Rate Limiting Configuration
@@ -7,6 +9,7 @@ import rateLimit from "express-rate-limit";
  * 1. Global API limit - prevents resource exhaustion
  * 2. Auth limits - prevents brute force attacks
  * 3. Public endpoint limits - prevents data scraping
+ * 4. Smart bulk operation limiter - respects cache hits
  */
 
 /**
@@ -92,10 +95,53 @@ export const searchLimiter = rateLimit({
 });
 
 /**
+ * Smart rate limiter for bulk projections
+ * Checks cache before applying rate limit - cached requests bypass the limiter
+ * This allows instant cached responses even during rate limit periods
+ */
+export const smartBulkProjectionsLimiter = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void => {
+  try {
+    // Extract season and season_type from request
+    const { season } = req.params;
+    const { season_type = "regular" } = req.body || req.query;
+
+    // Build cache key same way as the controller
+    const cacheKey = `season_projections_${season}_${season_type}`;
+    const indexCacheKey = `${cacheKey}_index`;
+
+    // Check if data is already cached
+    const cachedIndex = projectionsCache.get<Record<string, any>>(indexCacheKey);
+    const cachedData = projectionsCache.get<any[]>(cacheKey);
+
+    // If cache exists, skip rate limiting - cached requests are instant and cheap
+    if (cachedIndex || cachedData) {
+      console.log(
+        `[SmartRateLimit] Cache hit for ${cacheKey} - bypassing rate limit`
+      );
+      return next();
+    }
+
+    // No cache, apply rate limiting for expensive Sleeper API calls
+    console.log(
+      `[SmartRateLimit] Cache miss for ${cacheKey} - applying rate limit`
+    );
+    bulkOperationLimiterStrict(req, res, next);
+  } catch (error) {
+    // On error, apply rate limiting to be safe
+    console.warn("[SmartRateLimit] Error checking cache, applying rate limit");
+    bulkOperationLimiterStrict(req, res, next);
+  }
+};
+
+/**
  * Rate limiter for player sync/bulk operations
  * Very strict to prevent abuse of resource-intensive operations
  */
-export const bulkOperationLimiter = rateLimit({
+const bulkOperationLimiterStrict = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minute window
   max: 5, // 5 requests per 5 minutes per IP
   message: {
@@ -105,3 +151,8 @@ export const bulkOperationLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+/**
+ * Export the strict limiter as well for other bulk operations (non-projections)
+ */
+export const bulkOperationLimiter = bulkOperationLimiterStrict;

@@ -6,7 +6,7 @@ import {
   getBulkPlayerSeasonProjections,
   getBulkPlayerWeekRangeProjections,
 } from "../controllers/playerStatsController";
-import { bulkOperationLimiter } from "../middleware/rateLimiter";
+import { bulkOperationLimiter, smartBulkProjectionsLimiter } from "../middleware/rateLimiter";
 
 const router = Router();
 
@@ -24,9 +24,11 @@ router.post("/bulk/:season/weeks", bulkOperationLimiter, getBulkPlayerWeekRangeP
  * POST /api/player-projections/bulk/:season
  * Body: { player_ids: string[] }
  * Note: This must come first to match before /:season/:playerId
- * Rate limit: 5 requests per 5 minutes (resource-intensive)
+ * Rate limit: Smart cache-aware - allows cached requests instantly, rate limits fresh queries
+ * - Cached responses: No rate limit (instant, zero cost)
+ * - Fresh queries: 5 requests per 5 minutes (resource-intensive Sleeper API calls)
  */
-router.post("/bulk/:season", bulkOperationLimiter, getBulkPlayerSeasonProjections);
+router.post("/bulk/:season", smartBulkProjectionsLimiter, getBulkPlayerSeasonProjections);
 
 /**
  * Get full season projections for a specific player (no week)

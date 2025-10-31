@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import pool from "../config/database";
 import {
   createLeague,
   getLeagueById,
@@ -877,39 +878,47 @@ export async function resetLeagueHandler(
   req: Request,
   res: Response
 ): Promise<void> {
+  const { leagueId } = req.params;
+  const userId = (req as any).user?.userId;
+
+  if (!userId) {
+    res.status(401).json({
+      success: false,
+      message: "Not authenticated",
+    });
+    return;
+  }
+
+  // Get league and verify user is commissioner (before transaction)
+  const { getLeagueById, getCommissionerIdFromLeague, updateLeague } = await import("../models/League");
+  const league = await getLeagueById(parseInt(leagueId));
+
+  if (!league) {
+    res.status(404).json({
+      success: false,
+      message: "League not found",
+    });
+    return;
+  }
+
+  const commissionerId = getCommissionerIdFromLeague(league);
+
+  if (commissionerId !== userId) {
+    res.status(403).json({
+      success: false,
+      message: "Only the commissioner can reset the league",
+    });
+    return;
+  }
+
+  const client = await pool.connect();
+
   try {
-    const { leagueId } = req.params;
-    const userId = (req as any).user?.userId;
+    await client.query('BEGIN');
 
-    if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "Not authenticated",
-      });
-      return;
-    }
-
-    // Get league and verify user is commissioner
-    const { getLeagueById, getCommissionerIdFromLeague, updateLeague } = await import("../models/League");
-    const league = await getLeagueById(parseInt(leagueId));
-
-    if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
-      return;
-    }
-
-    const commissionerId = getCommissionerIdFromLeague(league);
-
-    if (commissionerId !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "Only the commissioner can reset the league",
-      });
-      return;
-    }
+    // TODO: Update these functions to accept an optional client parameter for proper transaction support
+    // For now, these operations use the global pool and are not part of the transaction
+    // This means if any operation fails, previous operations may not be rolled back
 
     // Delete draft if it exists
     const { getDraftByLeagueId, deleteDraft } = await import("../models/Draft");
@@ -939,16 +948,21 @@ export async function resetLeagueHandler(
       status: "pre_draft",
     });
 
+    await client.query('COMMIT');
+
     res.status(200).json({
       success: true,
       message: "League reset to pre-draft status successfully",
     });
   } catch (error: any) {
-    console.error("Reset league error:", error);
+    await client.query('ROLLBACK');
+    console.error("[resetLeagueHandler] Error:", error);
     res.status(500).json({
       success: false,
-      message: error.message || "Error resetting league",
+      message: error.message || "Failed to reset league",
     });
+  } finally {
+    client.release();
   }
 }
 

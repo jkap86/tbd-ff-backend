@@ -25,16 +25,38 @@ export const registerValidator: ValidationChain[] = [
     .withMessage("Email must be less than 255 characters"),
 
   body("password")
-    .isLength({ min: 8, max: 128 })
-    .withMessage("Password must be between 8 and 128 characters")
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .isLength({ min: 12, max: 128 })
+    .withMessage("Password must be at least 12 characters")
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/)
     .withMessage(
-      "Password must contain at least one lowercase letter, " +
-      "one uppercase letter, and one number"
+      "Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character (@$!%*?&)"
     )
-    .not()
-    .matches(/^(.)\1+$/)
-    .withMessage("Password cannot be all the same character"),
+    .custom((value, { req }) => {
+      const username = req.body.username?.toLowerCase();
+      const email = req.body.email?.toLowerCase();
+      const passwordLower = value.toLowerCase();
+
+      // Reject if password contains username
+      if (username && passwordLower.includes(username)) {
+        throw new Error("Password cannot contain username");
+      }
+
+      // Reject if password contains email local part
+      if (email) {
+        const emailLocal = email.split('@')[0];
+        if (passwordLower.includes(emailLocal)) {
+          throw new Error("Password cannot contain email");
+        }
+      }
+
+      // Reject common passwords
+      const commonPasswords = ['password', 'qwerty', 'admin', 'letmein', 'welcome'];
+      if (commonPasswords.some(common => passwordLower.includes(common))) {
+        throw new Error("Password is too common");
+      }
+
+      return true;
+    }),
 
   body("phone_number")
     .optional({ nullable: true })

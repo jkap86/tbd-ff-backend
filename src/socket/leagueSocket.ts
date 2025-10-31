@@ -3,6 +3,7 @@ import { createLeagueChatMessage } from "../models/LeagueChatMessage";
 import { getLeagueById } from "../models/League";
 import { socketAuthMiddleware } from "../middleware/socketAuthMiddleware";
 import { isUserLeagueMember } from "../utils/leagueAuthorization";
+import validator from "validator";
 
 export function setupLeagueSocket(io: Server) {
   // Apply authentication middleware to all socket connections
@@ -103,10 +104,21 @@ export function setupLeagueSocket(io: Server) {
      * Send league chat message
      */
     socket.on("send_league_chat_message", async (data: { league_id: number; user_id: number; username: string; message: string }) => {
-      const { league_id, user_id, username, message } = data;
+      const { league_id, user_id, username } = data;
+      let { message } = data;
       const user = socket.data.user!;
 
       try {
+        // Sanitize message
+        message = validator.escape(message);  // Escapes HTML characters
+        message = message.trim();
+        message = message.substring(0, 500);  // Limit length
+
+        if (message.length === 0) {
+          socket.emit("error", { message: "Message cannot be empty" });
+          return;
+        }
+
         // Verify the authenticated user matches the user_id in the request
         if (user.userId !== user_id) {
           console.log(`[LeagueSocket] User ${user.username} (${user.userId}) attempted to send chat as different user ${user_id}`);

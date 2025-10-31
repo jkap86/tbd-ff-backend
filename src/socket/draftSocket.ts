@@ -7,6 +7,7 @@ import {
   isUserDraftCommissioner,
   doesUserOwnRoster,
 } from "../utils/draftAuthorization";
+import validator from "validator";
 
 export function setupDraftSocket(io: Server) {
   // Apply authentication middleware to all socket connections
@@ -117,10 +118,21 @@ export function setupDraftSocket(io: Server) {
      * Send chat message
      */
     socket.on("send_chat_message", async (data: { draft_id: number; message: string }) => {
-      const { draft_id, message } = data;
+      const { draft_id } = data;
+      let { message } = data;
       const user = socket.data.user!;
 
       try {
+        // Sanitize message
+        message = validator.escape(message);  // Escapes HTML characters
+        message = message.trim();
+        message = message.substring(0, 500);  // Limit length
+
+        if (message.length === 0) {
+          socket.emit("error", { message: "Message cannot be empty" });
+          return;
+        }
+
         // Verify user is a participant in this draft
         const isParticipant = await isUserDraftParticipant(user.userId, draft_id);
         if (!isParticipant) {

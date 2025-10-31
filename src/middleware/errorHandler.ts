@@ -1,40 +1,30 @@
-import { Request, Response, NextFunction } from 'express';
-import { DraftError } from '../errors/DraftErrors';
-import { logger } from '../utils/logger';
+import { Request, Response, NextFunction } from "express";
+import { AppError } from "../errors/AppError";
 
 export function errorHandler(
-  error: Error,
+  error: Error | AppError,
   req: Request,
   res: Response,
-  _next: NextFunction
+  next: NextFunction
 ) {
-  // Log error with redacted sensitive data
-  logger.error('Request error occurred', {
-    name: error.name,
-    message: error.message,
-    stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined,
-    url: req.url,
-    method: req.method,
-    params: req.params,
-    // Note: req.body is excluded to prevent logging passwords/tokens
-  });
-
-  if (error instanceof DraftError) {
+  if (error instanceof AppError) {
     return res.status(error.statusCode).json({
       success: false,
-      error: {
-        code: error.code,
-        message: error.message,
-      },
+      message: error.message,
     });
   }
 
-  // Default error response
+  // Log unexpected errors
+  console.error("[Unexpected Error]", error);
+
+  // Don't leak error details in production
+  const message =
+    process.env.NODE_ENV === "production"
+      ? "An unexpected error occurred"
+      : error.message;
+
   return res.status(500).json({
     success: false,
-    error: {
-      code: 'INTERNAL_SERVER_ERROR',
-      message: 'An unexpected error occurred',
-    },
+    message,
   });
 }

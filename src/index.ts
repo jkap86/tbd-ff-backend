@@ -43,6 +43,7 @@ import injuryRoutes from "./routes/injuryRoutes";
 import adpRoutes from "./routes/adpRoutes";
 import { globalApiLimiter } from "./middleware/rateLimiter";
 import { checkDatabaseHealth } from "./config/database";
+import { requestIdMiddleware } from "./middleware/requestId";
 
 // Load environment variables
 dotenv.config();
@@ -144,6 +145,7 @@ export { io };
 
 // Middleware
 app.use(helmet()); // Security headers
+app.use(requestIdMiddleware); // Request ID tracking
 app.use(cors(corsOptions)); // Enable CORS with configured origins
 // Request size limits to prevent resource exhaustion attacks
 // 100kb limit is adequate for API requests while preventing DoS via large payloads

@@ -44,7 +44,6 @@ import leagueMedianRoutes from "./routes/leagueMedianRoutes";
 import injuryRoutes from "./routes/injuryRoutes";
 import adpRoutes from "./routes/adpRoutes";
 import { globalApiLimiter } from "./middleware/rateLimiter";
-import { checkDatabaseHealth } from "./config/database";
 import { requestIdMiddleware } from "./middleware/requestId";
 import pool from "./config/database";
 import { logger } from "./config/logger";
@@ -164,7 +163,7 @@ app.use("/api", globalApiLimiter);
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Health check endpoint
-app.get("/health", async (req, res) => {
+app.get("/health", async (_req, res) => {
   const health = {
     status: "healthy",
     timestamp: new Date().toISOString(),
@@ -199,12 +198,12 @@ app.get("/health", async (req, res) => {
 });
 
 // Liveness probe endpoint
-app.get("/health/live", (req, res) => {
+app.get("/health/live", (_req, res) => {
   res.status(200).json({ status: "alive" });
 });
 
 // Readiness probe endpoint
-app.get("/health/ready", async (req, res) => {
+app.get("/health/ready", async (_req, res) => {
   try {
     await pool.query("SELECT 1");
     res.status(200).json({ status: "ready" });

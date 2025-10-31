@@ -40,7 +40,16 @@ const MIGRATIONS = [
   'src/migrations/036_fix_draft_picks_player_id_type.sql',
   'src/migrations/037_fix_all_player_id_types.sql',
   'src/migrations/038_add_bid_increment_to_drafts.sql',
-  'migrations/027_add_performance_indexes.sql',
+  'src/migrations/039_add_playoff_fields_to_matchups.sql',
+  'src/migrations/040_create_playoff_settings.sql',
+  'src/migrations/041_add_league_median_settings.sql',
+  'src/migrations/042_add_pick_expiration_to_draft_order.sql',
+  'src/migrations/042_create_draft_audit_log.sql',
+  'src/migrations/043_add_injury_tracking.sql',
+  'src/migrations/044_create_adp_tracking.sql',
+  'src/migrations/045_add_advanced_stats.sql',
+  'src/migrations/046_expand_scoring_settings.sql',
+  'src/migrations/047_add_is_admin_to_users.sql',
 ];
 
 async function runAllMigrations() {

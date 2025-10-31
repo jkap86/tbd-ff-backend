@@ -439,6 +439,55 @@ export async function setDraftOrderHandler(
         return;
       }
 
+      // Get all rosters in the league
+      const rosters = await getRostersByLeagueId(draft.league_id);
+      const expectedRosterCount = rosters.length;
+
+      // Validation 1: Count matches
+      if (order.length !== expectedRosterCount) {
+        res.status(400).json({
+          success: false,
+          message: `Draft order must include all ${expectedRosterCount} rosters`,
+        });
+        return;
+      }
+
+      // Validation 2: All roster IDs are valid
+      const rosterIds = new Set(rosters.map(r => r.id));
+      const orderRosterIds = order.map(o => o.roster_id);
+      for (const rosterId of orderRosterIds) {
+        if (!rosterIds.has(rosterId)) {
+          res.status(400).json({
+            success: false,
+            message: `Roster ${rosterId} does not belong to this league`,
+          });
+          return;
+        }
+      }
+
+      // Validation 3: No duplicate roster IDs
+      const uniqueRosterIds = new Set(orderRosterIds);
+      if (uniqueRosterIds.size !== order.length) {
+        res.status(400).json({
+          success: false,
+          message: "Draft order contains duplicate roster IDs",
+        });
+        return;
+      }
+
+      // Validation 4: Positions are 1-N with no gaps or duplicates
+      const positions = order.map(o => o.draft_position).sort((a, b) => a - b);
+      for (let i = 0; i < positions.length; i++) {
+        if (positions[i] !== i + 1) {
+          res.status(400).json({
+            success: false,
+            message: `Draft positions must be 1-${expectedRosterCount} with no gaps or duplicates`,
+          });
+          return;
+        }
+      }
+
+      // All validations passed, proceed with setting order
       await setDraftOrder(parseInt(draftId), order);
     } else {
       res.status(400).json({
@@ -829,27 +878,68 @@ export async function makeDraftPickHandler(
     );
 
     // Create the pick using the transaction client
-    const pickResult = await client.query(
-      `INSERT INTO draft_picks (
-        draft_id, pick_number, round, pick_in_round,
-        roster_id, player_id, is_auto_pick, pick_time_seconds, pick_started_at
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING *`,
-      [
-        parseInt(draftId),
-        draft.current_pick,
-        round,
-        pickInRound,
-        roster_id,
-        player_id,
-        is_auto_pick,
-        pickTimeSeconds,
-        null
-      ]
-    );
+    // Wrap in try-catch to handle unique constraint violations gracefully
+    let pickResult;
+    try {
+      pickResult = await client.query(
+        `INSERT INTO draft_picks (
+          draft_id, pick_number, round, pick_in_round,
+          roster_id, player_id, is_auto_pick, pick_time_seconds, pick_started_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING *`,
+        [
+          parseInt(draftId),
+          draft.current_pick,
+          round,
+          pickInRound,
+          roster_id,
+          player_id,
+          is_auto_pick,
+          pickTimeSeconds,
+          null
+        ]
+      );
+    } catch (insertError: any) {
+      // Check if this is a unique constraint violation on (draft_id, player_id)
+      if (insertError.code === '23505' && insertError.constraint?.includes('player_id')) {
+        await client.query('ROLLBACK');
+        res.status(400).json({
+          success: false,
+          message: "This player has already been drafted by another team",
+        });
+        return;
+      }
+      // Re-throw other errors
+      throw insertError;
+    }
 
     const pick = pickResult.rows[0];
+
+    // Decrement chess timer budget if applicable
+    if (draft.timer_mode === 'chess' && pickTimeSeconds !== null) {
+      try {
+        // Deduct the time used from the roster's remaining time budget
+        const updateTimeResult = await client.query(
+          `UPDATE draft_order
+           SET time_remaining_seconds = GREATEST(0, time_remaining_seconds - $1),
+               time_used_seconds = time_used_seconds + $1
+           WHERE draft_id = $2 AND roster_id = $3
+           RETURNING time_remaining_seconds, time_used_seconds`,
+          [pickTimeSeconds, parseInt(draftId), roster_id]
+        );
+
+        if (updateTimeResult.rows.length > 0) {
+          const { time_remaining_seconds, time_used_seconds } = updateTimeResult.rows[0];
+          console.log(`[Draft] Chess timer: Roster ${roster_id} used ${pickTimeSeconds}s, ${time_remaining_seconds}s remaining, ${time_used_seconds}s total used`);
+        } else {
+          console.error(`[Draft] Failed to update chess timer: Roster ${roster_id} not found in draft_order`);
+        }
+      } catch (error) {
+        console.error(`[Draft] Failed to update chess timer for roster ${roster_id}:`, error);
+        // Don't fail the pick if timer update fails, just log it
+      }
+    }
 
     // Calculate next pick
     const nextPickNumber = draft.current_pick + 1;

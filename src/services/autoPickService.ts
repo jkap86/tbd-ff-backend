@@ -175,9 +175,13 @@ async function skipPick(draftId: number, rosterId: number): Promise<void> {
     await client.query('BEGIN');
 
     const draftResult = await client.query(
-      'SELECT * FROM drafts WHERE id = $1 FOR UPDATE',
+      'SELECT * FROM drafts WHERE id = $1 FOR UPDATE SKIP LOCKED',
       [draftId]
     );
+
+    if (draftResult.rows.length === 0) {
+      throw new Error(`Draft ${draftId} is currently being modified by another transaction`);
+    }
 
     const draft = draftResult.rows[0];
     const nextPick = draft.current_pick + 1;
@@ -234,13 +238,14 @@ async function makeDraftPick(draftId: number, rosterId: number, playerId: number
     );
 
     // Lock the draft row to prevent concurrent picks
+    // Use SKIP LOCKED to avoid race condition with manual picks
     const draftResult = await client.query(
-      'SELECT * FROM drafts WHERE id = $1 FOR UPDATE',
+      'SELECT * FROM drafts WHERE id = $1 FOR UPDATE SKIP LOCKED',
       [draftId]
     );
 
     if (draftResult.rows.length === 0) {
-      throw new Error(`Draft ${draftId} not found`);
+      throw new Error(`Draft ${draftId} is currently being modified by another transaction`);
     }
 
     const lockedDraft = draftResult.rows[0];

@@ -1,5 +1,6 @@
 import pool from "../config/database";
 import { getDraftById } from "./Draft";
+import { cancelNominationTimer } from "../socket/auctionSocket";
 
 export interface AuctionNomination {
   id: number;
@@ -163,6 +164,15 @@ export async function completeNomination(
     RETURNING *`,
     [nomination_id, winning_roster_id, winning_bid]
   );
+
+  // Cancel the expiry timer to prevent duplicate processing
+  try {
+    cancelNominationTimer(nomination_id);
+  } catch (error) {
+    console.error(`[Auction] Failed to cancel timer for nomination ${nomination_id}:`, error);
+    // Continue anyway - nomination is already completed in DB
+  }
+
   return result.rows[0];
 }
 
@@ -602,6 +612,13 @@ export async function validateBid(
 export async function isAuctionComplete(draft_id: number): Promise<boolean> {
   const draft = await getDraftById(draft_id);
   if (!draft) {
+    return false;
+  }
+
+  // CRITICAL: Check if there are any active nominations first
+  const activeNoms = await getActiveNominations(draft_id);
+  if (activeNoms.length > 0) {
+    // Still have active auctions running - cannot be complete
     return false;
   }
 

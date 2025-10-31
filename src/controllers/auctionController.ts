@@ -53,7 +53,8 @@ export async function nominatePlayerHandler(req: Request, res: Response) {
     // Verify player is not already nominated/won in this draft
     const existingNominationResult = await client.query(
       `SELECT id, status FROM auction_nominations
-       WHERE draft_id = $1 AND player_id = $2`,
+       WHERE draft_id = $1 AND player_id = $2
+       FOR UPDATE`,
       [draftId, player_id]
     );
 
@@ -299,6 +300,22 @@ export async function placeBidHandler(req: Request, res: Response) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: "Roster not found" });
     }
+
+    // Lock all active nominations where this roster has winning bids
+    // This prevents concurrent bids on different nominations from the same roster
+    await client.query(
+      `SELECT an.id FROM auction_nominations an
+       WHERE an.draft_id = $1
+       AND an.status = 'active'
+       AND EXISTS (
+         SELECT 1 FROM auction_bids ab
+         WHERE ab.nomination_id = an.id
+         AND ab.roster_id = $2
+         AND ab.is_winning = true
+       )
+       FOR UPDATE`,
+      [draftId, roster_id]
+    );
 
     // Calculate spent budget (completed auction purchases)
     const spentResult = await client.query(

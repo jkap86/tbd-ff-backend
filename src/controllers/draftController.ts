@@ -36,7 +36,7 @@ import {
 import { checkAndAutoPauseDraft } from "../services/draftScheduler";
 import pool from "../config/database";
 import { calculateADP } from "../services/adpService";
-import { validatePositiveInteger, ValidationError } from "../utils/validation";
+import { validatePositiveInteger } from "../utils/validation";
 import { TRANSACTION_TIMEOUTS, DB_ERROR_CODES } from "../config/constants";
 import { setTransactionTimeouts } from "../utils/transactionTimeout";
 

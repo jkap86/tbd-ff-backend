@@ -284,17 +284,22 @@ export async function getLeagueDetailsHandler(
     // Get all rosters for this league
     const rosters = await getRostersByLeagueId(leagueId);
 
-    // Extract commissioner ID from settings
+    // Extract commissioner ID from settings and add it to league object at top level
     const commissionerId =
       league.settings && league.settings.commissioner_id
         ? league.settings.commissioner_id
         : null;
 
+    // Add commissioner_id to league object so Flutter can parse it
+    const leagueWithCommissioner = {
+      ...league,
+      commissioner_id: commissionerId,
+    };
+
     res.status(200).json({
       success: true,
       data: {
-        league,
-        commissioner_id: commissionerId,
+        league: leagueWithCommissioner,
         rosters,
       },
     });

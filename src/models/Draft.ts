@@ -5,7 +5,7 @@ export interface Draft {
   league_id: number;
   draft_type: "snake" | "linear" | "auction" | "slow_auction";
   third_round_reversal: boolean;
-  status: "not_started" | "in_progress" | "paused" | "completed";
+  status: "not_started" | "in_progress" | "paused" | "completing" | "completed";
   current_pick: number;
   current_round: number;
   current_roster_id: number | null;
@@ -421,6 +421,7 @@ async function autoPopulateStarters(
 /**
  * Assign drafted players to rosters
  * This populates each roster with their drafted players, auto-filling starters
+ * IDEMPOTENT: Safe to call multiple times - checks if already assigned
  */
 export async function assignDraftedPlayersToRosters(draftId: number): Promise<void> {
   try {
@@ -461,13 +462,35 @@ export async function assignDraftedPlayersToRosters(draftId: number): Promise<vo
 
     for (const [rosterIdStr, playerIds] of Object.entries(picksByRoster)) {
       const rosterId = parseInt(rosterIdStr);
+
+      // IDEMPOTENCY CHECK: Get existing roster and check if players are already assigned
+      const { getRosterById } = await import("./Roster");
+      const existingRoster = await getRosterById(rosterId);
+
+      // Collect all player IDs currently in the roster
+      const existingPlayerIds = new Set<string>();
+      if (existingRoster?.starters) {
+        existingRoster.starters.forEach((slot: any) => {
+          if (slot.player_id) existingPlayerIds.add(slot.player_id);
+        });
+      }
+      if (existingRoster?.bench) {
+        existingRoster.bench.forEach((playerId: string) => {
+          if (playerId) existingPlayerIds.add(playerId);
+        });
+      }
+
+      // Check if all drafted players are already assigned
+      const allPlayersAssigned = playerIds.every(id => existingPlayerIds.has(id));
+
+      if (allPlayersAssigned && playerIds.length === existingPlayerIds.size) {
+        console.log(`[AssignPlayers] Roster ${rosterId} already has all ${playerIds.length} drafted players assigned, skipping`);
+        continue;
+      }
+
       console.log(
         `[AssignPlayers] Auto-populating roster ${rosterId} with ${playerIds.length} players`
       );
-
-      // Get existing roster to preserve BN slots
-      const { getRosterById } = await import("./Roster");
-      const existingRoster = await getRosterById(rosterId);
 
       // Auto-populate starters from drafted players (this excludes BN slots)
       const { starters, bench } = await autoPopulateStarters(

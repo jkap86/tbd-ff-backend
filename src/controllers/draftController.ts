@@ -36,6 +36,8 @@ import {
 import { checkAndAutoPauseDraft } from "../services/draftScheduler";
 import pool from "../config/database";
 import { calculateADP } from "../services/adpService";
+import { validatePositiveInteger, ValidationError } from "../utils/validation";
+import { TRANSACTION_TIMEOUTS, DB_ERROR_CODES } from "../config/constants";
 
 /**
  * Calculate which roster should be picking based on current pick number
@@ -195,7 +197,19 @@ export async function getDraftHandler(
   try {
     const { draftId } = req.params;
 
-    const draft = await getDraftById(parseInt(draftId));
+    // Validate draftId is a positive integer
+    let parsedDraftId: number;
+    try {
+      parsedDraftId = validatePositiveInteger(draftId, "Draft ID");
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
+    const draft = await getDraftById(parsedDraftId);
 
     if (!draft) {
       res.status(404).json({
@@ -230,7 +244,19 @@ export async function updateDraftSettingsHandler(
     const { draftId } = req.params;
     const { draft_type, third_round_reversal, pick_time_seconds, rounds, timer_mode, team_time_budget_seconds, settings } = req.body;
 
-    const draft = await getDraftById(parseInt(draftId));
+    // Validate draftId is a positive integer
+    let parsedDraftId: number;
+    try {
+      parsedDraftId = validatePositiveInteger(draftId, "Draft ID");
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
+    const draft = await getDraftById(parsedDraftId);
     if (!draft) {
       res.status(404).json({
         success: false,
@@ -309,7 +335,7 @@ export async function updateDraftSettingsHandler(
     if (team_time_budget_seconds !== undefined) updates.team_time_budget_seconds = team_time_budget_seconds;
     if (settings) updates.settings = settings;
 
-    const updatedDraft = await updateDraft(parseInt(draftId), updates);
+    const updatedDraft = await updateDraft(parsedDraftId, updates);
 
     res.status(200).json({
       success: true,
@@ -336,13 +362,25 @@ export async function getDraftByLeagueHandler(
     const { leagueId } = req.params;
     const userId = req.user?.userId;
 
+    // Validate leagueId is a positive integer
+    let parsedLeagueId: number;
+    try {
+      parsedLeagueId = validatePositiveInteger(leagueId, "League ID");
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
     console.log('[Draft] getDraftByLeagueHandler called', {
-      leagueId,
+      leagueId: parsedLeagueId,
       userId,
       authenticated: !!userId,
     });
 
-    const draft = await getDraftByLeagueId(parseInt(leagueId));
+    const draft = await getDraftByLeagueId(parsedLeagueId);
 
     if (!draft) {
       res.status(404).json({
@@ -377,7 +415,19 @@ export async function setDraftOrderHandler(
     const { draftId } = req.params;
     const { randomize, order } = req.body;
 
-    const draft = await getDraftById(parseInt(draftId));
+    // Validate draftId is a positive integer
+    let parsedDraftId: number;
+    try {
+      parsedDraftId = validatePositiveInteger(draftId, "Draft ID");
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
+    const draft = await getDraftById(parsedDraftId);
     if (!draft) {
       res.status(404).json({
         success: false,
@@ -563,6 +613,9 @@ export async function startDraftHandler(
   try {
     await client.query('BEGIN');
 
+    // Set transaction timeout to prevent hung queries on FOR UPDATE
+    await client.query(`SET LOCAL statement_timeout = '${TRANSACTION_TIMEOUTS.DRAFT_PICK_SQL}'`);
+
     const { draftId } = req.params;
 
     // Lock the draft row to prevent concurrent state changes
@@ -739,6 +792,18 @@ export async function startDraftHandler(
     });
   } catch (error: any) {
     await client.query('ROLLBACK');
+
+    // Handle transaction timeout errors
+    if (error.code === DB_ERROR_CODES.STATEMENT_TIMEOUT) {
+      console.error("Draft start operation timed out:", error.message);
+      res.status(504).json({
+        success: false,
+        message: `Draft operation timed out - please retry`,
+        code: 'STATEMENT_TIMEOUT',
+      });
+      return;
+    }
+
     console.error("Error starting draft:", error);
     res.status(500).json({
       success: false,
@@ -957,14 +1022,13 @@ export async function makeDraftPickHandler(
     let updatedDraft;
 
     if (nextPickNumber > totalPicks) {
-      // Draft is complete
+      // Draft is complete - use two-phase commit with 'completing' status
       console.log(`Draft ${draftId} is complete! Total picks: ${totalPicks}`);
 
-      // Update draft status to completed
-      const completeDraftResult = await client.query(
+      // Phase 1: Mark draft as 'completing' within transaction
+      const completingDraftResult = await client.query(
         `UPDATE drafts
-         SET status = 'completed',
-             completed_at = CURRENT_TIMESTAMP,
+         SET status = 'completing',
              pick_deadline = NULL,
              current_roster_id = NULL,
              updated_at = CURRENT_TIMESTAMP
@@ -972,14 +1036,32 @@ export async function makeDraftPickHandler(
          RETURNING *`,
         [draftId]
       );
-      updatedDraft = completeDraftResult.rows[0];
+      updatedDraft = completingDraftResult.rows[0];
 
-      // Commit transaction before performing side effects
+      // Commit transaction with 'completing' status
       await client.query('COMMIT');
 
-      // Assign drafted players to rosters
-      const { assignDraftedPlayersToRosters } = await import("../models/Draft");
-      await assignDraftedPlayersToRosters(parseInt(draftId));
+      // Phase 2: Perform side effects outside transaction
+      try {
+        // Assign drafted players to rosters
+        const { assignDraftedPlayersToRosters } = await import("../models/Draft");
+        await assignDraftedPlayersToRosters(parseInt(draftId));
+      } catch (error) {
+        console.error(`[Draft] Failed to assign players during completion:`, error);
+        throw error; // Will be caught by outer catch block
+      }
+
+      // Phase 3: Mark draft as fully 'completed' after side effects succeed
+      const completedDraftResult = await pool.query(
+        `UPDATE drafts
+         SET status = 'completed',
+             completed_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING *`,
+        [draftId]
+      );
+      updatedDraft = completedDraftResult.rows[0];
+      console.log(`Draft ${draftId} marked as completed after successful player assignment`);
 
       // Update league status to 'in_season'
       const league = await getLeagueById(draft.league_id);

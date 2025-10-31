@@ -1196,6 +1196,14 @@ export async function makeDraftPickHandler(
     });
     console.log(`[MakePick] User details:`, { username: user?.username });
 
+    // DEBUG: Log the raw pick object from database
+    console.log(`[MakePick] DEBUG raw pick from DB:`, {
+      id: pick.id,
+      player_id: pick.player_id,
+      player_id_type: typeof pick.player_id,
+      roster_id: pick.roster_id
+    });
+
     // Emit draft pick via WebSocket with player details and next deadline
     const pickWithDetails = {
       ...pick,
@@ -1206,6 +1214,10 @@ export async function makeDraftPickHandler(
       picked_by_username: user?.username,
     };
     console.log(`[MakePick] Emitting pick with details:`, pickWithDetails);
+    console.log(`[MakePick] DEBUG pickWithDetails.player_id:`, {
+      value: pickWithDetails.player_id,
+      type: typeof pickWithDetails.player_id
+    });
 
     // Include next deadline if draft continues
     if (updatedDraft.status === "in_progress" && updatedDraft.pick_deadline) {

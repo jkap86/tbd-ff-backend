@@ -4,9 +4,9 @@ import { logger } from "../config/logger";
 
 export function errorHandler(
   error: Error | AppError,
-  req: Request,
+  _req: Request,
   res: Response,
-  next: NextFunction
+  _next: NextFunction
 ) {
   if (error instanceof AppError) {
     return res.status(error.statusCode).json({

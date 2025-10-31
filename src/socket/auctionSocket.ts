@@ -9,6 +9,11 @@ import {
   assignAuctionPlayersToRosters,
 } from "../models/Auction";
 import { getDraftById, completeDraft } from "../models/Draft";
+import { socketAuthMiddleware } from "../middleware/socketAuthMiddleware";
+import {
+  isUserDraftParticipant,
+  doesUserOwnRoster,
+} from "../utils/draftAuthorization";
 
 // Track active nomination timers (for when bids close)
 const nominationTimers = new Map<number, NodeJS.Timeout>();
@@ -17,10 +22,42 @@ const nominationTimers = new Map<number, NodeJS.Timeout>();
 const turnTimers = new Map<number, NodeJS.Timeout>();
 
 export function setupAuctionSocket(io: Server) {
+  // Apply authentication middleware to all socket connections
+  io.use(socketAuthMiddleware);
+
   io.on("connection", (socket: Socket) => {
+    const user = socket.data.user;
+    if (!user) {
+      console.error(`[AuctionSocket] Socket connected without user data: ${socket.id}`);
+      socket.disconnect();
+      return;
+    }
+
+    console.log(`[AuctionSocket] Socket connected: ${socket.id} - User: ${user.username} (${user.userId})`);
+
     // Join auction room
     socket.on("join_auction", async (data: { draftId: number; rosterId?: number }) => {
+      const user = socket.data.user!;
+
       try {
+        // Verify user is a participant in this draft
+        const isParticipant = await isUserDraftParticipant(user.userId, data.draftId);
+        if (!isParticipant) {
+          console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied access to auction ${data.draftId} - not a participant`);
+          socket.emit("error", { message: "Access denied: You are not a participant in this draft" });
+          return;
+        }
+
+        // If rosterId provided, verify user owns the roster
+        if (data.rosterId) {
+          const ownsRoster = await doesUserOwnRoster(user.userId, data.rosterId, data.draftId);
+          if (!ownsRoster) {
+            console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied access to roster ${data.rosterId}`);
+            socket.emit("error", { message: "Access denied: You do not own this roster" });
+            return;
+          }
+        }
+
         const room = `auction_${data.draftId}`;
         socket.join(room);
 
@@ -46,7 +83,25 @@ export function setupAuctionSocket(io: Server) {
         playerId: string;
         nominatingRosterId: number;
       }) => {
+        const user = socket.data.user!;
+
         try {
+          // Verify user is a participant in this draft
+          const isParticipant = await isUserDraftParticipant(user.userId, data.draftId);
+          if (!isParticipant) {
+            console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied nominate access to draft ${data.draftId}`);
+            socket.emit("error", { message: "Access denied: You are not a participant in this draft" });
+            return;
+          }
+
+          // Verify user owns the nominating roster
+          const ownsRoster = await doesUserOwnRoster(user.userId, data.nominatingRosterId, data.draftId);
+          if (!ownsRoster) {
+            console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied nominate - does not own roster ${data.nominatingRosterId}`);
+            socket.emit("error", { message: "Access denied: You can only nominate players for your own roster" });
+            return;
+          }
+
           const draft = await getDraftById(data.draftId);
           if (!draft) {
             throw new Error("Draft not found");
@@ -113,7 +168,25 @@ export function setupAuctionSocket(io: Server) {
         maxBid: number;
         draftId: number;
       }) => {
+        const user = socket.data.user!;
+
         try {
+          // Verify user is a participant in this draft
+          const isParticipant = await isUserDraftParticipant(user.userId, data.draftId);
+          if (!isParticipant) {
+            console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied bid access to draft ${data.draftId}`);
+            socket.emit("error", { message: "Access denied: You are not a participant in this draft" });
+            return;
+          }
+
+          // Verify user owns the bidding roster
+          const ownsRoster = await doesUserOwnRoster(user.userId, data.rosterId, data.draftId);
+          if (!ownsRoster) {
+            console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied bid - does not own roster ${data.rosterId}`);
+            socket.emit("error", { message: "Access denied: You can only place bids for your own roster" });
+            return;
+          }
+
           // Get nomination to check if it's a slow auction (for timer reset)
           const nomination = await getNominationById(data.nominationId);
           if (!nomination) {
@@ -204,6 +277,18 @@ export function setupAuctionSocket(io: Server) {
       socket.leave(`auction_${data.draftId}`);
       if (data.rosterId) {
         socket.leave(`roster_${data.rosterId}`);
+      }
+    });
+
+    /**
+     * Handle disconnection
+     */
+    socket.on("disconnect", () => {
+      const user = socket.data.user;
+      if (user) {
+        console.log(`[AuctionSocket] Socket disconnected: ${socket.id} - User: ${user.username} (${user.userId})`);
+      } else {
+        console.log(`[AuctionSocket] Socket disconnected: ${socket.id}`);
       }
     });
   });

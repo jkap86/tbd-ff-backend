@@ -20,6 +20,7 @@ import matchupRoutes from "./routes/matchupRoutes";
 import weeklyLineupRoutes from "./routes/weeklyLineupRoutes";
 import nflRoutes from "./routes/nflRoutes";
 import { setupDraftSocket } from "./socket/draftSocket";
+import { setDerbySocketIO } from "./socket/derbySocket";
 import { setupLeagueSocket } from "./socket/leagueSocket";
 import { setupMatchupSocket } from "./socket/matchupSocket";
 import { setupWaiverSocket } from "./socket/waiverSocket";
@@ -142,6 +143,7 @@ const PORT = process.env.PORT || 3000;
 
 // Setup Socket.io for draft, league, matchup, waiver, trade, and auction events
 setupDraftSocket(io);
+setDerbySocketIO(io);
 setupLeagueSocket(io);
 setupMatchupSocket(io);
 setupWaiverSocket(io);

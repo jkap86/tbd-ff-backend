@@ -19,6 +19,13 @@ import {
   sendChatMessageHandler,
   getChatMessagesHandler,
 } from "../controllers/chatController";
+import {
+  createDerbyHandler,
+  startDerbyHandler,
+  getDerbyHandler,
+  makeDerbySelectionHandler,
+  skipDerbyTurnHandler,
+} from "../controllers/derbyController";
 import { authenticate } from "../middleware/authMiddleware";
 
 const router = Router();
@@ -70,5 +77,21 @@ router.get("/:draftId/chat", authenticate, getChatMessagesHandler);
 
 // GET /api/drafts/:draftId/health - Get draft health status
 router.get("/:draftId/health", getDraftHealthHandler);
+
+// Derby routes
+// POST /api/drafts/:draftId/derby/create - Create derby (protected, commissioner only)
+router.post("/:draftId/derby/create", authenticate, createDerbyHandler);
+
+// POST /api/drafts/:draftId/derby/start - Start derby (protected, commissioner only)
+router.post("/:draftId/derby/start", authenticate, startDerbyHandler);
+
+// GET /api/drafts/:draftId/derby - Get derby status and details (protected)
+router.get("/:draftId/derby", authenticate, getDerbyHandler);
+
+// POST /api/drafts/:draftId/derby/select - Make derby selection (protected)
+router.post("/:draftId/derby/select", authenticate, makeDerbySelectionHandler);
+
+// POST /api/drafts/:draftId/derby/skip - Skip turn (protected, for timeouts or commissioner)
+router.post("/:draftId/derby/skip", authenticate, skipDerbyTurnHandler);
 
 export default router;

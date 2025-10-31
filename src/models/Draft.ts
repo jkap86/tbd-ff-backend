@@ -15,6 +15,10 @@ export interface Draft {
   rounds: number;
   timer_mode: "traditional" | "chess";
   team_time_budget_seconds: number | null;
+  // Derby-specific fields
+  derby_enabled: boolean;
+  derby_time_limit_seconds: number | null;
+  derby_timeout_behavior: "auto" | "skip";
   // Auction-specific fields
   starting_budget: number;
   min_bid: number;
@@ -583,6 +587,10 @@ export async function resetDraft(draftId: number): Promise<Draft> {
     await client.query("DELETE FROM draft_chat_messages WHERE draft_id = $1", [
       draftId,
     ]);
+
+    // Reset derby if it exists (delete selections, reset to pending)
+    const { resetDraftDerby } = await import("./DraftDerby");
+    await resetDraftDerby(draftId);
 
     // Reset draft to not_started
     const query = `

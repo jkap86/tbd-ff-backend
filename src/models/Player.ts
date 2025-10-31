@@ -83,10 +83,12 @@ export async function getAvailablePlayersForDraft(
     let query = `
       SELECT p.id, p.player_id, p.full_name, p.position, p.team, p.age, p.years_exp, p.search_rank, p.fantasy_data_id, p.created_at, p.updated_at
       FROM players p
-      WHERE p.id NOT IN (
-        SELECT player_id
-        FROM draft_picks
-        WHERE draft_id = $1 AND player_id IS NOT NULL
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM draft_picks dp
+        WHERE dp.draft_id = $1
+          AND dp.player_id = p.id
+          AND dp.player_id IS NOT NULL
       )
     `;
     const params: any[] = [draftId];

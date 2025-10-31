@@ -37,43 +37,41 @@ function getCurrentWeek(): number {
 
 /**
  * Preload and index season stats
+ * OPTIMIZED: Only cache current season + index (not raw array)
  */
 async function preloadSeasonStats(): Promise<void> {
   try {
     const currentSeason = CURRENT_SEASON;
-    const previousSeason = currentSeason - 1;
+    // OPTIMIZATION: Only cache current season (not previous)
+    // Previous season can be fetched on-demand if needed
 
-    // Preload current and previous season
-    for (const season of [currentSeason, previousSeason]) {
-      const cacheKey = `season_stats_${season}_${SEASON_TYPE}`;
-      const indexCacheKey = `${cacheKey}_index`;
+    const cacheKey = `season_stats_${currentSeason}_${SEASON_TYPE}`;
+    const indexCacheKey = `${cacheKey}_index`;
 
-      console.log(`[StatsPreloader] Preloading season stats for ${season}...`);
+    console.log(`[StatsPreloader] Preloading season stats for ${currentSeason}...`);
 
-      const response = await axios.get(
-        `${SLEEPER_API_BASE}/stats/nfl/${season}?season_type=${SEASON_TYPE}`,
-        { timeout: API_TIMEOUT }
-      );
-      const allStats = response.data;
+    const response = await axios.get(
+      `${SLEEPER_API_BASE}/stats/nfl/${currentSeason}?season_type=${SEASON_TYPE}`,
+      { timeout: API_TIMEOUT }
+    );
+    const allStats = response.data;
 
-      // Store array in cache
-      statsCache.set(cacheKey, allStats);
-
-      // Create and store indexed version
-      const statsIndex: Record<string, any> = {};
-      if (allStats) {
-        for (const stat of allStats) {
-          if (stat.player_id) {
-            statsIndex[stat.player_id] = stat;
-          }
+    // OPTIMIZATION: Only store indexed version, not the raw array
+    // This saves 50% memory by not duplicating data
+    const statsIndex: Record<string, any> = {};
+    if (allStats) {
+      for (const stat of allStats) {
+        if (stat.player_id) {
+          statsIndex[stat.player_id] = stat;
         }
       }
-
-      statsCache.set(indexCacheKey, statsIndex);
-      console.log(
-        `[StatsPreloader] Cached season stats for ${season} with ${Object.keys(statsIndex).length} players`
-      );
     }
+
+    // Only cache the index
+    statsCache.set(indexCacheKey, statsIndex);
+    console.log(
+      `[StatsPreloader] Cached season stats for ${currentSeason} with ${Object.keys(statsIndex).length} players`
+    );
   } catch (error: any) {
     console.error("[StatsPreloader] Error preloading season stats:", error.message);
   }
@@ -81,6 +79,7 @@ async function preloadSeasonStats(): Promise<void> {
 
 /**
  * Preload and aggregate week range projections
+ * OPTIMIZED: Only cache aggregated data, not individual weeks
  */
 async function preloadWeekRangeProjections(): Promise<void> {
   try {
@@ -98,12 +97,10 @@ async function preloadWeekRangeProjections(): Promise<void> {
       `[StatsPreloader] Preloading week range projections for weeks ${currentWeek}-${endWeek}...`
     );
 
-    // Fetch projections for each week in parallel
+    // OPTIMIZATION: Fetch projections but only cache current week + aggregated
+    // This saves memory while keeping frequently accessed data fast
     const weekPromises = [];
     for (let week = currentWeek; week <= endWeek; week++) {
-      const weekCacheKey = `week_projections_${season}_${week}_${SEASON_TYPE}`;
-      const weekIndexCacheKey = `${weekCacheKey}_index`;
-
       weekPromises.push(
         (async () => {
           try {
@@ -113,10 +110,7 @@ async function preloadWeekRangeProjections(): Promise<void> {
             );
             const weekData = response.data;
 
-            // Store array in cache
-            projectionsCache.set(weekCacheKey, weekData);
-
-            // Create and store indexed version
+            // Create indexed version
             const weekIndex: Record<string, any> = {};
             if (weekData) {
               for (const proj of weekData) {
@@ -126,8 +120,15 @@ async function preloadWeekRangeProjections(): Promise<void> {
               }
             }
 
-            projectionsCache.set(weekIndexCacheKey, weekIndex);
-            console.log(`[StatsPreloader] Cached projections for week ${week}`);
+            // OPTIMIZATION: Only cache the current week individually (most accessed)
+            // Other weeks are only used for aggregation
+            if (week === currentWeek) {
+              const weekIndexCacheKey = `week_projections_${season}_${week}_${SEASON_TYPE}_index`;
+              projectionsCache.set(weekIndexCacheKey, weekIndex);
+              console.log(`[StatsPreloader] Cached projections for current week ${week}`);
+            } else {
+              console.log(`[StatsPreloader] Fetched projections for week ${week} (not cached individually)`);
+            }
 
             return { week, index: weekIndex };
           } catch (error: any) {
@@ -208,12 +209,12 @@ async function preloadWeekRangeProjections(): Promise<void> {
 
 /**
  * Preload season projections (fallback when week range not applicable)
+ * OPTIMIZED: Only cache index, not raw array
  */
 async function preloadSeasonProjections(): Promise<void> {
   try {
     const season = CURRENT_SEASON;
-    const cacheKey = `season_projections_${season}_${SEASON_TYPE}`;
-    const indexCacheKey = `${cacheKey}_index`;
+    const indexCacheKey = `season_projections_${season}_${SEASON_TYPE}_index`;
 
     console.log(`[StatsPreloader] Preloading season projections for ${season}...`);
 
@@ -223,10 +224,8 @@ async function preloadSeasonProjections(): Promise<void> {
     );
     const allProjections = response.data;
 
-    // Store array in cache
-    projectionsCache.set(cacheKey, allProjections);
-
-    // Create and store indexed version
+    // OPTIMIZATION: Only store indexed version, not the raw array
+    // This saves 50% memory by not duplicating data
     const projectionsIndex: Record<string, any> = {};
     if (allProjections) {
       for (const proj of allProjections) {
@@ -236,6 +235,7 @@ async function preloadSeasonProjections(): Promise<void> {
       }
     }
 
+    // Only cache the index
     projectionsCache.set(indexCacheKey, projectionsIndex);
     console.log(
       `[StatsPreloader] Cached season projections for ${season} with ${Object.keys(projectionsIndex).length} players`

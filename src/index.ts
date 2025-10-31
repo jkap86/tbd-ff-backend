@@ -91,13 +91,14 @@ const corsOptions: cors.CorsOptions = {
       return callback(null, true);
     }
 
-    // In production, require origin header
-    if (process.env.NODE_ENV === "production" && !origin) {
-      return callback(new Error("Origin header required in production"));
+    // In production, allow requests without origin (mobile apps, native clients)
+    // Mobile apps typically don't send origin headers
+    if (!origin) {
+      return callback(null, true);
     }
 
     // Check against whitelist
-    if (origin && finalAllowedOrigins.includes(origin)) {
+    if (finalAllowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error(`Origin ${origin} not allowed by CORS`));

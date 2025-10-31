@@ -9,7 +9,6 @@ import {
   rosterHasPlayer,
   updateRoster,
   getRosterById,
-  validateLineup,
 } from '../models/Roster';
 import pool from '../config/database';
 import { mockAuthUser } from './setup';

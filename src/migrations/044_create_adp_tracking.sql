@@ -14,11 +14,11 @@ CREATE TABLE IF NOT EXISTS player_adp (
 );
 
 -- Indexes for efficient queries
-CREATE INDEX idx_player_adp_player ON player_adp(player_id);
-CREATE INDEX idx_player_adp_season ON player_adp(season);
-CREATE INDEX idx_player_adp_adp ON player_adp(adp);
-CREATE INDEX idx_player_adp_draft_type ON player_adp(draft_type);
-CREATE INDEX idx_player_adp_league_size ON player_adp(league_size);
+CREATE INDEX IF NOT EXISTS idx_player_adp_player ON player_adp(player_id);
+CREATE INDEX IF NOT EXISTS idx_player_adp_season ON player_adp(season);
+CREATE INDEX IF NOT EXISTS idx_player_adp_adp ON player_adp(adp);
+CREATE INDEX IF NOT EXISTS idx_player_adp_draft_type ON player_adp(draft_type);
+CREATE INDEX IF NOT EXISTS idx_player_adp_league_size ON player_adp(league_size);
 
 -- Comments
 COMMENT ON TABLE player_adp IS 'Tracks average draft position from actual app drafts';

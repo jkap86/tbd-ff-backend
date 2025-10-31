@@ -6,6 +6,7 @@ export interface User {
   email: string;
   phone_number?: string;
   is_phone_verified: boolean;
+  is_admin: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -19,7 +20,7 @@ export async function searchUsers(
 ): Promise<User[]> {
   try {
     const searchQuery = `
-      SELECT id, username, email, phone_number, is_phone_verified, created_at, updated_at
+      SELECT id, username, email, phone_number, is_phone_verified, is_admin, created_at, updated_at
       FROM users
       WHERE username ILIKE $1 OR email ILIKE $1
       ORDER BY username
@@ -47,7 +48,7 @@ export async function createUser(
     const query = `
       INSERT INTO users (username, email, password, phone_number)
       VALUES ($1, $2, $3, $4)
-      RETURNING id, username, email, phone_number, is_phone_verified, created_at, updated_at
+      RETURNING id, username, email, phone_number, is_phone_verified, is_admin, created_at, updated_at
     `;
 
     const result = await pool.query(query, [
@@ -80,7 +81,7 @@ export async function createUser(
 export async function getUserById(userId: number): Promise<User | null> {
   try {
     const query = `
-      SELECT id, username, email, phone_number, is_phone_verified, created_at, updated_at
+      SELECT id, username, email, phone_number, is_phone_verified, is_admin, created_at, updated_at
       FROM users
       WHERE id = $1
     `;
@@ -106,7 +107,7 @@ export async function getUserByUsername(
 ): Promise<User | null> {
   try {
     const query = `
-      SELECT id, username, email, phone_number, is_phone_verified, created_at, updated_at
+      SELECT id, username, email, phone_number, is_phone_verified, is_admin, created_at, updated_at
       FROM users
       WHERE username = $1
     `;
@@ -132,7 +133,7 @@ export async function getUserByUsernameWithPassword(
 ): Promise<any | null> {
   try {
     const query = `
-      SELECT id, username, email, password, phone_number, is_phone_verified, created_at, updated_at
+      SELECT id, username, email, password, phone_number, is_phone_verified, is_admin, created_at, updated_at
       FROM users
       WHERE username = $1
     `;
@@ -156,7 +157,7 @@ export async function getUserByUsernameWithPassword(
 export async function getUserByEmail(email: string): Promise<User | null> {
   try {
     const query = `
-      SELECT id, username, email, phone_number, is_phone_verified, created_at, updated_at
+      SELECT id, username, email, phone_number, is_phone_verified, is_admin, created_at, updated_at
       FROM users
       WHERE email = $1
     `;

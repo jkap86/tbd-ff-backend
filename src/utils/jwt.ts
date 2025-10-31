@@ -20,6 +20,7 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 export interface JwtPayload {
   userId: number;
   username: string;
+  isAdmin?: boolean;
 }
 
 /**

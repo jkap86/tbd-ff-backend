@@ -6,6 +6,7 @@ import { finalizeWeekScores } from "./recordService";
 import { getWeekSchedule } from "./sleeperScheduleService";
 import { getCurrentNFLWeek } from "./currentWeekService";
 import { syncPlayers } from "../controllers/playerController";
+import { withCronLogging } from "../utils/cronHelper";
 
 interface ActiveLeague {
   league_id: number;
@@ -99,95 +100,102 @@ async function updateAllLeagueScores(): Promise<void> {
   const startTime = Date.now();
   console.log("[Scheduler] Checking for live games...");
 
-  try {
-    const activeLeagues = await getActiveLeagues();
+  const activeLeagues = await getActiveLeagues();
 
-    if (activeLeagues.length === 0) {
-      console.log("[Scheduler] No active leagues to update");
-      return;
-    }
-
-    // Check if there are live games for the current week
-    const currentWeek = activeLeagues[0]?.current_week;
-    const season = activeLeagues[0]?.season;
-    const seasonType = activeLeagues[0]?.season_type || "regular";
-
-    if (!currentWeek || !season) {
-      console.log("[Scheduler] No current week/season found");
-      return;
-    }
-
-    const hasLiveGames = await hasLiveOrUpcomingGames(
-      season,
-      currentWeek,
-      seasonType
-    );
-
-    if (!hasLiveGames) {
-      console.log(
-        `[Scheduler] No live games for week ${currentWeek}, skipping update`
-      );
-      return;
-    }
-
-    console.log(
-      `[Scheduler] Live games detected for week ${currentWeek}, updating ${activeLeagues.length} leagues...`
-    );
-
-    // Sync stats once for current week (shared across all leagues)
-    console.log(`[Scheduler] Syncing stats for ${season} week ${currentWeek}...`);
-    await syncSleeperStatsForWeek(season, currentWeek, seasonType);
-
-    // Update each league's matchup scores
-    for (const league of activeLeagues) {
-      try {
-        console.log(
-          `[Scheduler] Updating league ${league.league_id} week ${league.current_week}...`
-        );
-
-        await updateMatchupScoresForWeek(
-          league.league_id,
-          league.current_week,
-          league.season,
-          league.season_type
-        );
-
-        // Try to finalize if week is complete
-        await finalizeWeekScores(
-          league.league_id,
-          league.current_week,
-          league.season,
-          league.season_type
-        );
-      } catch (error) {
-        console.error(
-          `[Scheduler] Error updating league ${league.league_id}:`,
-          error
-        );
-        // Continue with other leagues even if one fails
-      }
-    }
-
-    const duration = Date.now() - startTime;
-    console.log(
-      `[Scheduler] Score update completed in ${duration}ms for ${activeLeagues.length} leagues`
-    );
-  } catch (error) {
-    console.error("[Scheduler] Error in scheduled update:", error);
+  if (activeLeagues.length === 0) {
+    console.log("[Scheduler] No active leagues to update");
+    return;
   }
+
+  // Check if there are live games for the current week
+  const currentWeek = activeLeagues[0]?.current_week;
+  const season = activeLeagues[0]?.season;
+  const seasonType = activeLeagues[0]?.season_type || "regular";
+
+  if (!currentWeek || !season) {
+    console.log("[Scheduler] No current week/season found");
+    return;
+  }
+
+  const hasLiveGames = await hasLiveOrUpcomingGames(
+    season,
+    currentWeek,
+    seasonType
+  );
+
+  if (!hasLiveGames) {
+    console.log(
+      `[Scheduler] No live games for week ${currentWeek}, skipping update`
+    );
+    return;
+  }
+
+  console.log(
+    `[Scheduler] Live games detected for week ${currentWeek}, updating ${activeLeagues.length} leagues...`
+  );
+
+  // Sync stats once for current week with retry logic (shared across all leagues)
+  console.log(`[Scheduler] Syncing stats for ${season} week ${currentWeek}...`);
+  await withCronLogging(
+    async () => await syncSleeperStatsForWeek(season, currentWeek, seasonType),
+    `Stats Sync - Week ${currentWeek}`,
+    { maxAttempts: 3, baseDelayMs: 2000 }
+  );
+
+  // Update each league's matchup scores with retry logic
+  for (const league of activeLeagues) {
+    try {
+      console.log(
+        `[Scheduler] Updating league ${league.league_id} week ${league.current_week}...`
+      );
+
+      await withCronLogging(
+        async () => {
+          await updateMatchupScoresForWeek(
+            league.league_id,
+            league.current_week,
+            league.season,
+            league.season_type
+          );
+
+          // Try to finalize if week is complete
+          await finalizeWeekScores(
+            league.league_id,
+            league.current_week,
+            league.season,
+            league.season_type
+          );
+        },
+        `Score Update - League ${league.league_id}`,
+        { maxAttempts: 3, baseDelayMs: 1000 }
+      );
+    } catch (error) {
+      console.error(
+        `[Scheduler] Error updating league ${league.league_id} after all retries:`,
+        error
+      );
+      // Continue with other leagues even if one fails permanently
+    }
+  }
+
+  const duration = Date.now() - startTime;
+  console.log(
+    `[Scheduler] Score update completed in ${duration}ms for ${activeLeagues.length} leagues`
+  );
 }
 
 /**
  * Sync players from Sleeper daily
  */
 async function syncPlayersDaily(): Promise<void> {
-  try {
-    console.log("[Scheduler] Starting daily player sync...");
-    const syncedCount = await syncPlayers();
-    console.log(`[Scheduler] ✓ Daily player sync completed: ${syncedCount} players synced`);
-  } catch (error) {
-    console.error("[Scheduler] Error in daily player sync:", error);
-  }
+  await withCronLogging(
+    async () => {
+      const syncedCount = await syncPlayers();
+      console.log(`[Scheduler] ${syncedCount} players synced`);
+    },
+    'Daily Player Sync',
+    { maxAttempts: 3, baseDelayMs: 2000 }
+  );
 }
 
 /**

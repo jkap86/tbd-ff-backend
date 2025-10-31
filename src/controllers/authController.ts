@@ -39,6 +39,7 @@ export async function register(req: Request, res: Response): Promise<void> {
     const token = generateToken({
       userId: user.id,
       username: user.username,
+      isAdmin: user.is_admin,
     });
 
     res.status(201).json({
@@ -113,6 +114,7 @@ export async function login(req: Request, res: Response): Promise<void> {
     const token = generateToken({
       userId: user.id,
       username: user.username,
+      isAdmin: user.is_admin,
     });
 
     res.status(200).json({

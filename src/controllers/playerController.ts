@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { bulkUpsertPlayers, getAllPlayers, getPlayersByIds } from "../models/Player";
 import https from "https";
+import { logger } from "../utils/logger";
 
 /**
  * Fetch players from Sleeper API
@@ -66,7 +67,7 @@ export async function syncPlayers(): Promise<number> {
     console.log(`[PlayerSync] Successfully synced ${upsertedCount} players`);
     return upsertedCount;
   } catch (error: any) {
-    console.error("[PlayerSync] Error syncing players:", error);
+    logger.error("[PlayerSync] Error syncing players:", error);
     throw error;
   }
 }
@@ -90,7 +91,7 @@ export async function syncPlayersHandler(
       },
     });
   } catch (error: any) {
-    console.error("Error syncing players:", error);
+    logger.error("Error syncing players:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error syncing players from Sleeper",
@@ -120,7 +121,7 @@ export async function getPlayersHandler(
       data: players,
     });
   } catch (error: any) {
-    console.error("Error getting players:", error);
+    logger.error("Error getting players:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error getting players",
@@ -167,7 +168,7 @@ export async function getPlayersBulkHandler(
       data: players,
     });
   } catch (error: any) {
-    console.error("Error getting players by IDs:", error);
+    logger.error("Error getting players by IDs:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error getting players by IDs",

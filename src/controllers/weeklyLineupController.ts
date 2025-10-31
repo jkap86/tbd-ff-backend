@@ -4,6 +4,8 @@ import {
   updateWeeklyLineup,
 } from "../models/WeeklyLineup";
 import { getTeamsWithGamesStarted } from "../services/sleeperScheduleService";
+import { validateId, validatePositiveInteger } from "../utils/validation";
+import { logger } from "../utils/logger";
 
 /**
  * Get weekly lineup with player details
@@ -16,9 +18,13 @@ export async function getWeeklyLineupHandler(
   try {
     const { rosterId, week, season } = req.params;
 
+    // Validate parameters
+    const rosterIdNum = validateId(rosterId, "Roster ID");
+    const weekNum = validatePositiveInteger(week, "Week");
+
     const lineup = await getWeeklyLineupWithPlayers(
-      parseInt(rosterId),
-      parseInt(week),
+      rosterIdNum,
+      weekNum,
       season
     );
 
@@ -27,7 +33,17 @@ export async function getWeeklyLineupHandler(
       data: lineup,
     });
   } catch (error: any) {
-    console.error("Error getting weekly lineup:", error);
+    logger.error("Error getting weekly lineup:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('Roster ID') || error.message.includes('Week') || error.message.includes('must be'))) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
     res.status(500).json({
       success: false,
       message: error.message || "Error getting weekly lineup",
@@ -48,6 +64,10 @@ export async function updateWeeklyLineupHandler(
     const { rosterId, week, season } = req.params;
     const { starters, season_type = "regular" } = req.body;
 
+    // Validate parameters
+    const rosterIdNum = validateId(rosterId, "Roster ID");
+    const weekNum = validatePositiveInteger(week, "Week");
+
     if (!starters || !Array.isArray(starters)) {
       res.status(400).json({
         success: false,
@@ -59,14 +79,14 @@ export async function updateWeeklyLineupHandler(
     // Check for locked players
     const teamsPlaying = await getTeamsWithGamesStarted(
       season,
-      parseInt(week),
+      weekNum,
       season_type
     );
 
     // Get current lineup to check which players are being moved
     const currentLineup = await getWeeklyLineupWithPlayers(
-      parseInt(rosterId),
-      parseInt(week),
+      rosterIdNum,
+      weekNum,
       season
     );
 
@@ -117,16 +137,16 @@ export async function updateWeeklyLineupHandler(
 
     // If no locked players, proceed with update
     await updateWeeklyLineup(
-      parseInt(rosterId),
-      parseInt(week),
+      rosterIdNum,
+      weekNum,
       season,
       starters
     );
 
     // Get lineup with player details to return
     const lineupWithPlayers = await getWeeklyLineupWithPlayers(
-      parseInt(rosterId),
-      parseInt(week),
+      rosterIdNum,
+      weekNum,
       season
     );
 
@@ -136,7 +156,17 @@ export async function updateWeeklyLineupHandler(
       message: "Weekly lineup updated successfully",
     });
   } catch (error: any) {
-    console.error("Error updating weekly lineup:", error);
+    logger.error("Error updating weekly lineup:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('Roster ID') || error.message.includes('Week') || error.message.includes('must be'))) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
     res.status(500).json({
       success: false,
       message: error.message || "Error updating weekly lineup",

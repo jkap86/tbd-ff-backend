@@ -5,6 +5,46 @@ import { getTrade } from "../models/Trade";
 import pool from "../config/database";
 
 /**
+ * Check if user has system-wide admin privileges
+ * Used for global operations like data sync, recalculations, etc.
+ */
+export async function requireAdmin(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const userId = req.user?.userId;
+    const isAdmin = req.user?.isAdmin;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+      return;
+    }
+
+    if (!isAdmin) {
+      res.status(403).json({
+        success: false,
+        message: "Admin privileges required. This operation is restricted to system administrators.",
+      });
+      return;
+    }
+
+    // User is admin, proceed
+    next();
+  } catch (error: any) {
+    console.error("Authorization error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Authorization check failed",
+    });
+  }
+}
+
+/**
  * Check if user is commissioner of a league
  */
 export async function requireCommissioner(

@@ -9,6 +9,11 @@ const pool = new Pool({
     process.env.NODE_ENV === "production" && process.env.DB_SSL !== "false"
       ? { rejectUnauthorized: false }
       : false,
+  // Connection pool limits to prevent resource exhaustion attacks
+  max: 20, // Maximum pool size - prevents exhausting database connections under load
+  min: 2, // Minimum connections to maintain - ensures baseline availability
+  idleTimeoutMillis: 30000, // 30 seconds - close idle connections to free resources
+  connectionTimeoutMillis: 2000, // 2 seconds - fast fail for connection issues
 });
 
 // Test the connection

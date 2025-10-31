@@ -254,16 +254,48 @@ export async function bulkUpsertPlayers(
     fantasy_data_id: string | null;
   }>
 ): Promise<number> {
+  if (players.length === 0) {
+    return 0;
+  }
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    let upsertedCount = 0;
+    let totalUpserted = 0;
 
-    for (const playerData of players) {
+    // Process in batches to avoid PostgreSQL parameter limit (~65535)
+    // Each player has 8 fields, so we can safely batch 500 players (4000 params)
+    const BATCH_SIZE = 500;
+
+    for (let i = 0; i < players.length; i += BATCH_SIZE) {
+      const batch = players.slice(i, i + BATCH_SIZE);
+
+      // Build multi-row INSERT query
+      const valueStrings: string[] = [];
+      const params: any[] = [];
+      let paramIndex = 1;
+
+      for (const playerData of batch) {
+        valueStrings.push(
+          `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4}, $${paramIndex + 5}, $${paramIndex + 6}, $${paramIndex + 7}, CURRENT_TIMESTAMP)`
+        );
+        params.push(
+          playerData.player_id,
+          playerData.full_name,
+          playerData.position,
+          playerData.team,
+          playerData.age,
+          playerData.years_exp,
+          playerData.search_rank,
+          playerData.fantasy_data_id
+        );
+        paramIndex += 8;
+      }
+
       const query = `
         INSERT INTO players (player_id, full_name, position, team, age, years_exp, search_rank, fantasy_data_id, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+        VALUES ${valueStrings.join(', ')}
         ON CONFLICT (player_id)
         DO UPDATE SET
           full_name = EXCLUDED.full_name,
@@ -276,22 +308,12 @@ export async function bulkUpsertPlayers(
           updated_at = CURRENT_TIMESTAMP
       `;
 
-      await client.query(query, [
-        playerData.player_id,
-        playerData.full_name,
-        playerData.position,
-        playerData.team,
-        playerData.age,
-        playerData.years_exp,
-        playerData.search_rank,
-        playerData.fantasy_data_id,
-      ]);
-
-      upsertedCount++;
+      await client.query(query, params);
+      totalUpserted += batch.length;
     }
 
     await client.query("COMMIT");
-    return upsertedCount;
+    return totalUpserted;
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("Error bulk upserting players:", error);

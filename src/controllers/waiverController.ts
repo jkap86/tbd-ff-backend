@@ -20,6 +20,8 @@ import {
   getWaiverSettingsByLeague,
   updateWaiverSettings,
 } from "../models/WaiverSettings";
+import { validateId } from "../utils/validation";
+import { logger } from "../utils/logger";
 
 /**
  * Submit a waiver claim
@@ -27,16 +29,9 @@ import {
  */
 export async function submitClaimHandler(req: Request, res: Response): Promise<void> {
   try {
-    const leagueId = parseInt(req.params.leagueId);
+    // Validate leagueId
+    const leagueId = validateId(req.params.leagueId, "League ID");
     const { roster_id, player_id, drop_player_id, bid_amount } = req.body;
-
-    if (isNaN(leagueId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid league ID",
-      });
-      return;
-    }
 
     // Validate required fields
     if (!roster_id || !player_id) {
@@ -98,7 +93,17 @@ export async function submitClaimHandler(req: Request, res: Response): Promise<v
       data: claim,
     });
   } catch (error: any) {
-    console.error("Submit claim error:", error);
+    logger.error("Submit claim error:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('League ID') || error.message.includes('must be'))) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
     res.status(400).json({
       success: false,
       message: error.message || "Error submitting waiver claim",
@@ -133,7 +138,7 @@ export async function getLeagueClaimsHandler(req: Request, res: Response): Promi
       data: claims,
     });
   } catch (error: any) {
-    console.error("Get league claims error:", error);
+    logger.error("Get league claims error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error getting waiver claims",
@@ -168,7 +173,7 @@ export async function getRosterClaimsHandler(req: Request, res: Response): Promi
       data: claims,
     });
   } catch (error: any) {
-    console.error("Get roster claims error:", error);
+    logger.error("Get roster claims error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error getting roster claims",
@@ -240,7 +245,7 @@ export async function cancelClaimHandler(req: Request, res: Response): Promise<v
       data: updatedClaim,
     });
   } catch (error: any) {
-    console.error("Cancel claim error:", error);
+    logger.error("Cancel claim error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error cancelling waiver claim",
@@ -285,7 +290,7 @@ export async function processWaiversHandler(req: Request, res: Response): Promis
       message: "Waivers processed successfully",
     });
   } catch (error: any) {
-    console.error("Process waivers error:", error);
+    logger.error("Process waivers error:", error);
 
     if (error.message === "Only the commissioner can perform this action") {
       res.status(403).json({
@@ -361,7 +366,7 @@ export async function pickupFreeAgentHandler(req: Request, res: Response): Promi
       data: transaction,
     });
   } catch (error: any) {
-    console.error("Pickup free agent error:", error);
+    logger.error("Pickup free agent error:", error);
     res.status(400).json({
       success: false,
       message: error.message || "Error picking up free agent",
@@ -397,7 +402,7 @@ export async function getLeagueTransactionsHandler(
       data: transactions,
     });
   } catch (error: any) {
-    console.error("Get league transactions error:", error);
+    logger.error("Get league transactions error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error getting transactions",
@@ -434,7 +439,7 @@ export async function getAvailablePlayersHandler(
       },
     });
   } catch (error: any) {
-    console.error("Get available players error:", error);
+    logger.error("Get available players error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error getting available players",
@@ -468,7 +473,7 @@ export async function getWaiverSettingsHandler(
       data: settings,
     });
   } catch (error: any) {
-    console.error("Get waiver settings error:", error);
+    logger.error("Get waiver settings error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error getting waiver settings",
@@ -571,7 +576,7 @@ export async function updateWaiverSettingsHandler(
       data: updatedSettings,
     });
   } catch (error: any) {
-    console.error("Update waiver settings error:", error);
+    logger.error("Update waiver settings error:", error);
 
     if (error.message === "Only the commissioner can perform this action") {
       res.status(403).json({

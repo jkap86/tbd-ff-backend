@@ -1,16 +1,33 @@
 import { Server, Socket } from "socket.io";
 import { createChatMessage } from "../models/DraftChatMessage";
 import { getDraftById } from "../models/Draft";
+import { socketAuthMiddleware } from "../middleware/socketAuthMiddleware";
+import {
+  isUserDraftParticipant,
+  isUserDraftCommissioner,
+  doesUserOwnRoster,
+} from "../utils/draftAuthorization";
 
 export function setupDraftSocket(io: Server) {
+  // Apply authentication middleware to all socket connections
+  io.use(socketAuthMiddleware);
+
   io.on("connection", (socket: Socket) => {
-    console.log(`Socket connected: ${socket.id}`);
+    const user = socket.data.user;
+    if (!user) {
+      console.error(`[DraftSocket] Socket connected without user data: ${socket.id}`);
+      socket.disconnect();
+      return;
+    }
+
+    console.log(`[DraftSocket] Socket connected: ${socket.id} - User: ${user.username} (${user.userId})`);
 
     /**
      * Join a draft room
      */
-    socket.on("join_draft", async (data: { draft_id: number; user_id: number; username: string }) => {
-      const { draft_id, user_id, username } = data;
+    socket.on("join_draft", async (data: { draft_id: number }) => {
+      const { draft_id } = data;
+      const user = socket.data.user!;
 
       try {
         // Verify draft exists
@@ -20,16 +37,24 @@ export function setupDraftSocket(io: Server) {
           return;
         }
 
+        // Verify user is a participant in this draft
+        const isParticipant = await isUserDraftParticipant(user.userId, draft_id);
+        if (!isParticipant) {
+          console.log(`[DraftSocket] User ${user.username} (${user.userId}) denied access to draft ${draft_id} - not a participant`);
+          socket.emit("error", { message: "Access denied: You are not a participant in this draft" });
+          return;
+        }
+
         // Join the draft room
         const roomName = `draft_${draft_id}`;
         socket.join(roomName);
 
-        console.log(`User ${username} (${user_id}) joined draft ${draft_id}`);
+        console.log(`[DraftSocket] User ${user.username} (${user.userId}) joined draft ${draft_id}`);
 
         // Notify others in the room
         socket.to(roomName).emit("user_joined", {
-          user_id,
-          username,
+          user_id: user.userId,
+          username: user.username,
           timestamp: new Date(),
         });
 
@@ -42,14 +67,14 @@ export function setupDraftSocket(io: Server) {
         // Send system message to chat
         const systemMessage = await createChatMessage({
           draft_id,
-          user_id,
-          message: `${username} joined the draft`,
+          user_id: user.userId,
+          message: `${user.username} joined the draft`,
           message_type: "system",
         });
 
         io.to(roomName).emit("chat_message", systemMessage);
       } catch (error) {
-        console.error("Error joining draft:", error);
+        console.error("[DraftSocket] Error joining draft:", error);
         socket.emit("error", { message: "Error joining draft" });
       }
     });
@@ -57,18 +82,19 @@ export function setupDraftSocket(io: Server) {
     /**
      * Leave a draft room
      */
-    socket.on("leave_draft", async (data: { draft_id: number; user_id: number; username: string }) => {
-      const { draft_id, user_id, username } = data;
+    socket.on("leave_draft", async (data: { draft_id: number }) => {
+      const { draft_id } = data;
+      const user = socket.data.user!;
 
       const roomName = `draft_${draft_id}`;
       socket.leave(roomName);
 
-      console.log(`User ${username} (${user_id}) left draft ${draft_id}`);
+      console.log(`[DraftSocket] User ${user.username} (${user.userId}) left draft ${draft_id}`);
 
       // Notify others in the room
       socket.to(roomName).emit("user_left", {
-        user_id,
-        username,
+        user_id: user.userId,
+        username: user.username,
         timestamp: new Date(),
       });
 
@@ -76,28 +102,37 @@ export function setupDraftSocket(io: Server) {
       try {
         const systemMessage = await createChatMessage({
           draft_id,
-          user_id,
-          message: `${username} left the draft`,
+          user_id: user.userId,
+          message: `${user.username} left the draft`,
           message_type: "system",
         });
 
         io.to(roomName).emit("chat_message", systemMessage);
       } catch (error) {
-        console.error("Error sending leave message:", error);
+        console.error("[DraftSocket] Error sending leave message:", error);
       }
     });
 
     /**
      * Send chat message
      */
-    socket.on("send_chat_message", async (data: { draft_id: number; user_id: number; username: string; message: string }) => {
-      const { draft_id, user_id, username, message } = data;
+    socket.on("send_chat_message", async (data: { draft_id: number; message: string }) => {
+      const { draft_id, message } = data;
+      const user = socket.data.user!;
 
       try {
+        // Verify user is a participant in this draft
+        const isParticipant = await isUserDraftParticipant(user.userId, draft_id);
+        if (!isParticipant) {
+          console.log(`[DraftSocket] User ${user.username} (${user.userId}) denied chat access to draft ${draft_id}`);
+          socket.emit("error", { message: "Access denied: You are not a participant in this draft" });
+          return;
+        }
+
         // Save message to database
         const chatMessage = await createChatMessage({
           draft_id,
-          user_id,
+          user_id: user.userId,
           message,
           message_type: "chat",
         });
@@ -106,10 +141,10 @@ export function setupDraftSocket(io: Server) {
         const roomName = `draft_${draft_id}`;
         io.to(roomName).emit("chat_message", {
           ...chatMessage,
-          username, // Include username for display
+          username: user.username, // Include username for display
         });
       } catch (error) {
-        console.error("Error sending chat message:", error);
+        console.error("[DraftSocket] Error sending chat message:", error);
         socket.emit("error", { message: "Error sending chat message" });
       }
     });
@@ -215,8 +250,17 @@ export function setupDraftSocket(io: Server) {
      */
     socket.on("request_draft_state", async (data: { draft_id: number }) => {
       const { draft_id } = data;
+      const user = socket.data.user!;
 
       try {
+        // Verify user is a participant in this draft
+        const isParticipant = await isUserDraftParticipant(user.userId, draft_id);
+        if (!isParticipant) {
+          console.log(`[DraftSocket] User ${user.username} (${user.userId}) denied draft state access to draft ${draft_id}`);
+          socket.emit("error", { message: "Access denied: You are not a participant in this draft" });
+          return;
+        }
+
         const draft = await getDraftById(draft_id);
         if (!draft) {
           socket.emit("error", { message: "Draft not found" });
@@ -228,7 +272,7 @@ export function setupDraftSocket(io: Server) {
           timestamp: new Date(),
         });
       } catch (error) {
-        console.error("Error getting draft state:", error);
+        console.error("[DraftSocket] Error getting draft state:", error);
         socket.emit("error", { message: "Error getting draft state" });
       }
     });
@@ -240,11 +284,21 @@ export function setupDraftSocket(io: Server) {
       draft_id: number;
       roster_id: number;
       is_autodrafting: boolean;
-      username: string;
     }) => {
-      const { draft_id, roster_id, is_autodrafting, username } = data;
+      const { draft_id, roster_id, is_autodrafting } = data;
+      const user = socket.data.user!;
 
       try {
+        // Verify user owns this roster or is the commissioner
+        const ownsRoster = await doesUserOwnRoster(user.userId, roster_id, draft_id);
+        const isCommissioner = await isUserDraftCommissioner(user.userId, draft_id);
+
+        if (!ownsRoster && !isCommissioner) {
+          console.log(`[DraftSocket] User ${user.username} (${user.userId}) denied autodraft toggle for roster ${roster_id} in draft ${draft_id}`);
+          socket.emit("error", { message: "Access denied: You can only toggle autodraft for your own roster" });
+          return;
+        }
+
         const { toggleAutodraft } = await import("../models/DraftOrder");
         const updatedOrder = await toggleAutodraft(draft_id, roster_id, is_autodrafting);
 
@@ -255,14 +309,14 @@ export function setupDraftSocket(io: Server) {
           io.to(roomName).emit("autodraft_toggled", {
             roster_id,
             is_autodrafting,
-            username,
+            username: user.username,
             timestamp: new Date(),
           });
 
-          console.log(`Autodraft ${is_autodrafting ? 'enabled' : 'disabled'} for roster ${roster_id} in draft ${draft_id}`);
+          console.log(`[DraftSocket] Autodraft ${is_autodrafting ? 'enabled' : 'disabled'} for roster ${roster_id} in draft ${draft_id} by ${user.username}`);
         }
       } catch (error) {
-        console.error("Error toggling autodraft:", error);
+        console.error("[DraftSocket] Error toggling autodraft:", error);
         socket.emit("error", { message: "Error toggling autodraft" });
       }
     });
@@ -271,7 +325,12 @@ export function setupDraftSocket(io: Server) {
      * Handle disconnection
      */
     socket.on("disconnect", () => {
-      console.log(`Socket disconnected: ${socket.id}`);
+      const user = socket.data.user;
+      if (user) {
+        console.log(`[DraftSocket] Socket disconnected: ${socket.id} - User: ${user.username} (${user.userId})`);
+      } else {
+        console.log(`[DraftSocket] Socket disconnected: ${socket.id}`);
+      }
     });
   });
 }

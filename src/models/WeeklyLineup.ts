@@ -184,6 +184,95 @@ export async function getWeeklyLineupWithPlayers(
 }
 
 /**
+ * Batch get or create weekly lineups for multiple rosters
+ * Returns a map of roster_id -> WeeklyLineup
+ */
+export async function batchGetOrCreateWeeklyLineups(
+  rosterIds: number[],
+  week: number,
+  season: string
+): Promise<Map<number, WeeklyLineup>> {
+  const resultMap = new Map<number, WeeklyLineup>();
+
+  if (rosterIds.length === 0) {
+    return resultMap;
+  }
+
+  try {
+    // Fetch all existing lineups in a single query
+    const selectQuery = `
+      SELECT * FROM weekly_lineups
+      WHERE roster_id = ANY($1) AND week = $2 AND season = $3
+    `;
+    const selectResult = await pool.query(selectQuery, [rosterIds, week, season]);
+
+    // Map existing lineups by roster_id
+    const existingLineups = new Map<number, WeeklyLineup>();
+    for (const row of selectResult.rows) {
+      existingLineups.set(row.roster_id, row);
+      resultMap.set(row.roster_id, row);
+    }
+
+    // Find rosters that need new lineups created
+    const missingRosterIds = rosterIds.filter(id => !existingLineups.has(id));
+
+    if (missingRosterIds.length > 0) {
+      // Fetch roster data for missing lineups in a single query
+      const { getRostersByIds } = await import("./Roster");
+      const rosters = await getRostersByIds(missingRosterIds);
+
+      // Create a map of roster data
+      const rosterMap = new Map(rosters.map(r => [r.id, r]));
+
+      // Prepare batch insert values
+      const valuesToInsert: any[] = [];
+      missingRosterIds.forEach(rosterId => {
+        const roster = rosterMap.get(rosterId);
+        if (roster) {
+          valuesToInsert.push({
+            roster_id: rosterId,
+            starters: roster.starters || []
+          });
+        }
+      });
+
+      if (valuesToInsert.length > 0) {
+        // Build multi-row INSERT query
+        const valueStrings: string[] = [];
+        const params: any[] = [];
+        let paramIndex = 1;
+
+        valuesToInsert.forEach(item => {
+          valueStrings.push(`($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3})`);
+          params.push(item.roster_id, week, season, JSON.stringify(item.starters));
+          paramIndex += 4;
+        });
+
+        const insertQuery = `
+          INSERT INTO weekly_lineups (roster_id, week, season, starters)
+          VALUES ${valueStrings.join(', ')}
+          RETURNING *
+        `;
+
+        const insertResult = await pool.query(insertQuery, params);
+
+        // Add newly created lineups to result map
+        for (const row of insertResult.rows) {
+          resultMap.set(row.roster_id, row);
+        }
+      }
+    }
+
+    return resultMap;
+  } catch (error: any) {
+    console.error("Error batch getting/creating weekly lineups:", error);
+    console.error("Error details:", error.message);
+    console.error("Stack:", error.stack);
+    throw error;
+  }
+}
+
+/**
  * Delete all weekly lineups for a league (used when resetting league)
  */
 export async function deleteWeeklyLineupsForLeague(

@@ -223,6 +223,24 @@ export async function getRosterById(rosterId: number): Promise<Roster | null> {
 }
 
 /**
+ * Get multiple rosters by IDs
+ */
+export async function getRostersByIds(rosterIds: number[]): Promise<Roster[]> {
+  if (rosterIds.length === 0) {
+    return [];
+  }
+
+  try {
+    const query = `SELECT * FROM rosters WHERE id = ANY($1)`;
+    const result = await pool.query(query, [rosterIds]);
+    return result.rows;
+  } catch (error) {
+    console.error("Error getting rosters by IDs:", error);
+    throw new Error("Error getting rosters by IDs");
+  }
+}
+
+/**
  * Get roster by league and user
  */
 export async function getRosterByLeagueAndUser(

@@ -266,17 +266,26 @@ export async function updateMatchupScoresForWeek(
     // Get all matchups for this week
     const matchups = await getMatchupsByLeagueAndWeek(leagueId, week);
 
-    // Get weekly lineups
-    const { getOrCreateWeeklyLineup } = await import("../models/WeeklyLineup");
+    // Collect all roster IDs that need lineups
+    const rosterIds: number[] = [];
+    for (const matchup of matchups) {
+      rosterIds.push(matchup.roster1_id);
+      if (matchup.roster2_id) {
+        rosterIds.push(matchup.roster2_id);
+      }
+    }
+
+    // Batch fetch all weekly lineups at once (eliminates N+1 query problem)
+    const { batchGetOrCreateWeeklyLineups } = await import("../models/WeeklyLineup");
+    const lineupsMap = await batchGetOrCreateWeeklyLineups(rosterIds, week, season);
 
     // Calculate scores for each matchup
     for (const matchup of matchups) {
-      // Get roster 1 weekly lineup
-      const roster1Lineup = await getOrCreateWeeklyLineup(
-        matchup.roster1_id,
-        week,
-        season
-      );
+      // Get roster 1 weekly lineup from pre-fetched map
+      const roster1Lineup = lineupsMap.get(matchup.roster1_id);
+      if (!roster1Lineup) {
+        throw new Error(`Lineup not found for roster ${matchup.roster1_id}`);
+      }
 
       const roster1StarterIds = (roster1Lineup.starters || [])
         .map((slot: any) => slot.player_id)
@@ -293,11 +302,10 @@ export async function updateMatchupScoresForWeek(
       // Get roster 2 weekly lineup (if not a bye week)
       let roster2Score = 0;
       if (matchup.roster2_id) {
-        const roster2Lineup = await getOrCreateWeeklyLineup(
-          matchup.roster2_id,
-          week,
-          season
-        );
+        const roster2Lineup = lineupsMap.get(matchup.roster2_id);
+        if (!roster2Lineup) {
+          throw new Error(`Lineup not found for roster ${matchup.roster2_id}`);
+        }
 
         const roster2StarterIds = (roster2Lineup.starters || [])
           .map((slot: any) => slot.player_id)

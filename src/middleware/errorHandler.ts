@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { DraftError } from '../errors/DraftErrors';
+import { logger } from '../utils/logger';
 
 export function errorHandler(
   error: Error,
@@ -7,14 +8,15 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ) {
-  console.error('Error:', {
+  // Log error with redacted sensitive data
+  logger.error('Request error occurred', {
     name: error.name,
     message: error.message,
-    stack: error.stack,
+    stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined,
     url: req.url,
     method: req.method,
-    body: req.body,
     params: req.params,
+    // Note: req.body is excluded to prevent logging passwords/tokens
   });
 
   if (error instanceof DraftError) {

@@ -1,4 +1,5 @@
 import { deleteExpiredTokens } from "../models/PasswordReset";
+import { withCronLogging } from "../utils/cronHelper";
 
 let cleanupInterval: NodeJS.Timeout | null = null;
 
@@ -8,21 +9,29 @@ let cleanupInterval: NodeJS.Timeout | null = null;
  */
 export function startTokenCleanupScheduler(): void {
   if (cleanupInterval) {
-    console.log("⚠️  Token cleanup scheduler already running");
+    console.log("Token cleanup scheduler already running");
     return;
   }
 
-  console.log("🧹 Starting password reset token cleanup scheduler (runs every hour)");
+  console.log("Starting password reset token cleanup scheduler (runs every hour)");
 
-  // Run immediately on startup
-  deleteExpiredTokens().catch((error) => {
+  // Run immediately on startup with retry logic
+  withCronLogging(
+    async () => await deleteExpiredTokens(),
+    'Token Cleanup (Startup)',
+    { maxAttempts: 2, baseDelayMs: 1000 }
+  ).catch((error) => {
     console.error("Error during initial token cleanup:", error);
   });
 
-  // Run every hour (3600000 milliseconds)
+  // Run every hour (3600000 milliseconds) with retry logic
   cleanupInterval = setInterval(
     () => {
-      deleteExpiredTokens().catch((error) => {
+      withCronLogging(
+        async () => await deleteExpiredTokens(),
+        'Token Cleanup (Scheduled)',
+        { maxAttempts: 2, baseDelayMs: 1000 }
+      ).catch((error) => {
         console.error("Error during scheduled token cleanup:", error);
       });
     },

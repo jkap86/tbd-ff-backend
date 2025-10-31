@@ -1,5 +1,6 @@
 import express from 'express';
 import { authenticate } from '../middleware/authMiddleware';
+import { requireAdmin } from '../middleware/authorization';
 import {
   getAllInjuriesHandler,
   getLeagueInjuryReportHandler,
@@ -14,7 +15,7 @@ router.get('/all', authenticate, getAllInjuriesHandler);
 // Get injury report for a specific league (only rostered players)
 router.get('/league/:leagueId', authenticate, getLeagueInjuryReportHandler);
 
-// Manual sync trigger (for testing/admin)
-router.post('/sync', authenticate, syncInjuriesHandler);
+// Manual sync trigger (admin only - triggers expensive external API calls)
+router.post('/sync', authenticate, requireAdmin, syncInjuriesHandler);
 
 export default router;

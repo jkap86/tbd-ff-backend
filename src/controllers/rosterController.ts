@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
 import { getRosterWithPlayers, getRosterById, updateRoster, validateLineup, validateSlotAssignment, getRostersByLeagueId } from "../models/Roster";
+import { validateId } from "../utils/validation";
+import { logger } from "../utils/logger";
 
 /**
  * Migrate rosters from BN slots to bench array
@@ -19,7 +21,9 @@ export async function fixBenchSlotsHandler(req: Request, res: Response): Promise
       rosters = result.rows;
       console.log(`[MigrateBench] Migrating ALL rosters across all leagues`);
     } else {
-      rosters = await getRostersByLeagueId(parseInt(leagueId));
+      // Validate leagueId
+      const leagueIdNum = validateId(leagueId, "League ID");
+      rosters = await getRostersByLeagueId(leagueIdNum);
     }
 
     console.log(`[MigrateBench] Found ${rosters.length} rosters to migrate`);
@@ -81,7 +85,17 @@ export async function fixBenchSlotsHandler(req: Request, res: Response): Promise
       total_players_moved: totalPlayersMoved,
     });
   } catch (error: any) {
-    console.error("[FixBN] Error fixing bench slots:", error);
+    logger.error("[FixBN] Error fixing bench slots:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('League ID') || error.message.includes('must be'))) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
     res.status(500).json({
       success: false,
       message: error.message || "Error fixing bench slots",
@@ -97,7 +111,10 @@ export async function debugRosterHandler(req: Request, res: Response): Promise<v
   try {
     const { rosterId } = req.params;
 
-    const roster = await getRosterById(parseInt(rosterId));
+    // Validate rosterId
+    const rosterIdNum = validateId(rosterId, "Roster ID");
+
+    const roster = await getRosterById(rosterIdNum);
 
     if (!roster) {
       res.status(404).json({
@@ -156,7 +173,17 @@ export async function debugRosterHandler(req: Request, res: Response): Promise<v
       },
     });
   } catch (error: any) {
-    console.error("Error debugging roster:", error);
+    logger.error("Error debugging roster:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('Roster ID') || error.message.includes('must be'))) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
     res.status(500).json({
       success: false,
       message: error.message || "Error debugging roster",
@@ -175,7 +202,10 @@ export async function getRosterWithPlayersHandler(
   try {
     const { rosterId } = req.params;
 
-    const roster = await getRosterWithPlayers(parseInt(rosterId));
+    // Validate rosterId
+    const rosterIdNum = validateId(rosterId, "Roster ID");
+
+    const roster = await getRosterWithPlayers(rosterIdNum);
 
     if (!roster) {
       res.status(404).json({
@@ -190,7 +220,17 @@ export async function getRosterWithPlayersHandler(
       data: roster,
     });
   } catch (error: any) {
-    console.error("Error getting roster with players:", error);
+    logger.error("Error getting roster with players:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('Roster ID') || error.message.includes('must be'))) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
     res.status(500).json({
       success: false,
       message: error.message || "Error getting roster with players",
@@ -211,6 +251,9 @@ export async function updateRosterLineupHandler(
     const { starters, bench, taxi, ir } = req.body;
     const userId = req.user?.userId;
 
+    // Validate rosterId
+    const rosterIdNum = validateId(rosterId, "Roster ID");
+
     if (!userId) {
       res.status(401).json({
         success: false,
@@ -220,7 +263,7 @@ export async function updateRosterLineupHandler(
     }
 
     // Get the roster to check ownership
-    const roster = await getRosterById(parseInt(rosterId));
+    const roster = await getRosterById(rosterIdNum);
 
     if (!roster) {
       res.status(404).json({
@@ -280,7 +323,7 @@ export async function updateRosterLineupHandler(
     }
 
     // Update the roster
-    const updatedRoster = await updateRoster(parseInt(rosterId), {
+    const updatedRoster = await updateRoster(rosterIdNum, {
       starters,
       bench,
       taxi,
@@ -296,7 +339,7 @@ export async function updateRosterLineupHandler(
     }
 
     // Get updated roster with player details
-    const rosterWithPlayers = await getRosterWithPlayers(parseInt(rosterId));
+    const rosterWithPlayers = await getRosterWithPlayers(rosterIdNum);
 
     res.status(200).json({
       success: true,
@@ -304,7 +347,17 @@ export async function updateRosterLineupHandler(
       message: "Lineup updated successfully",
     });
   } catch (error: any) {
-    console.error("Error updating roster lineup:", error);
+    logger.error("Error updating roster lineup:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('Roster ID') || error.message.includes('must be'))) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
     res.status(500).json({
       success: false,
       message: error.message || "Error updating roster lineup",

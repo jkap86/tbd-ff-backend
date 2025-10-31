@@ -14,6 +14,8 @@ import { generateFullSeasonSchedule } from "../services/scheduleGeneratorService
 import { getLeagueById } from "../models/League";
 import { getOrCreateWeeklyLineup, updateWeeklyLineup } from "../models/WeeklyLineup";
 import { getRostersByLeagueId } from "../models/Roster";
+import { validateId, validatePositiveInteger } from "../utils/validation";
+import { logger } from "../utils/logger";
 
 // Simple in-memory cache for last update times
 const lastUpdateCache = new Map<string, number>();
@@ -32,8 +34,12 @@ export async function getMatchupsForWeek(
     const { leagueId, week } = req.params;
     const { season, season_type = "regular", force_update = "false" } = req.query;
 
+    // Validate parameters
+    const leagueIdNum = validateId(leagueId, "League ID");
+    const weekNum = validatePositiveInteger(week, "Week");
+
     // Check if we should update scores
-    const cacheKey = `${leagueId}-${week}-${season}`;
+    const cacheKey = `${leagueIdNum}-${weekNum}-${season}`;
     const lastUpdate = lastUpdateCache.get(cacheKey) || 0;
     const now = Date.now();
     const shouldUpdate =
@@ -43,20 +49,20 @@ export async function getMatchupsForWeek(
     if (season && shouldUpdate) {
       // Trigger update in background (don't wait for it)
       updateScoresInBackground(
-        parseInt(leagueId),
-        parseInt(week),
+        leagueIdNum,
+        weekNum,
         season as string,
         season_type as string,
         cacheKey
       ).catch((error) => {
-        console.error("[AutoUpdate] Background update failed:", error);
+        logger.error("[AutoUpdate] Background update failed:", error);
       });
     }
 
     // Return matchups immediately (don't wait for score update)
     const matchups = await getMatchupsByLeagueAndWeek(
-      parseInt(leagueId),
-      parseInt(week)
+      leagueIdNum,
+      weekNum
     );
 
     res.status(200).json({
@@ -68,7 +74,17 @@ export async function getMatchupsForWeek(
       },
     });
   } catch (error: any) {
-    console.error("Error getting matchups:", error);
+    logger.error("Error getting matchups:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('League ID') || error.message.includes('Week') || error.message.includes('must be'))) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
     res.status(500).json({
       success: false,
       message: error.message || "Error getting matchups",
@@ -119,14 +135,27 @@ export async function getAllMatchupsForLeague(
   try {
     const { leagueId } = req.params;
 
-    const matchups = await getMatchupsByLeague(parseInt(leagueId));
+    // Validate leagueId
+    const leagueIdNum = validateId(leagueId, "League ID");
+
+    const matchups = await getMatchupsByLeague(leagueIdNum);
 
     res.status(200).json({
       success: true,
       data: matchups,
     });
   } catch (error: any) {
-    console.error("Error getting matchups:", error);
+    logger.error("Error getting matchups:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('League ID') || error.message.includes('must be'))) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
     res.status(500).json({
       success: false,
       message: error.message || "Error getting matchups",
@@ -146,6 +175,10 @@ export async function generateMatchups(
     const { leagueId, week } = req.params;
     const { season } = req.body;
 
+    // Validate parameters
+    const leagueIdNum = validateId(leagueId, "League ID");
+    const weekNum = validatePositiveInteger(week, "Week");
+
     if (!season) {
       res.status(400).json({
         success: false,
@@ -155,22 +188,32 @@ export async function generateMatchups(
     }
 
     // Delete existing matchups for this week (if regenerating)
-    await deleteMatchupsForWeek(parseInt(leagueId), parseInt(week));
+    await deleteMatchupsForWeek(leagueIdNum, weekNum);
 
     // Generate new matchups
     const matchups = await generateMatchupsForWeek(
-      parseInt(leagueId),
-      parseInt(week),
+      leagueIdNum,
+      weekNum,
       season
     );
 
     res.status(201).json({
       success: true,
       data: matchups,
-      message: `Generated ${matchups.length} matchups for week ${week}`,
+      message: `Generated ${matchups.length} matchups for week ${weekNum}`,
     });
   } catch (error: any) {
-    console.error("Error generating matchups:", error);
+    logger.error("Error generating matchups:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('League ID') || error.message.includes('Week') || error.message.includes('must be'))) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
     res.status(500).json({
       success: false,
       message: error.message || "Error generating matchups",
@@ -190,6 +233,10 @@ export async function updateScoresForWeek(
     const { leagueId, week } = req.params;
     const { season, season_type = "regular" } = req.body;
 
+    // Validate parameters
+    const leagueIdNum = validateId(leagueId, "League ID");
+    const weekNum = validatePositiveInteger(week, "Week");
+
     if (!season) {
       res.status(400).json({
         success: false,
@@ -199,41 +246,51 @@ export async function updateScoresForWeek(
     }
 
     // First, sync stats from Sleeper
-    console.log(`Syncing stats for week ${week}...`);
+    console.log(`Syncing stats for week ${weekNum}...`);
     const statsResult = await syncSleeperStatsForWeek(
       season,
-      parseInt(week),
+      weekNum,
       season_type
     );
 
     // Then, update matchup scores
-    console.log(`Updating matchup scores for week ${week}...`);
+    console.log(`Updating matchup scores for week ${weekNum}...`);
     await updateMatchupScoresForWeek(
-      parseInt(leagueId),
-      parseInt(week),
+      leagueIdNum,
+      weekNum,
       season,
       season_type
     );
 
     // Finally, finalize scores if week is complete
-    console.log(`Checking if week ${week} should be finalized...`);
+    console.log(`Checking if week ${weekNum} should be finalized...`);
     await finalizeWeekScores(
-      parseInt(leagueId),
-      parseInt(week),
+      leagueIdNum,
+      weekNum,
       season,
       season_type
     );
 
     res.status(200).json({
       success: true,
-      message: `Updated scores for week ${week}`,
+      message: `Updated scores for week ${weekNum}`,
       stats: {
         synced: statsResult.synced,
         failed: statsResult.failed,
       },
     });
   } catch (error: any) {
-    console.error("Error updating scores:", error);
+    logger.error("Error updating scores:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('League ID') || error.message.includes('Week') || error.message.includes('must be'))) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
     res.status(500).json({
       success: false,
       message: error.message || "Error updating scores",
@@ -252,7 +309,10 @@ export async function getMatchupDetailsHandler(
   try {
     const { matchupId } = req.params;
 
-    const details = await getMatchupDetails(parseInt(matchupId));
+    // Validate matchupId
+    const matchupIdNum = validateId(matchupId, "Matchup ID");
+
+    const details = await getMatchupDetails(matchupIdNum);
 
     if (!details) {
       res.status(404).json({
@@ -267,7 +327,17 @@ export async function getMatchupDetailsHandler(
       data: details,
     });
   } catch (error: any) {
-    console.error("Error getting matchup details:", error);
+    logger.error("Error getting matchup details:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('Matchup ID') || error.message.includes('must be'))) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
     res.status(500).json({
       success: false,
       message: error.message || "Error getting matchup details",
@@ -286,7 +356,10 @@ export async function getMatchupScoresHandler(
   try {
     const { matchupId } = req.params;
 
-    const details = await getMatchupDetailsWithScores(parseInt(matchupId));
+    // Validate matchupId
+    const matchupIdNum = validateId(matchupId, "Matchup ID");
+
+    const details = await getMatchupDetailsWithScores(matchupIdNum);
 
     if (!details) {
       res.status(404).json({
@@ -301,7 +374,17 @@ export async function getMatchupScoresHandler(
       data: details,
     });
   } catch (error: any) {
-    console.error("Error getting matchup scores:", error);
+    logger.error("Error getting matchup scores:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('Matchup ID') || error.message.includes('must be'))) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
     res.status(500).json({
       success: false,
       message: error.message || "Error getting matchup scores",
@@ -321,6 +404,9 @@ export async function recalculateRecordsHandler(
     const { leagueId } = req.params;
     const { season } = req.body;
 
+    // Validate leagueId
+    const leagueIdNum = validateId(leagueId, "League ID");
+
     if (!season) {
       res.status(400).json({
         success: false,
@@ -329,15 +415,25 @@ export async function recalculateRecordsHandler(
       return;
     }
 
-    console.log(`Recalculating records for league ${leagueId}, season ${season}...`);
-    await recalculateAllRecords(parseInt(leagueId), season);
+    console.log(`Recalculating records for league ${leagueIdNum}, season ${season}...`);
+    await recalculateAllRecords(leagueIdNum, season);
 
     res.status(200).json({
       success: true,
       message: "Records recalculated successfully",
     });
   } catch (error: any) {
-    console.error("Error recalculating records:", error);
+    logger.error("Error recalculating records:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('League ID') || error.message.includes('must be'))) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
     res.status(500).json({
       success: false,
       message: error.message || "Error recalculating records",
@@ -357,6 +453,9 @@ export async function generateFullSeasonMatchups(
     const { leagueId } = req.params;
     const { season, regenerate = false } = req.body;
 
+    // Validate leagueId
+    const leagueIdNum = validateId(leagueId, "League ID");
+
     if (!season) {
       res.status(400).json({
         success: false,
@@ -366,7 +465,7 @@ export async function generateFullSeasonMatchups(
     }
 
     // Get league to access settings
-    const league = await getLeagueById(parseInt(leagueId));
+    const league = await getLeagueById(leagueIdNum);
     if (!league) {
       res.status(404).json({
         success: false,
@@ -381,12 +480,12 @@ export async function generateFullSeasonMatchups(
     const endWeek = playoffWeekStart - 1; // Regular season ends before playoffs
 
     console.log(
-      `[GenerateFullSeason] Generating matchups for league ${leagueId}, weeks ${startWeek}-${endWeek}...`
+      `[GenerateFullSeason] Generating matchups for league ${leagueIdNum}, weeks ${startWeek}-${endWeek}...`
     );
 
     // Generate the full season schedule
     const result = await generateFullSeasonSchedule(
-      parseInt(leagueId),
+      leagueIdNum,
       season,
       startWeek,
       endWeek,
@@ -404,7 +503,7 @@ export async function generateFullSeasonMatchups(
 
     // Auto-populate weekly lineups for all weeks
     console.log(`[GenerateFullSeason] Auto-populating weekly lineups for all weeks...`);
-    const rosters = await getRostersByLeagueId(parseInt(leagueId));
+    const rosters = await getRostersByLeagueId(leagueIdNum);
 
     for (let week = startWeek; week <= endWeek; week++) {
       for (const roster of rosters) {
@@ -437,7 +536,17 @@ export async function generateFullSeasonMatchups(
       },
     });
   } catch (error: any) {
-    console.error("Error generating full season matchups:", error);
+    logger.error("Error generating full season matchups:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('League ID') || error.message.includes('must be'))) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
     res.status(500).json({
       success: false,
       message: error.message || "Error generating full season matchups",

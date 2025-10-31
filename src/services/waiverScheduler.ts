@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import pool from "../config/database";
 import { processWaivers } from "./waiverService";
+import { withCronLogging } from "../utils/cronHelper";
 
 /**
  * Waiver Scheduler Service
@@ -14,45 +15,48 @@ const SCHEDULE = "0 3 * * *";
  * Process waivers for all leagues that have pending claims
  */
 async function processAllLeagueWaivers(): Promise<void> {
-  try {
-    console.log("[WaiverScheduler] Starting scheduled waiver processing");
+  console.log("[WaiverScheduler] Starting scheduled waiver processing");
 
-    // Get all leagues that have pending waiver claims
-    const query = `
-      SELECT DISTINCT league_id
-      FROM waiver_claims
-      WHERE status = 'pending'
-    `;
+  // Get all leagues that have pending waiver claims
+  const query = `
+    SELECT DISTINCT league_id
+    FROM waiver_claims
+    WHERE status = 'pending'
+  `;
 
-    const result = await pool.query(query);
-    const leagueIds = result.rows.map((row) => row.league_id);
+  const result = await pool.query(query);
+  const leagueIds = result.rows.map((row) => row.league_id);
 
-    if (leagueIds.length === 0) {
-      console.log("[WaiverScheduler] No leagues with pending claims");
-      return;
-    }
-
-    console.log(`[WaiverScheduler] Processing waivers for ${leagueIds.length} leagues`);
-
-    // Process waivers for each league
-    for (const leagueId of leagueIds) {
-      try {
-        console.log(`[WaiverScheduler] Processing league ${leagueId}`);
-        await processWaivers(leagueId);
-        console.log(`[WaiverScheduler] Completed processing for league ${leagueId}`);
-      } catch (error: any) {
-        console.error(
-          `[WaiverScheduler] Error processing waivers for league ${leagueId}:`,
-          error
-        );
-        // Continue with other leagues even if one fails
-      }
-    }
-
-    console.log("[WaiverScheduler] Finished scheduled waiver processing");
-  } catch (error: any) {
-    console.error("[WaiverScheduler] Error in scheduled waiver processing:", error);
+  if (leagueIds.length === 0) {
+    console.log("[WaiverScheduler] No leagues with pending claims");
+    return;
   }
+
+  console.log(`[WaiverScheduler] Processing waivers for ${leagueIds.length} leagues`);
+
+  // Process waivers for each league with retry logic
+  for (const leagueId of leagueIds) {
+    try {
+      console.log(`[WaiverScheduler] Processing league ${leagueId}`);
+
+      // Wrap each league's waiver processing with retry logic
+      await withCronLogging(
+        async () => await processWaivers(leagueId),
+        `Waiver Processing for League ${leagueId}`,
+        { maxAttempts: 3, baseDelayMs: 2000 }
+      );
+
+      console.log(`[WaiverScheduler] Completed processing for league ${leagueId}`);
+    } catch (error: any) {
+      console.error(
+        `[WaiverScheduler] Error processing waivers for league ${leagueId} after all retries:`,
+        error
+      );
+      // Continue with other leagues even if one fails permanently
+    }
+  }
+
+  console.log("[WaiverScheduler] Finished scheduled waiver processing");
 }
 
 /**

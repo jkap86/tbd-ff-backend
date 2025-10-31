@@ -19,6 +19,8 @@ import {
 } from "../models/Trade";
 import { createLeagueChatMessage } from "../models/LeagueChatMessage";
 import { getLeagueById } from "../models/League";
+import { validateId } from "../utils/validation";
+import { logger } from "../utils/logger";
 
 /**
  * Propose a new trade
@@ -163,7 +165,8 @@ export async function proposeTradeController(req: Request, res: Response) {
  */
 export async function acceptTradeController(req: Request, res: Response) {
   try {
-    const tradeId = parseInt(req.params.id);
+    // Validate trade ID
+    const tradeId = validateId(req.params.id, "Trade ID");
     const acceptorRosterId = req.body.roster_id;
 
     if (!acceptorRosterId) {
@@ -221,7 +224,13 @@ export async function acceptTradeController(req: Request, res: Response) {
       data: tradeWithDetails,
     });
   } catch (error: any) {
-    console.error("Accept trade error:", error);
+    logger.error("Accept trade error:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('Trade ID') || error.message.includes('must be'))) {
+      return res.status(400).json({ error: error.message });
+    }
+
     return res.status(400).json({ error: error.message });
   }
 }
@@ -232,7 +241,8 @@ export async function acceptTradeController(req: Request, res: Response) {
  */
 export async function rejectTradeController(req: Request, res: Response) {
   try {
-    const tradeId = parseInt(req.params.id);
+    // Validate trade ID
+    const tradeId = validateId(req.params.id, "Trade ID");
     const rejecterId = req.body.roster_id;
     const reason = req.body.reason;
 
@@ -255,7 +265,13 @@ export async function rejectTradeController(req: Request, res: Response) {
       data: tradeWithDetails,
     });
   } catch (error: any) {
-    console.error("Reject trade error:", error);
+    logger.error("Reject trade error:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('Trade ID') || error.message.includes('must be'))) {
+      return res.status(400).json({ error: error.message });
+    }
+
     return res.status(400).json({ error: error.message });
   }
 }
@@ -266,7 +282,8 @@ export async function rejectTradeController(req: Request, res: Response) {
  */
 export async function cancelTradeController(req: Request, res: Response) {
   try {
-    const tradeId = parseInt(req.params.id);
+    // Validate trade ID
+    const tradeId = validateId(req.params.id, "Trade ID");
     const proposerId = req.body.roster_id;
 
     if (!proposerId) {
@@ -288,7 +305,13 @@ export async function cancelTradeController(req: Request, res: Response) {
       data: tradeWithDetails,
     });
   } catch (error: any) {
-    console.error("Cancel trade error:", error);
+    logger.error("Cancel trade error:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('Trade ID') || error.message.includes('must be'))) {
+      return res.status(400).json({ error: error.message });
+    }
+
     return res.status(400).json({ error: error.message });
   }
 }
@@ -299,7 +322,8 @@ export async function cancelTradeController(req: Request, res: Response) {
  */
 export async function getTradeController(req: Request, res: Response) {
   try {
-    const tradeId = parseInt(req.params.id);
+    // Validate trade ID
+    const tradeId = validateId(req.params.id, "Trade ID");
 
     const trade = await getTradeWithDetails(tradeId);
 
@@ -312,7 +336,13 @@ export async function getTradeController(req: Request, res: Response) {
       data: trade,
     });
   } catch (error: any) {
-    console.error("Get trade error:", error);
+    logger.error("Get trade error:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('Trade ID') || error.message.includes('must be'))) {
+      return res.status(400).json({ error: error.message });
+    }
+
     return res.status(500).json({ error: error.message });
   }
 }
@@ -323,7 +353,8 @@ export async function getTradeController(req: Request, res: Response) {
  */
 export async function getLeagueTradesController(req: Request, res: Response) {
   try {
-    const leagueId = parseInt(req.params.id);
+    // Validate league ID
+    const leagueId = validateId(req.params.id, "League ID");
     const status = req.query.status as string | undefined;
 
     const trades = await getLeagueTrades(leagueId, status);
@@ -333,7 +364,13 @@ export async function getLeagueTradesController(req: Request, res: Response) {
       data: trades,
     });
   } catch (error: any) {
-    console.error("Get league trades error:", error);
+    logger.error("Get league trades error:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('League ID') || error.message.includes('must be'))) {
+      return res.status(400).json({ error: error.message });
+    }
+
     return res.status(500).json({ error: error.message });
   }
 }
@@ -344,7 +381,8 @@ export async function getLeagueTradesController(req: Request, res: Response) {
  */
 export async function getRosterTradesController(req: Request, res: Response) {
   try {
-    const rosterId = parseInt(req.params.id);
+    // Validate roster ID
+    const rosterId = validateId(req.params.id, "Roster ID");
 
     const trades = await getRosterTrades(rosterId);
 
@@ -353,7 +391,13 @@ export async function getRosterTradesController(req: Request, res: Response) {
       data: trades,
     });
   } catch (error: any) {
-    console.error("Get roster trades error:", error);
+    logger.error("Get roster trades error:", error);
+
+    // Return 400 for validation errors
+    if (error.message && (error.message.includes('Roster ID') || error.message.includes('must be'))) {
+      return res.status(400).json({ error: error.message });
+    }
+
     return res.status(500).json({ error: error.message });
   }
 }

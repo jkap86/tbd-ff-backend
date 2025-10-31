@@ -33,6 +33,7 @@ import { startWaiverScheduler } from "./services/waiverScheduler";
 import { syncInjuriesFromSleeper } from "./services/injuryService";
 import { calculateADP } from "./services/adpService";
 import cron from "node-cron";
+import { withCronLogging } from "./utils/cronHelper";
 import waiverRoutes from "./routes/waiverRoutes";
 import tradeRoutes from "./routes/tradeRoutes";
 import auctionRoutes from "./routes/auctionRoutes";
@@ -142,8 +143,10 @@ export { io };
 // Middleware
 app.use(helmet()); // Security headers
 app.use(cors(corsOptions)); // Enable CORS with configured origins
-app.use(express.json()); // Parse JSON bodies
-app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
+// Request size limits to prevent resource exhaustion attacks
+// 100kb limit is adequate for API requests while preventing DoS via large payloads
+app.use(express.json({ limit: '100kb' })); // Parse JSON bodies with size limit
+app.use(express.urlencoded({ extended: true, limit: '100kb' })); // Parse URL-encoded bodies with size limit
 
 // Global rate limiting - applies to all API routes
 // 100 requests per minute per IP
@@ -240,25 +243,25 @@ httpServer.listen(PORT, () => {
 
   // Schedule injury sync (daily at 8 AM ET / 12 PM UTC)
   cron.schedule('0 12 * * *', async () => {
-    console.log('[Cron] Starting daily injury sync...');
-    try {
-      await syncInjuriesFromSleeper();
-    } catch (error) {
-      console.error('[Cron] Injury sync failed:', error);
-    }
+    await withCronLogging(
+      async () => await syncInjuriesFromSleeper(),
+      'Daily Injury Sync',
+      { maxAttempts: 3, baseDelayMs: 1000 }
+    );
   }, {
     timezone: 'UTC'
   });
 
   // Calculate ADP weekly (Tuesdays at 3 AM ET / 7 AM UTC)
   cron.schedule('0 7 * * 2', async () => {
-    console.log('[Cron] Starting weekly ADP calculation...');
-    try {
-      const currentSeason = new Date().getFullYear().toString();
-      await calculateADP(currentSeason);
-    } catch (error) {
-      console.error('[Cron] ADP calculation failed:', error);
-    }
+    await withCronLogging(
+      async () => {
+        const currentSeason = new Date().getFullYear().toString();
+        await calculateADP(currentSeason);
+      },
+      'Weekly ADP Calculation',
+      { maxAttempts: 3, baseDelayMs: 1000 }
+    );
   }, {
     timezone: 'UTC'
   });

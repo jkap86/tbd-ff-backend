@@ -932,6 +932,15 @@ export async function resetLeagueHandler(
     return;
   }
 
+  // DYNASTY GUARD: Prevent reset for dynasty leagues
+  if (league.league_type === 'dynasty') {
+    res.status(400).json({
+      success: false,
+      message: "Dynasty leagues cannot be reset. Use season rollover to start a new season while keeping rosters intact.",
+    });
+    return;
+  }
+
   const client = await pool.connect();
 
   try {

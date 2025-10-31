@@ -9,6 +9,7 @@ export interface League {
   season: string;
   season_type: string; // pre, regular, post
   league_type: string; // redraft, keeper, dynasty
+  current_season?: string; // Current season for dynasty leagues
   roster_positions: any;
   total_rosters: number;
   trade_notification_setting: 'always_off' | 'always_on' | 'proposer_choice';

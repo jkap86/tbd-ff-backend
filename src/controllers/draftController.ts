@@ -952,6 +952,20 @@ export async function makeDraftPickHandler(
       draft.third_round_reversal
     );
 
+    // Get player's Sleeper ID for storage in draft_picks
+    // draft_picks.player_id stores Sleeper player_id (VARCHAR), not database id (INTEGER)
+    const { getPlayerById: fetchPlayer } = await import("../models/Player");
+    const playerForPick = await fetchPlayer(player_id);
+    if (!playerForPick) {
+      await client.query('ROLLBACK');
+      res.status(404).json({
+        success: false,
+        message: "Player not found",
+      });
+      return;
+    }
+    const sleeperPlayerId = playerForPick.player_id;
+
     // Create the pick using the transaction client
     // Wrap in try-catch to handle unique constraint violations gracefully
     let pickResult;
@@ -969,7 +983,7 @@ export async function makeDraftPickHandler(
           round,
           pickInRound,
           roster_id,
-          player_id,
+          sleeperPlayerId,  // Store Sleeper ID, not database ID
           is_auto_pick,
           pickTimeSeconds,
           null
@@ -1205,8 +1219,12 @@ export async function makeDraftPickHandler(
     });
 
     // Emit draft pick via WebSocket with player details and next deadline
+    // NOTE: pick.player_id from database is Sleeper ID (VARCHAR)
+    // Flutter needs database player ID (INTEGER) for matching in available players list
     const pickWithDetails = {
       ...pick,
+      player_id: player_id,  // Use database ID for Flutter, not Sleeper ID from DB
+      sleeper_player_id: pick.player_id,  // Include Sleeper ID for reference
       player_name: player?.full_name,
       player_position: player?.position,
       player_team: player?.team,

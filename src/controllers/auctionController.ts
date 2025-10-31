@@ -8,6 +8,7 @@ import {
 } from "../models/Auction";
 import { getDraftById, completeDraft, updateDraft } from "../models/Draft";
 import { getLeagueById, updateLeague } from "../models/League";
+import { validatePositiveInteger } from "../utils/validation";
 
 // POST /api/drafts/:id/nominate
 export async function nominatePlayerHandler(req: Request, res: Response) {
@@ -17,7 +18,14 @@ export async function nominatePlayerHandler(req: Request, res: Response) {
   try {
     await client.query('BEGIN');
 
-    const draftId = parseInt(req.params.id);
+    let draftId: number;
+    try {
+      draftId = validatePositiveInteger(req.params.id, "Draft ID");
+    } catch (error: any) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: error.message });
+    }
+
     const { player_id, roster_id, deadline } = req.body;
 
     if (!player_id || !roster_id) {
@@ -414,6 +422,38 @@ export async function placeBidHandler(req: Request, res: Response) {
       );
     }
 
+    // CRITICAL: Revalidate budget before committing to prevent race condition
+    console.log('[Auction] Revalidating budget before commit...');
+    const revalidation = await client.query(
+      `SELECT
+         COALESCE(SUM(CASE WHEN an.status = 'completed' THEN an.winning_bid ELSE 0 END), 0) as spent,
+         COALESCE(SUM(CASE WHEN an.status = 'active' AND ab.is_winning THEN ab.bid_amount ELSE 0 END), 0) as active
+       FROM auction_nominations an
+       LEFT JOIN auction_bids ab ON ab.nomination_id = an.id AND ab.roster_id = $2 AND ab.is_winning = true
+       WHERE an.draft_id = $1`,
+      [draftId, roster_id]
+    );
+
+    const finalSpent = parseInt(revalidation.rows[0].spent || '0');
+    const finalActive = parseInt(revalidation.rows[0].active || '0');
+    const finalAvailable = startingBudget - finalSpent - finalActive - reserved;
+
+    console.log(`[Auction] Revalidation - spent: ${finalSpent}, active: ${finalActive}, available: ${finalAvailable}`);
+
+    if (result.currentBid.bidAmount > finalAvailable) {
+      console.log(`[Auction] Budget exceeded on revalidation - bid: ${result.currentBid.bidAmount}, available: ${finalAvailable}`);
+      await client.query('ROLLBACK');
+      client.release();
+      return res.status(400).json({
+        error: 'Insufficient budget: Budget changed due to concurrent bid',
+        details: {
+          required: result.currentBid.bidAmount,
+          available: finalAvailable
+        }
+      });
+    }
+
+    console.log('[Auction] Budget revalidation passed, committing transaction');
     // Commit transaction
     await client.query('COMMIT');
 

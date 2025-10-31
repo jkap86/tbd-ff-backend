@@ -80,6 +80,9 @@ export async function getAvailablePlayersForDraft(
   }
 ): Promise<Player[]> {
   try {
+    // DEBUG: Log what we're querying
+    console.log(`[getAvailablePlayersForDraft] Querying for draft_id=${draftId}, filters:`, filters);
+
     let query = `
       SELECT p.id, p.player_id, p.full_name, p.position, p.team, p.age, p.years_exp, p.search_rank, p.fantasy_data_id, p.created_at, p.updated_at
       FROM players p
@@ -115,7 +118,22 @@ export async function getAvailablePlayersForDraft(
 
     query += ` ORDER BY p.search_rank NULLS LAST, p.full_name`;
 
+    // DEBUG: Log the final query
+    console.log(`[getAvailablePlayersForDraft] Query:`, query);
+    console.log(`[getAvailablePlayersForDraft] Params:`, params);
+
     const result = await pool.query(query, params);
+
+    console.log(`[getAvailablePlayersForDraft] Returned ${result.rows.length} players`);
+    if (result.rows.length === 0) {
+      // Check how many picks exist for this draft
+      const pickCheck = await pool.query(
+        'SELECT COUNT(*) as count, COUNT(DISTINCT player_id) as distinct_players FROM draft_picks WHERE draft_id = $1',
+        [draftId]
+      );
+      console.log(`[getAvailablePlayersForDraft] Draft has ${pickCheck.rows[0].count} picks, ${pickCheck.rows[0].distinct_players} distinct player_ids`);
+    }
+
     return result.rows;
   } catch (error) {
     console.error("Error getting available players:", error);

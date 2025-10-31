@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { escapeLikePattern } from "../utils/sqlHelpers";
 
 export interface User {
   id: number;
@@ -19,6 +20,7 @@ export async function searchUsers(
   limit: number = 10
 ): Promise<User[]> {
   try {
+    const escapedQuery = escapeLikePattern(query);
     const searchQuery = `
       SELECT id, username, email, phone_number, is_phone_verified, is_admin, created_at, updated_at
       FROM users
@@ -27,7 +29,7 @@ export async function searchUsers(
       LIMIT $2
     `;
 
-    const result = await pool.query(searchQuery, [`%${query}%`, limit]);
+    const result = await pool.query(searchQuery, [`%${escapedQuery}%`, limit]);
     return result.rows;
   } catch (error) {
     console.error("Error searching users:", error);

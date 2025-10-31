@@ -81,16 +81,18 @@ console.log("CORS enabled for origins:", finalAllowedOrigins);
 // CORS configuration
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) {
+    // In development, allow localhost without origin
+    if (process.env.NODE_ENV !== "production" &&
+        (!origin || origin.startsWith("http://localhost"))) {
       return callback(null, true);
     }
 
-    // In development, allow any localhost port
-    if (process.env.NODE_ENV !== "production" && origin.startsWith("http://localhost:")) {
-      return callback(null, true);
+    // In production, require origin header
+    if (process.env.NODE_ENV === "production" && !origin) {
+      return callback(new Error("Origin header required in production"));
     }
 
+    // Check against whitelist
     if (finalAllowedOrigins.includes(origin)) {
       callback(null, true);
     } else {

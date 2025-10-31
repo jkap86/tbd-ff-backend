@@ -20,6 +20,7 @@ const router = Router();
 // Rate limit: 5 attempts per 15 minutes
 router.post(
   "/register",
+  authLimiter,
   registerValidator,
   handleValidationErrors,
   register

@@ -1,5 +1,6 @@
 import pool from "../config/database";
 import { setTransactionTimeouts } from "../utils/transactionTimeout";
+import { escapeLikePattern } from "../utils/sqlHelpers";
 
 export interface Player {
   id: number;
@@ -51,8 +52,9 @@ export async function getAllPlayers(
     }
 
     if (filters?.search) {
+      const escapedSearch = escapeLikePattern(filters.search);
       query += ` AND full_name ILIKE $${paramCount}`;
-      params.push(`%${filters.search}%`);
+      params.push(`%${escapedSearch}%`);
       paramCount++;
     }
 
@@ -103,8 +105,9 @@ export async function getAvailablePlayersForDraft(
     }
 
     if (filters?.search) {
+      const escapedSearch = escapeLikePattern(filters.search);
       query += ` AND p.full_name ILIKE $${paramCount}`;
-      params.push(`%${filters.search}%`);
+      params.push(`%${escapedSearch}%`);
       paramCount++;
     }
 

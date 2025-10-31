@@ -46,7 +46,7 @@ import adpRoutes from "./routes/adpRoutes";
 import keeperRoutes from "./routes/keeperRoutes";
 import dynastyRoutes from "./routes/dynastyRoutes";
 import draftPickTradeRoutes from "./routes/draftPickTradeRoutes";
-import notificationRoutes from "./routes/notificationRoutes";
+// import notificationRoutes from "./routes/notificationRoutes"; // Commented out - Firebase not set up yet
 import { globalApiLimiter } from "./middleware/rateLimiter";
 import { requestIdMiddleware } from "./middleware/requestId";
 import pool from "./config/database";
@@ -244,7 +244,7 @@ v1Router.use("/adp", adpRoutes);
 v1Router.use("/", keeperRoutes);
 v1Router.use("/", dynastyRoutes);
 v1Router.use("/", draftPickTradeRoutes);
-v1Router.use("/notifications", notificationRoutes);
+// v1Router.use("/notifications", notificationRoutes); // Commented out - Firebase not set up yet
 
 // Protected route example (to test authentication)
 v1Router.get("/profile", authenticate, (req: Request, res: Response) => {

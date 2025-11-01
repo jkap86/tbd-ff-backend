@@ -19,8 +19,12 @@ describe('Roster and Player Transactions - Comprehensive Tests', () => {
   let testUserId: number;
 
   beforeAll(async () => {
+    // Generate unique invite code for this test run (max 10 chars)
+    const uniqueInviteCode = `T${Date.now().toString().slice(-8)}`;
+
     // Cleanup any leftover test data from previous failed runs
     await pool.query(`DELETE FROM users WHERE username = 'rostertestuser'`);
+    await pool.query(`DELETE FROM leagues WHERE invite_code LIKE 'T%' AND LENGTH(invite_code) = 9`);
 
     // Create test user first (required for foreign key)
     const userResult = await pool.query(
@@ -44,7 +48,7 @@ describe('Roster and Player Transactions - Comprehensive Tests', () => {
         JSON.stringify({}),
         JSON.stringify({}),
         JSON.stringify([]),
-        'TEST123'
+        uniqueInviteCode
       ]
     );
     testLeagueId = leagueResult.rows[0].id;
@@ -66,11 +70,32 @@ describe('Roster and Player Transactions - Comprehensive Tests', () => {
     );
     testRosterId = rosterResult.rows[0].id;
 
-    // Get test player IDs
-    const playersResult = await pool.query(
+    // Get test player IDs - create some if none exist
+    let playersResult = await pool.query(
       `SELECT id FROM players LIMIT 20`
     );
-    testPlayerIds = playersResult.rows.map(r => r.id);
+
+    // If no players exist, create some test players
+    if (playersResult.rows.length === 0) {
+      const insertPromises = [];
+      for (let i = 0; i < 20; i++) {
+        insertPromises.push(
+          pool.query(
+            `INSERT INTO players (player_id, full_name, position, team)
+             VALUES ($1, $2, $3, $4) RETURNING id`,
+            [`TEST${i}`, `Test Player ${i}`, 'RB', 'TST']
+          )
+        );
+      }
+      const results = await Promise.all(insertPromises);
+      testPlayerIds = results.map(r => r.rows[0].id);
+    } else {
+      testPlayerIds = playersResult.rows.map(r => r.id);
+    }
+
+    if (testPlayerIds.length < 20) {
+      console.warn(`Warning: Only found ${testPlayerIds.length} players in database. Some tests may fail.`);
+    }
   });
 
   afterAll(async () => {
@@ -84,6 +109,8 @@ describe('Roster and Player Transactions - Comprehensive Tests', () => {
     if (testUserId) {
       await pool.query('DELETE FROM users WHERE id = $1', [testUserId]);
     }
+    // Clean up test players
+    await pool.query(`DELETE FROM players WHERE player_id LIKE 'TEST%'`);
   });
 
   describe('addPlayerToRoster', () => {

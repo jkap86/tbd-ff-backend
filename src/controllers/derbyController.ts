@@ -59,23 +59,22 @@ export async function startDerby(req: Request, res: Response): Promise<void> {
     // Randomize the derby order (order for picking positions)
     const shuffledRosterIds = [...rosterIds].sort(() => Math.random() - 0.5);
 
-    // Calculate turn deadline
-    const derbyTimeLimit = draft.derby_time_limit_seconds || 60;
-    const turnDeadline = new Date(Date.now() + derbyTimeLimit * 1000);
+    // Calculate turn start time
+    const currentTurnStartedAt = new Date();
 
-    // Create/update derby record with derby order
+    // Create/update derby record with selection order
     const derbyResult = await pool.query(
-      `INSERT INTO draft_derby (draft_id, status, derby_order, current_turn, turn_deadline)
-       VALUES ($1, 'in_progress', $2, 0, $3)
+      `INSERT INTO draft_derby (draft_id, status, selection_order, current_turn_roster_id, current_turn_started_at)
+       VALUES ($1, 'in_progress', $2, $3, $4)
        ON CONFLICT (draft_id)
        DO UPDATE SET
          status = 'in_progress',
-         derby_order = $2,
-         current_turn = 0,
-         turn_deadline = $3,
+         selection_order = $2,
+         current_turn_roster_id = $3,
+         current_turn_started_at = $4,
          updated_at = CURRENT_TIMESTAMP
        RETURNING *`,
-      [draftId, JSON.stringify(shuffledRosterIds), turnDeadline]
+      [draftId, JSON.stringify(shuffledRosterIds), shuffledRosterIds[0], currentTurnStartedAt]
     );
 
     const derby = derbyResult.rows[0];
@@ -85,12 +84,11 @@ export async function startDerby(req: Request, res: Response): Promise<void> {
       draftId: parseInt(draftId),
       derby: {
         ...derby,
-        derby_order: shuffledRosterIds,
+        selection_order: shuffledRosterIds,
       },
       derbyOrder: shuffledRosterIds,
       currentTurn: 0,
       currentRosterId: shuffledRosterIds[0],
-      turnDeadline: turnDeadline.toISOString(),
       message: 'Derby has started - teams will now select their draft positions',
     });
 
@@ -98,7 +96,7 @@ export async function startDerby(req: Request, res: Response): Promise<void> {
       success: true,
       data: {
         ...derby,
-        derby_order: shuffledRosterIds,
+        selection_order: shuffledRosterIds,
       },
       message: "Derby started - teams can now select their draft positions",
     });

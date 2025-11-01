@@ -50,7 +50,9 @@ describe('Authentication Middleware', () => {
 
   it('should reject invalid token', () => {
     const token = 'invalid.jwt.token';
-    (verifyToken as jest.Mock).mockReturnValue(null);
+    (verifyToken as jest.Mock).mockImplementation(() => {
+      throw new Error('Invalid token');
+    });
 
     const req = mockRequest({
       headers: { authorization: `Bearer ${token}` },

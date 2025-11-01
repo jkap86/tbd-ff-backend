@@ -182,13 +182,25 @@ export function calculateFantasyPoints(
   points += (stats.field_goals_made_50_plus || 0) * (scoringSettings.field_goals_made_50_plus || 0);
   points += (stats.extra_points_made || 0) * (scoringSettings.extra_points_made || 0);
 
-  // Field goal misses
-  const fgMissed = (stats.field_goals_attempted || 0) - (stats.field_goals_made || 0);
-  points += fgMissed * (scoringSettings.field_goals_missed || 0);
+  // Field goal misses - only calculate if attempted is provided
+  if (stats.field_goals_attempted !== undefined && stats.field_goals_attempted > 0) {
+    // Calculate total made from distance-specific stats if available
+    const fgMadeTotal = stats.field_goals_made ||
+      (stats.field_goals_made_0_19 || 0) +
+      (stats.field_goals_made_20_29 || 0) +
+      (stats.field_goals_made_30_39 || 0) +
+      (stats.field_goals_made_40_49 || 0) +
+      (stats.field_goals_made_50_plus || 0);
 
-  // Extra point misses
-  const xpMissed = (stats.extra_points_attempted || 0) - (stats.extra_points_made || 0);
-  points += xpMissed * (scoringSettings.extra_points_missed || 0);
+    const fgMissed = stats.field_goals_attempted - fgMadeTotal;
+    points += fgMissed * (scoringSettings.field_goals_missed || 0);
+  }
+
+  // Extra point misses - only calculate if attempted is provided
+  if (stats.extra_points_attempted !== undefined && stats.extra_points_attempted > 0) {
+    const xpMissed = stats.extra_points_attempted - (stats.extra_points_made || 0);
+    points += xpMissed * (scoringSettings.extra_points_missed || 0);
+  }
 
   // Defense/ST
   points += (stats.defensive_touchdowns || 0) * (scoringSettings.defensive_touchdowns || 0);

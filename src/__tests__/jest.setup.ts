@@ -6,4 +6,7 @@
 // Set test environment variables
 process.env.JWT_SECRET = 'test-jwt-secret-for-jest-tests-only';
 process.env.NODE_ENV = 'test';
-process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://localhost:5432/tbd_ff_test';
+
+// Use test database with credentials from main .env
+// Format: postgresql://username:password@localhost:5432/database_name_test
+process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://postgres:password123@localhost:5432/tbdff_test';

@@ -32,14 +32,19 @@ export async function startDerby(req: Request, res: Response): Promise<void> {
     }
 
     // Check if user is commissioner
-    const commissionerCheck = await pool.query(
-      `SELECT l.commissioner_id FROM leagues l
-       JOIN drafts d ON d.league_id = l.id
-       WHERE d.id = $1`,
-      [draftId]
-    );
+    const { getLeagueById } = await import("../models/League");
+    const league = await getLeagueById(draft.league_id);
 
-    if (commissionerCheck.rows[0]?.commissioner_id !== userId) {
+    if (!league) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    const commissionerId = league.settings?.commissioner_id;
+    if (!commissionerId || commissionerId !== userId) {
       res.status(403).json({
         success: false,
         message: "Only commissioner can start derby",
@@ -151,15 +156,30 @@ export async function createDerby(req: Request, res: Response): Promise<void> {
     const { draftId } = req.params;
     const userId = req.user?.userId;
 
-    // Check if user is commissioner
-    const commissionerCheck = await pool.query(
-      `SELECT l.commissioner_id FROM leagues l
-       JOIN drafts d ON d.league_id = l.id
-       WHERE d.id = $1`,
-      [draftId]
-    );
+    // Get draft and league
+    const draft = await getDraftById(parseInt(draftId));
+    if (!draft) {
+      res.status(404).json({
+        success: false,
+        message: "Draft not found",
+      });
+      return;
+    }
 
-    if (commissionerCheck.rows[0]?.commissioner_id !== userId) {
+    const { getLeagueById } = await import("../models/League");
+    const league = await getLeagueById(draft.league_id);
+
+    if (!league) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    // Check if user is commissioner
+    const commissionerId = league.settings?.commissioner_id;
+    if (!commissionerId || commissionerId !== userId) {
       res.status(403).json({
         success: false,
         message: "Only commissioner can create derby",
@@ -424,15 +444,30 @@ export async function skipDerbyTurn(req: Request, res: Response): Promise<void> 
 
     console.log('[Derby] Skip turn attempt:', { draftId, userId });
 
-    // Check if user is commissioner
-    const commissionerCheck = await client.query(
-      `SELECT l.commissioner_id FROM leagues l
-       JOIN drafts d ON d.league_id = l.id
-       WHERE d.id = $1`,
-      [draftId]
-    );
+    // Get draft and league for commissioner check
+    const draftForCheck = await getDraftById(parseInt(draftId));
+    if (!draftForCheck) {
+      res.status(403).json({
+        success: false,
+        message: "Draft not found",
+      });
+      return;
+    }
 
-    if (commissionerCheck.rows[0]?.commissioner_id !== userId) {
+    const { getLeagueById } = await import("../models/League");
+    const league = await getLeagueById(draftForCheck.league_id);
+
+    if (!league) {
+      res.status(403).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    // Check if user is commissioner
+    const commissionerId = league.settings?.commissioner_id;
+    if (!commissionerId || commissionerId !== userId) {
       res.status(403).json({
         success: false,
         message: "Only commissioner can skip turns",

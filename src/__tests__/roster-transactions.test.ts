@@ -11,27 +11,58 @@ import {
   getRosterById,
 } from '../models/Roster';
 import pool from '../config/database';
-import { mockAuthUser } from './setup';
 
 describe('Roster and Player Transactions - Comprehensive Tests', () => {
   let testLeagueId: number;
   let testRosterId: number;
   let testPlayerIds: number[];
+  let testUserId: number;
 
   beforeAll(async () => {
-    // Create test league
+    // Cleanup any leftover test data from previous failed runs
+    await pool.query(`DELETE FROM users WHERE username = 'rostertestuser'`);
+
+    // Create test user first (required for foreign key)
+    const userResult = await pool.query(
+      `INSERT INTO users (username, email, password)
+       VALUES ($1, $2, $3) RETURNING id`,
+      ['rostertestuser', 'roster@test.com', 'hashedpassword']
+    );
+    testUserId = userResult.rows[0].id;
+
+    // Create test league with minimal required fields
     const leagueResult = await pool.query(
-      `INSERT INTO leagues (name, commissioner_id, season, max_teams, scoring_type, draft_type)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      ['Roster Test League', mockAuthUser.userId, '2025', 10, 'ppr', 'snake']
+      `INSERT INTO leagues (name, status, season, season_type, league_type, total_rosters, settings, scoring_settings, roster_positions, invite_code)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+      [
+        'Roster Test League',
+        'pre_draft',
+        '2025',
+        'regular',
+        'redraft',
+        10,
+        JSON.stringify({}),
+        JSON.stringify({}),
+        JSON.stringify([]),
+        'TEST123'
+      ]
     );
     testLeagueId = leagueResult.rows[0].id;
 
     // Create test roster
     const rosterResult = await pool.query(
-      `INSERT INTO rosters (league_id, team_name, user_id)
-       VALUES ($1, $2, $3) RETURNING id`,
-      [testLeagueId, 'Test Team', mockAuthUser.userId]
+      `INSERT INTO rosters (league_id, user_id, roster_id, starters, bench, taxi, ir, settings)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [
+        testLeagueId,
+        testUserId, // Use real user ID
+        1, // roster_id is required
+        JSON.stringify([]),
+        JSON.stringify([]),
+        JSON.stringify([]),
+        JSON.stringify([]),
+        JSON.stringify({})
+      ]
     );
     testRosterId = rosterResult.rows[0].id;
 
@@ -43,12 +74,15 @@ describe('Roster and Player Transactions - Comprehensive Tests', () => {
   });
 
   afterAll(async () => {
-    // Cleanup
+    // Cleanup in reverse order of creation (respecting foreign keys)
     if (testRosterId) {
       await pool.query('DELETE FROM rosters WHERE id = $1', [testRosterId]);
     }
     if (testLeagueId) {
       await pool.query('DELETE FROM leagues WHERE id = $1', [testLeagueId]);
+    }
+    if (testUserId) {
+      await pool.query('DELETE FROM users WHERE id = $1', [testUserId]);
     }
   });
 

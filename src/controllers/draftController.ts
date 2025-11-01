@@ -29,6 +29,8 @@ import {
 import { getAvailablePlayersForDraft } from "../models/Player";
 import { getRostersByLeagueId, getRosterById } from "../models/Roster";
 import { getLeagueById, updateLeague } from "../models/League";
+import { createLeagueChatMessage } from "../models/LeagueChatMessage";
+import { emitLeagueChat } from "../socket/leagueSocket";
 import {
   startAutoPickMonitoring,
   stopAutoPickMonitoring,
@@ -560,6 +562,38 @@ export async function setDraftOrderHandler(
 
     // Emit draft order update via WebSocket
     emitDraftOrderUpdate(io, parseInt(draftId), detailedDraftOrder);
+
+    // If randomized, send system message to league chat
+    if (randomize) {
+      try {
+        // Format draft order for chat message
+        const orderList = detailedDraftOrder
+          .map((order) => `${order.draft_position}. ${order.team_name || order.username || `Team ${order.roster_id}`}`)
+          .join('\n');
+
+        // Create system chat message with collapsible draft order
+        const chatMessage = await createLeagueChatMessage({
+          league_id: draft.league_id,
+          user_id: null, // System message
+          message: "Draft order has been randomized",
+          message_type: "system",
+          metadata: {
+            type: "draft_order_randomized",
+            draft_id: draft.id,
+            draft_order: detailedDraftOrder,
+            collapsible: true,
+            collapsed_text: "Draft order has been randomized",
+            expanded_content: orderList,
+          },
+        });
+
+        // Emit chat message to all league members
+        emitLeagueChat(io, draft.league_id, chatMessage);
+      } catch (chatError) {
+        console.error("Error sending draft order chat message:", chatError);
+        // Don't fail the request if chat message fails
+      }
+    }
 
     // Return detailed draft order in HTTP response
     res.status(200).json({

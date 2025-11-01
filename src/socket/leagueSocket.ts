@@ -5,6 +5,14 @@ import { socketAuthMiddleware } from "../middleware/socketAuthMiddleware";
 import { isUserLeagueMember } from "../utils/leagueAuthorization";
 import validator from "validator";
 
+/**
+ * Emit a league chat message to all users in a league room
+ */
+export function emitLeagueChat(io: Server, leagueId: number, chatMessage: any) {
+  const roomName = `league_${leagueId}`;
+  io.to(roomName).emit("league_chat_message", chatMessage);
+}
+
 export function setupLeagueSocket(io: Server) {
   // Apply authentication middleware to all socket connections
   io.use(socketAuthMiddleware);

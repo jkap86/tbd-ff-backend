@@ -21,6 +21,10 @@ export interface Draft {
   nominations_per_manager: number;
   nomination_timer_hours: number | null;
   reserve_budget_per_slot: boolean;
+  // Derby-specific fields
+  derby_enabled: boolean;
+  derby_time_limit_seconds: number | null;
+  derby_timeout_behavior: string | null;
   started_at: Date | null;
   completed_at: Date | null;
   settings: any;

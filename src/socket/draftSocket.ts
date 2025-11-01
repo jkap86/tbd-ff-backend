@@ -447,3 +447,95 @@ export function stopTimerBroadcast(draftId: number) {
     console.log(`[TimerBroadcast] Stopped timer broadcast for draft ${draftId}`);
   }
 }
+
+/**
+ * Emit derby started event from server-side code
+ * Broadcasts when the derby mode selection process begins
+ */
+export function emitDerbyStarted(
+  io: Server,
+  draftId: number,
+  derbyData: {
+    total_participants: number;
+    selection_order: number[];
+    time_per_selection?: number;
+  }
+) {
+  const roomName = `draft_${draftId}`;
+  io.to(roomName).emit("derby_started", {
+    ...derbyData,
+    timestamp: new Date(),
+  });
+
+  console.log(`[DerbySocket] Derby started for draft ${draftId} with ${derbyData.total_participants} participants`);
+}
+
+/**
+ * Emit derby selection event from server-side code
+ * Broadcasts when a participant selects their draft position
+ */
+export function emitDerbySelection(
+  io: Server,
+  draftId: number,
+  selectionData: {
+    roster_id: number;
+    roster_name: string;
+    position_selected: number;
+    positions_remaining: number[];
+    selection_number: number;
+  }
+) {
+  const roomName = `draft_${draftId}`;
+  io.to(roomName).emit("derby_selection", {
+    ...selectionData,
+    timestamp: new Date(),
+  });
+
+  console.log(`[DerbySocket] Roster ${selectionData.roster_id} selected position ${selectionData.position_selected} in draft ${draftId}`);
+}
+
+/**
+ * Emit derby turn change event from server-side code
+ * Broadcasts whose turn it is to select their draft position
+ */
+export function emitDerbyTurnChange(
+  io: Server,
+  draftId: number,
+  turnData: {
+    roster_id: number;
+    roster_name: string;
+    selection_number: number;
+    time_remaining?: number;
+    pick_deadline?: Date;
+  }
+) {
+  const roomName = `draft_${draftId}`;
+  io.to(roomName).emit("derby_turn_change", {
+    ...turnData,
+    timestamp: new Date(),
+  });
+
+  console.log(`[DerbySocket] Derby turn changed to roster ${turnData.roster_id} (${turnData.roster_name}) in draft ${draftId}`);
+}
+
+/**
+ * Emit derby completed event from server-side code
+ * Broadcasts when all participants have selected their positions and derby finishes
+ */
+export function emitDerbyCompleted(
+  io: Server,
+  draftId: number,
+  finalOrder: {
+    roster_id: number;
+    roster_name: string;
+    draft_position: number;
+  }[]
+) {
+  const roomName = `draft_${draftId}`;
+  io.to(roomName).emit("derby_completed", {
+    final_order: finalOrder,
+    timestamp: new Date(),
+  });
+
+  console.log(`[DerbySocket] Derby completed for draft ${draftId} with final order:`, finalOrder.map(r => `${r.roster_name}(${r.draft_position})`).join(', '));
+}

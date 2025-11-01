@@ -46,6 +46,10 @@ export async function createDraft(draftData: {
   nominations_per_manager?: number;
   nomination_timer_hours?: number;
   reserve_budget_per_slot?: boolean;
+  // Derby-specific settings
+  derby_enabled?: boolean;
+  derby_time_limit_seconds?: number;
+  derby_timeout_behavior?: string;
   settings?: any;
 }): Promise<Draft> {
   try {
@@ -64,9 +68,11 @@ export async function createDraft(draftData: {
         league_id, draft_type, third_round_reversal, pick_time_seconds,
         rounds, timer_mode, team_time_budget_seconds,
         starting_budget, min_bid, bid_increment, nominations_per_manager,
-        nomination_timer_hours, reserve_budget_per_slot, settings
+        nomination_timer_hours, reserve_budget_per_slot,
+        derby_enabled, derby_time_limit_seconds, derby_timeout_behavior,
+        settings
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       RETURNING *
     `;
 
@@ -84,6 +90,9 @@ export async function createDraft(draftData: {
       draftData.nominations_per_manager || 3,
       draftData.nomination_timer_hours || null,
       draftData.reserve_budget_per_slot || false,
+      draftData.derby_enabled || false,
+      draftData.derby_time_limit_seconds || null,
+      draftData.derby_timeout_behavior || 'auto',
       JSON.stringify(draftData.settings || {}),
     ]);
 

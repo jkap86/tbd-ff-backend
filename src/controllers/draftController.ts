@@ -36,7 +36,7 @@ import {
 import { checkAndAutoPauseDraft } from "../services/draftScheduler";
 import pool from "../config/database";
 import { calculateADP } from "../services/adpService";
-import { validatePositiveInteger, ValidationError } from "../utils/validation";
+import { validatePositiveInteger } from "../utils/validation";
 import { TRANSACTION_TIMEOUTS, DB_ERROR_CODES } from "../config/constants";
 
 /**
@@ -614,7 +614,7 @@ export async function startDraftHandler(
     await client.query('BEGIN');
 
     // Set transaction timeout to prevent hung queries on FOR UPDATE
-    await client.query(`SET LOCAL statement_timeout = '${TRANSACTION_TIMEOUTS.DRAFT_PICK_SQL}'`);
+    await client.query(`SET LOCAL statement_timeout = '${TRANSACTION_TIMEOUTS.DRAFT_PICK}'`);
 
     const { draftId } = req.params;
 
@@ -1047,7 +1047,34 @@ export async function makeDraftPickHandler(
         const { assignDraftedPlayersToRosters } = await import("../models/Draft");
         await assignDraftedPlayersToRosters(parseInt(draftId));
       } catch (error) {
-        console.error(`[Draft] Failed to assign players during completion:`, error);
+        console.error(`[Draft] Failed to assign players during completion for draft ${draftId}:`, error);
+
+        // Phase 2 Error Handling: Rollback draft status from "completing" to "in_progress"
+        try {
+          console.log(`[Draft] Rolling back draft ${draftId} status from 'completing' to 'in_progress'`);
+          const rollbackResult = await pool.query(
+            `UPDATE drafts
+             SET status = 'in_progress',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1
+             RETURNING *`,
+            [draftId]
+          );
+
+          if (rollbackResult.rows.length > 0) {
+            const rolledBackDraft = rollbackResult.rows[0];
+            console.log(`[Draft] Successfully rolled back draft ${draftId} to in_progress state`);
+
+            // Notify clients about rollback
+            emitDraftStatusChange(io, parseInt(draftId), "in_progress", rolledBackDraft);
+          } else {
+            console.error(`[Draft] Rollback failed: Draft ${draftId} not found`);
+          }
+        } catch (rollbackError) {
+          console.error(`[Draft] CRITICAL: Rollback failed for draft ${draftId}:`, rollbackError);
+          console.error(`[Draft] Draft is stuck in 'completing' state and requires manual intervention`);
+        }
+
         throw error; // Will be caught by outer catch block
       }
 

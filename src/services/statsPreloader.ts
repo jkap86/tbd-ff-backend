@@ -91,7 +91,10 @@ async function preloadSeasonStats(): Promise<void> {
 
 /**
  * Preload and aggregate week range projections
- * OPTIMIZED: Only cache aggregated data, not individual weeks
+ * OPTIMIZED: Caches multiple common week ranges:
+ * 1. Current week to end of season (most common for season-long leagues)
+ * 2. Week 1 to end of season (for full season analysis)
+ * 3. Current week to end (for remaining games analysis)
  */
 async function preloadWeekRangeProjections(): Promise<void> {
   try {
@@ -106,13 +109,19 @@ async function preloadWeekRangeProjections(): Promise<void> {
     }
 
     console.log(
-      `[StatsPreloader] Preloading week range projections for weeks ${currentWeek}-${endWeek}...`
+      `[StatsPreloader] Preloading week range projections...`
+    );
+    console.log(
+      `[StatsPreloader] - Full season: weeks 1-${endWeek}`
+    );
+    console.log(
+      `[StatsPreloader] - Remaining: weeks ${currentWeek}-${endWeek}`
     );
 
-    // OPTIMIZATION: Fetch projections but only cache current week + aggregated
-    // This saves memory while keeping frequently accessed data fast
+    // Fetch ALL weeks from 1 to end of season
+    // This allows us to cache both "full season" and "remaining weeks" aggregates
     const weekPromises = [];
-    for (let week = currentWeek; week <= endWeek; week++) {
+    for (let week = 1; week <= endWeek; week++) {
       weekPromises.push(
         (async () => {
           try {
@@ -156,13 +165,6 @@ async function preloadWeekRangeProjections(): Promise<void> {
 
     const weekResponses = await Promise.all(weekPromises);
 
-    // Now aggregate across all weeks
-    console.log(
-      `[StatsPreloader] Aggregating projections for weeks ${currentWeek}-${endWeek}...`
-    );
-
-    const allPlayerAggregates: Record<string, any> = {};
-
     // Collect all unique player IDs across all weeks
     const allPlayerIds = new Set<string>();
     for (const response of weekResponses) {
@@ -172,45 +174,65 @@ async function preloadWeekRangeProjections(): Promise<void> {
       }
     }
 
-    // Aggregate stats for ALL players
-    for (const playerId of allPlayerIds) {
-      const aggregatedStats: Record<string, number> = {};
-      let weeksFound = 0;
+    // Helper function to aggregate for a specific week range
+    const aggregateRange = (startWeek: number, endWeek: number): Record<string, any> => {
+      const aggregates: Record<string, any> = {};
 
-      // Sum up stats across all weeks
-      for (const response of weekResponses) {
-        const weekIndex = response.index;
-        const playerWeekProjection = weekIndex[playerId];
+      for (const playerId of allPlayerIds) {
+        const aggregatedStats: Record<string, number> = {};
+        let weeksFound = 0;
 
-        if (playerWeekProjection && playerWeekProjection.stats) {
-          weeksFound++;
-          const stats = playerWeekProjection.stats;
+        // Sum up stats for weeks in range
+        for (const response of weekResponses) {
+          if (response.week >= startWeek && response.week <= endWeek) {
+            const weekIndex = response.index;
+            const playerWeekProjection = weekIndex[playerId];
 
-          // Aggregate all numeric stats
-          for (const [key, value] of Object.entries(stats)) {
-            if (typeof value === "number") {
-              aggregatedStats[key] = (aggregatedStats[key] || 0) + value;
+            if (playerWeekProjection && playerWeekProjection.stats) {
+              weeksFound++;
+              const stats = playerWeekProjection.stats;
+
+              for (const [key, value] of Object.entries(stats)) {
+                if (typeof value === "number") {
+                  aggregatedStats[key] = (aggregatedStats[key] || 0) + value;
+                }
+              }
             }
           }
         }
+
+        if (weeksFound > 0) {
+          aggregates[playerId] = {
+            player_id: playerId,
+            stats: aggregatedStats,
+            weeks_included: weeksFound,
+            week_range: `${startWeek}-${endWeek}`,
+          };
+        }
       }
 
-      if (weeksFound > 0) {
-        allPlayerAggregates[playerId] = {
-          player_id: playerId,
-          stats: aggregatedStats,
-          weeks_included: weeksFound,
-          week_range: `${currentWeek}-${endWeek}`,
-        };
-      }
-    }
+      return aggregates;
+    };
 
-    // Cache the complete aggregated dataset
-    const aggregateCacheKey = `week_range_aggregated_${season}_${currentWeek}_${endWeek}_${SEASON_TYPE}`;
-    projectionsCache.set(aggregateCacheKey, allPlayerAggregates);
+    // Cache 1: Full season (weeks 1 to end)
+    console.log(`[StatsPreloader] Aggregating full season: weeks 1-${endWeek}...`);
+    const fullSeasonAggregates = aggregateRange(1, endWeek);
+    const fullSeasonCacheKey = `week_range_aggregated_${season}_1_${endWeek}_${SEASON_TYPE}`;
+    projectionsCache.set(fullSeasonCacheKey, fullSeasonAggregates);
     console.log(
-      `[StatsPreloader] Cached aggregated projections for weeks ${currentWeek}-${endWeek} with ${Object.keys(allPlayerAggregates).length} players`
+      `[StatsPreloader] Cached full season (1-${endWeek}) with ${Object.keys(fullSeasonAggregates).length} players`
     );
+
+    // Cache 2: Remaining weeks (current week to end) - only if different from full season
+    if (currentWeek > 1) {
+      console.log(`[StatsPreloader] Aggregating remaining weeks: ${currentWeek}-${endWeek}...`);
+      const remainingAggregates = aggregateRange(currentWeek, endWeek);
+      const remainingCacheKey = `week_range_aggregated_${season}_${currentWeek}_${endWeek}_${SEASON_TYPE}`;
+      projectionsCache.set(remainingCacheKey, remainingAggregates);
+      console.log(
+        `[StatsPreloader] Cached remaining weeks (${currentWeek}-${endWeek}) with ${Object.keys(remainingAggregates).length} players`
+      );
+    }
   } catch (error: any) {
     console.error(
       "[StatsPreloader] Error preloading week range projections:",

@@ -20,15 +20,27 @@ export const projectionsCache = new NodeCache({ stdTTL: 1800, checkperiod: 120 }
 const STATS_PRELOAD_SCHEDULE = "*/5 * * * *"; // Every 5 minutes
 const PROJECTIONS_PRELOAD_SCHEDULE = "*/15 * * * *"; // Every 15 minutes
 
-const CURRENT_SEASON = 2024;
 const SEASON_TYPE = "regular";
+
+/**
+ * Get current season year
+ */
+function getCurrentSeason(): number {
+  const now = new Date();
+  const year = now.getFullYear();
+  // NFL season typically starts in September
+  // If we're before September, we're still in the previous season
+  return now.getMonth() >= 8 ? year : year - 1;
+}
 
 /**
  * Get current NFL week (simplified - you may want to make this more robust)
  */
 function getCurrentWeek(): number {
   const now = new Date();
-  const seasonStart = new Date("2024-09-05"); // NFL season start
+  const currentYear = now.getFullYear();
+  // Adjust season start based on year
+  const seasonStart = new Date(`${currentYear}-09-05`); // NFL season typically starts early September
   const diffTime = Math.abs(now.getTime() - seasonStart.getTime());
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   const week = Math.floor(diffDays / 7) + 1;
@@ -41,7 +53,7 @@ function getCurrentWeek(): number {
  */
 async function preloadSeasonStats(): Promise<void> {
   try {
-    const currentSeason = CURRENT_SEASON;
+    const currentSeason = getCurrentSeason();
     // OPTIMIZATION: Only cache current season (not previous)
     // Previous season can be fetched on-demand if needed
 
@@ -85,7 +97,7 @@ async function preloadWeekRangeProjections(): Promise<void> {
   try {
     const currentWeek = getCurrentWeek();
     const endWeek = 18; // End of regular season
-    const season = CURRENT_SEASON;
+    const season = getCurrentSeason();
 
     // Only preload if we're still in the season
     if (currentWeek > endWeek) {
@@ -213,7 +225,7 @@ async function preloadWeekRangeProjections(): Promise<void> {
  */
 async function preloadSeasonProjections(): Promise<void> {
   try {
-    const season = CURRENT_SEASON;
+    const season = getCurrentSeason();
     const indexCacheKey = `season_projections_${season}_${SEASON_TYPE}_index`;
 
     console.log(`[StatsPreloader] Preloading season projections for ${season}...`);

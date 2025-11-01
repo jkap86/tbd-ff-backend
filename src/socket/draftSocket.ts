@@ -8,10 +8,14 @@ import {
   doesUserOwnRoster,
 } from "../utils/draftAuthorization";
 import validator from "validator";
+import { SocketRateLimiter } from "../utils/socketRateLimiter";
 
 export function setupDraftSocket(io: Server) {
   // Apply authentication middleware to all socket connections
   io.use(socketAuthMiddleware);
+
+  // Create rate limiter for chat messages (500ms cooldown = max 2 messages per second)
+  const chatLimiter = new SocketRateLimiter(500);
 
   io.on("connection", (socket: Socket) => {
     const user = socket.data.user;
@@ -121,6 +125,12 @@ export function setupDraftSocket(io: Server) {
       const { draft_id } = data;
       let { message } = data;
       const user = socket.data.user!;
+
+      // Rate limiting check
+      if (!chatLimiter.canProceed(user.userId)) {
+        socket.emit("rate_limit_error", { message: "Please slow down" });
+        return;
+      }
 
       try {
         // Sanitize message
@@ -401,20 +411,38 @@ declare global {
 }
 
 /**
+ * Determine the optimal interval based on remaining time
+ * - > 60 seconds: Update every 10 seconds (low frequency)
+ * - <= 60 seconds: Update every 1 second (high frequency)
+ */
+function getTimerInterval(secondsRemaining: number): number {
+  if (secondsRemaining > 60) {
+    return 10000; // 10 seconds
+  } else {
+    return 1000; // 1 second
+  }
+}
+
+/**
  * Start periodic timer broadcasts for a draft
- * Broadcasts every 5 seconds to keep all clients synchronized
+ * Uses dynamic intervals based on remaining time for optimal performance
  */
 export async function startTimerBroadcast(io: Server, draftId: number) {
   const { getDraftById } = await import("../models/Draft");
   const pool = (await import("../config/database")).default;
 
-  const intervalId = setInterval(async () => {
+  let currentInterval: number | null = null;
+  let intervalId: NodeJS.Timeout;
+
+  const broadcastTimer = async () => {
     try {
       const draft = await getDraftById(draftId);
 
       if (!draft || draft.status !== "in_progress") {
         console.log(`[TimerBroadcast] Draft ${draftId} is not in progress, stopping broadcast`);
-        clearInterval(intervalId);
+        if (intervalId) {
+          clearInterval(intervalId);
+        }
         if (global.draftTimerIntervals) {
           delete global.draftTimerIntervals[draftId];
         }
@@ -429,24 +457,74 @@ export async function startTimerBroadcast(io: Server, draftId: number) {
       );
 
       if (turn.rows.length > 0 && turn.rows[0].pick_expiration) {
+        const deadline = new Date(turn.rows[0].pick_expiration);
+        const secondsRemaining = Math.max(0, Math.floor((deadline.getTime() - Date.now()) / 1000));
+
+        // Broadcast the timer update
         broadcastTimerUpdate(
           io,
           draftId,
-          new Date(turn.rows[0].pick_expiration),
+          deadline,
           draft.current_pick
         );
+
+        // Determine if we need to change the interval
+        const optimalInterval = getTimerInterval(secondsRemaining);
+
+        if (currentInterval !== optimalInterval) {
+          console.log(`[TimerBroadcast] Draft ${draftId}: Changing interval from ${currentInterval}ms to ${optimalInterval}ms (${secondsRemaining}s remaining)`);
+          currentInterval = optimalInterval;
+
+          // Clear the current interval and restart with new interval
+          clearInterval(intervalId);
+          intervalId = setInterval(broadcastTimer, optimalInterval);
+
+          // Update stored interval ID
+          if (global.draftTimerIntervals) {
+            global.draftTimerIntervals[draftId] = intervalId;
+          }
+        }
       }
 
     } catch (error) {
       console.error("[TimerBroadcast] Error:", error);
     }
-  }, 5000); // Every 5 seconds
+  };
+
+  // Start with initial interval based on current time remaining
+  try {
+    const draft = await getDraftById(draftId);
+    const pool = (await import("../config/database")).default;
+
+    if (draft && draft.status === "in_progress") {
+      const turn = await pool.query(
+        `SELECT pick_expiration FROM draft_order
+         WHERE draft_id = $1 AND pick_number = $2`,
+        [draftId, draft.current_pick]
+      );
+
+      if (turn.rows.length > 0 && turn.rows[0].pick_expiration) {
+        const deadline = new Date(turn.rows[0].pick_expiration);
+        const secondsRemaining = Math.max(0, Math.floor((deadline.getTime() - Date.now()) / 1000));
+        currentInterval = getTimerInterval(secondsRemaining);
+        console.log(`[TimerBroadcast] Starting timer broadcast for draft ${draftId} with ${currentInterval}ms interval (${secondsRemaining}s remaining)`);
+      } else {
+        currentInterval = 10000; // Default to 10 seconds if no deadline
+      }
+    } else {
+      currentInterval = 10000; // Default to 10 seconds
+    }
+  } catch (error) {
+    console.error("[TimerBroadcast] Error determining initial interval:", error);
+    currentInterval = 10000; // Default to 10 seconds on error
+  }
+
+  // Start the interval
+  intervalId = setInterval(broadcastTimer, currentInterval);
 
   // Store interval ID for cleanup
   global.draftTimerIntervals = global.draftTimerIntervals || {};
   global.draftTimerIntervals[draftId] = intervalId;
-
-  console.log(`[TimerBroadcast] Started timer broadcast for draft ${draftId}`);
 }
 
 /**

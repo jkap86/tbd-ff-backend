@@ -85,6 +85,12 @@ async function updateLiveScores(io: Server): Promise<void> {
 
   isUpdating = true;
 
+  // Safety timeout: if update takes >30s, force reset to prevent deadlock
+  const updateTimeout = setTimeout(() => {
+    console.error("[LiveScore] Update exceeded 30s timeout, forcing reset");
+    isUpdating = false;
+  }, 30000);
+
   try {
     const activeLeagues = await getActiveLeagues();
 
@@ -150,6 +156,7 @@ async function updateLiveScores(io: Server): Promise<void> {
   } catch (error) {
     console.error("[LiveScore] Error in live score update:", error);
   } finally {
+    clearTimeout(updateTimeout);
     isUpdating = false;
   }
 }

@@ -1,4 +1,5 @@
 import { Server, Socket } from "socket.io";
+import { throttle } from "lodash";
 import {
   createNomination,
   placeBid,
@@ -21,6 +22,10 @@ const nominationTimers = new Map<number, NodeJS.Timeout>();
 
 // Track turn timers (for when it's someone's turn to nominate)
 const turnTimers = new Map<number, NodeJS.Timeout>();
+
+// Throttle bid placements per roster to prevent spam (200ms cooldown)
+const bidThrottlers = new Map<number, Function>();
+const BID_THROTTLE_MS = 200;
 
 export function setupAuctionSocket(io: Server) {
   // Apply authentication middleware to all socket connections
@@ -169,53 +174,58 @@ export function setupAuctionSocket(io: Server) {
         maxBid: number;
         draftId: number;
       }) => {
-        const user = socket.data.user!;
+        const rosterId = data.rosterId;
 
-        try {
-          // Verify user is a participant in this draft
-          const isParticipant = await isUserDraftParticipant(user.userId, data.draftId);
-          if (!isParticipant) {
-            console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied bid access to draft ${data.draftId}`);
-            socket.emit("error", { message: "Access denied: You are not a participant in this draft" });
-            return;
-          }
+        // Get or create throttled handler for this roster
+        if (!bidThrottlers.has(rosterId)) {
+          bidThrottlers.set(rosterId, throttle(async (bidData) => {
+            const user = socket.data.user!;
 
-          // Verify user owns the bidding roster
-          const ownsRoster = await doesUserOwnRoster(user.userId, data.rosterId, data.draftId);
-          if (!ownsRoster) {
-            console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied bid - does not own roster ${data.rosterId}`);
-            socket.emit("error", { message: "Access denied: You can only place bids for your own roster" });
-            return;
-          }
+            try {
+              // Verify user is a participant in this draft
+              const isParticipant = await isUserDraftParticipant(user.userId, bidData.draftId);
+              if (!isParticipant) {
+                console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied bid access to draft ${bidData.draftId}`);
+                socket.emit("error", { message: "Access denied: You are not a participant in this draft" });
+                return;
+              }
 
-          // Get nomination to check if it's a slow auction (for timer reset)
-          const nomination = await getNominationById(data.nominationId);
-          if (!nomination) {
-            throw new Error("Nomination not found");
-          }
+              // Verify user owns the bidding roster
+              const ownsRoster = await doesUserOwnRoster(user.userId, bidData.rosterId, bidData.draftId);
+              if (!ownsRoster) {
+                console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied bid - does not own roster ${bidData.rosterId}`);
+                socket.emit("error", { message: "Access denied: You can only place bids for your own roster" });
+                return;
+              }
 
-          const draft = await getDraftById(nomination.draft_id);
-          if (!draft) {
-            throw new Error("Draft not found");
-          }
+              // Get nomination to check if it's a slow auction (for timer reset)
+              const nomination = await getNominationById(bidData.nominationId);
+              if (!nomination) {
+                throw new Error("Nomination not found");
+              }
 
-          // Process bid with proxy logic
-          const result = await placeBid({
-            nomination_id: data.nominationId,
-            roster_id: data.rosterId,
-            max_bid: data.maxBid,
-          });
+              const draft = await getDraftById(nomination.draft_id);
+              if (!draft) {
+                throw new Error("Draft not found");
+              }
 
-          if (result.success) {
-            const room = `auction_${data.draftId}`;
+              // Process bid with proxy logic
+              const result = await placeBid({
+                nomination_id: bidData.nominationId,
+                roster_id: bidData.rosterId,
+                max_bid: bidData.maxBid,
+              });
+
+              if (result.success) {
+                const room = `auction_${bidData.draftId}`;
 
             // Get team name for the bidder
             const { getRosterTeamName } = await import("../models/Auction");
             const teamName = await getRosterTeamName(result.currentBid.roster_id);
 
-            // Broadcast bid update (only shows current winning bid, not max)
-            io.to(room).emit("bid_placed", {
-              nominationId: data.nominationId,
+                // Broadcast bid update (only shows current winning bid, not max)
+                io.to(room).emit("bid_placed", {
+                  nominationId: bidData.nominationId,
               bid: {
                 id: result.currentBid.id,
                 nomination_id: result.currentBid.nomination_id,
@@ -247,30 +257,38 @@ export function setupAuctionSocket(io: Server) {
               });
             }
 
-            // For slow auction, reset timer
-            if (draft.draft_type === "slow_auction" && draft.nomination_timer_hours) {
-              const newDeadline = new Date(
-                Date.now() + draft.nomination_timer_hours * 60 * 60 * 1000
-              );
+                // For slow auction, reset timer
+                if (draft.draft_type === "slow_auction" && draft.nomination_timer_hours) {
+                  const newDeadline = new Date(
+                    Date.now() + draft.nomination_timer_hours * 60 * 60 * 1000
+                  );
 
-              // Update nomination deadline in database
-              const { updateNominationDeadline } = await import("../models/Auction");
-              await updateNominationDeadline(data.nominationId, newDeadline);
+                  // Update nomination deadline in database
+                  const { updateNominationDeadline } = await import("../models/Auction");
+                  await updateNominationDeadline(bidData.nominationId, newDeadline);
 
-              // Reset timer
-              resetNominationTimer(io, data.nominationId, data.draftId, newDeadline);
+                  // Reset timer
+                  resetNominationTimer(io, bidData.nominationId, bidData.draftId, newDeadline);
 
-              // Broadcast deadline update
-              io.to(room).emit("nomination_deadline_updated", {
-                nominationId: data.nominationId,
-                deadline: newDeadline,
+                  // Broadcast deadline update
+                  io.to(room).emit("nomination_deadline_updated", {
+                    nominationId: bidData.nominationId,
+                    deadline: newDeadline,
+                  });
+                }
+              }
+            } catch (error: any) {
+              console.error("[AuctionSocket] Error placing bid:", error);
+              socket.emit("error", {
+                message: error.message || "Failed to place bid"
               });
             }
-          }
-        } catch (error: any) {
-          console.error("Error placing bid:", error);
-          socket.emit("error", { message: error.message });
+          }, BID_THROTTLE_MS, { leading: true, trailing: false }));
         }
+
+        // Execute throttled handler
+        const throttledHandler = bidThrottlers.get(rosterId)!;
+        throttledHandler(data);
       }
     );
 

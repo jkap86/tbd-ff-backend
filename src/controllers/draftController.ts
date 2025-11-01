@@ -101,6 +101,10 @@ export async function createDraftHandler(
       timer_mode = "traditional",
       team_time_budget_seconds,
       settings = {},
+      // Derby parameters
+      derby_enabled,
+      derby_time_limit_seconds,
+      derby_timeout_behavior,
     } = req.body;
 
     // Validate required fields
@@ -171,6 +175,10 @@ export async function createDraftHandler(
       timer_mode,
       team_time_budget_seconds,
       settings,
+      // Derby parameters
+      derby_enabled,
+      derby_time_limit_seconds,
+      derby_timeout_behavior,
     });
 
     res.status(201).json({

@@ -20,11 +20,11 @@ import {
   getChatMessagesHandler,
 } from "../controllers/chatController";
 import {
-  createDerbyHandler,
-  startDerbyHandler,
-  getDerbyHandler,
-  makeDerbySelectionHandler,
-  skipDerbyTurnHandler,
+  startDerby,
+  getDerbyStatus,
+  createDerby,
+  selectDerbyPosition,
+  skipDerbyTurn,
 } from "../controllers/derbyController";
 import { authenticate } from "../middleware/authMiddleware";
 
@@ -79,19 +79,19 @@ router.get("/:draftId/chat", authenticate, getChatMessagesHandler);
 router.get("/:draftId/health", getDraftHealthHandler);
 
 // Derby routes
-// POST /api/drafts/:draftId/derby/create - Create derby (protected, commissioner only)
-router.post("/:draftId/derby/create", authenticate, createDerbyHandler);
+// POST /api/drafts/:draftId/derby/create - Create derby for draft (protected)
+router.post("/:draftId/derby/create", authenticate, createDerby);
 
-// POST /api/drafts/:draftId/derby/start - Start derby (protected, commissioner only)
-router.post("/:draftId/derby/start", authenticate, startDerbyHandler);
+// POST /api/drafts/:draftId/derby/start - Start derby (protected)
+router.post("/:draftId/derby/start", authenticate, startDerby);
 
-// GET /api/drafts/:draftId/derby - Get derby status and details (protected)
-router.get("/:draftId/derby", authenticate, getDerbyHandler);
+// GET /api/drafts/:draftId/derby - Get derby status (protected)
+router.get("/:draftId/derby", authenticate, getDerbyStatus);
 
-// POST /api/drafts/:draftId/derby/select - Make derby selection (protected)
-router.post("/:draftId/derby/select", authenticate, makeDerbySelectionHandler);
+// POST /api/drafts/:draftId/derby/select - Select draft position (protected)
+router.post("/:draftId/derby/select", authenticate, selectDerbyPosition);
 
-// POST /api/drafts/:draftId/derby/skip - Skip turn (protected, for timeouts or commissioner)
-router.post("/:draftId/derby/skip", authenticate, skipDerbyTurnHandler);
+// POST /api/drafts/:draftId/derby/skip - Skip current turn (protected, commissioner only)
+router.post("/:draftId/derby/skip", authenticate, skipDerbyTurn);
 
 export default router;

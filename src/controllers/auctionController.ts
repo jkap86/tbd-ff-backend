@@ -8,9 +8,7 @@ import {
 } from "../models/Auction";
 import { getDraftById, completeDraft, updateDraft } from "../models/Draft";
 import { getLeagueById, updateLeague } from "../models/League";
-import { setTransactionTimeouts } from "../utils/transactionTimeout";
-import { DB_ERROR_CODES } from "../config/constants";
-import { escapeLikePattern } from "../utils/sqlHelpers";
+import { validatePositiveInteger } from "../utils/validation";
 
 // POST /api/drafts/:id/nominate
 export async function nominatePlayerHandler(req: Request, res: Response) {
@@ -21,7 +19,14 @@ export async function nominatePlayerHandler(req: Request, res: Response) {
     await client.query('BEGIN');
     await setTransactionTimeouts(client);
 
-    const draftId = parseInt(req.params.id);
+    let draftId: number;
+    try {
+      draftId = validatePositiveInteger(req.params.id, "Draft ID");
+    } catch (error: any) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: error.message });
+    }
+
     const { player_id, roster_id, deadline } = req.body;
 
     if (!player_id || !roster_id) {

@@ -3,6 +3,4 @@ dist/
 .env
 logs/
 *.log
-
-# Firebase service account (sensitive credentials)
-firebase-service-account.json
+firebase-service-account.json.json

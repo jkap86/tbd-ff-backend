@@ -1,168 +1,27 @@
 import { Request, Response } from "express";
-import {
-  createDraftDerby,
-  getDraftDerbyByDraftId,
-  getDraftDerbyWithDetails,
-  startDraftDerby,
-  makeDerbySelection,
-  skipDerbyTurn,
-  autoAssignDerbyPosition,
-} from "../models/DraftDerby";
+import pool from "../config/database";
 import { getDraftById } from "../models/Draft";
 import { getRostersByLeagueId } from "../models/Roster";
-import { setDraftOrder } from "../models/DraftOrder";
-import { getLeagueById } from "../models/League";
-import {
-  emitDerbyUpdate,
-  emitDerbySelectionMade,
-  emitDerbyTurnChanged,
-  emitDerbyCompleted,
-} from "../socket/derbySocket";
+import { io } from "../index";
+import { scheduleDerbyTimeout, cancelDerbyTimer } from "../socket/derbySocket";
 
 /**
- * Create and start a draft derby
- * POST /api/drafts/:draftId/derby/create
+ * Derby Controller
+ * Implements the derby flow where teams draft for their draft position
  */
-export async function createDerbyHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const { draftId } = req.params;
-    const userId = (req as any).user?.userId;
-
-    if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "Not authenticated",
-      });
-      return;
-    }
-
-    // Get draft
-    const draft = await getDraftById(parseInt(draftId));
-
-    if (!draft) {
-      res.status(404).json({
-        success: false,
-        message: "Draft not found",
-      });
-      return;
-    }
-
-    // Check if derby is enabled
-    if (!draft.derby_enabled) {
-      res.status(400).json({
-        success: false,
-        message: "Derby is not enabled for this draft",
-      });
-      return;
-    }
-
-    // Verify user is commissioner
-    const league = await getLeagueById(draft.league_id);
-
-    if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
-      return;
-    }
-
-    // Get commissioner ID from league settings
-    const commissionerId =
-      typeof league.settings === "object" && league.settings !== null
-        ? (league.settings as any).commissioner_user_id
-        : null;
-
-    if (commissionerId !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "Only the commissioner can create the derby",
-      });
-      return;
-    }
-
-    // Check draft status
-    if (draft.status !== "not_started") {
-      res.status(400).json({
-        success: false,
-        message: "Derby can only be created before draft starts",
-      });
-      return;
-    }
-
-    // Check for auction drafts
-    if (draft.draft_type === "auction" || draft.draft_type === "slow_auction") {
-      res.status(400).json({
-        success: false,
-        message: "Derby is not available for auction drafts",
-      });
-      return;
-    }
-
-    // Check if derby already exists
-    const existingDerby = await getDraftDerbyByDraftId(parseInt(draftId));
-
-    if (existingDerby) {
-      res.status(400).json({
-        success: false,
-        message: "Derby already exists for this draft",
-      });
-      return;
-    }
-
-    // Get all rosters
-    const rosters = await getRostersByLeagueId(draft.league_id);
-    const rosterIds = rosters.map((r) => r.id);
-
-    if (rosterIds.length === 0) {
-      res.status(400).json({
-        success: false,
-        message: "No rosters found for this league",
-      });
-      return;
-    }
-
-    // Create derby
-    const derby = await createDraftDerby(parseInt(draftId), rosterIds);
-
-    res.status(201).json({
-      success: true,
-      data: derby,
-      message: "Derby created successfully",
-    });
-  } catch (error: any) {
-    console.error("Create derby error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error creating derby",
-    });
-  }
-}
 
 /**
- * Start the derby
+ * Start derby for a draft
  * POST /api/drafts/:draftId/derby/start
  */
-export async function startDerbyHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
+export async function startDerby(req: Request, res: Response): Promise<void> {
   try {
     const { draftId } = req.params;
-    const userId = (req as any).user?.userId;
+    const userId = req.user?.userId;
 
-    if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "Not authenticated",
-      });
-      return;
-    }
+    console.log('[Derby] Starting derby for draft', draftId);
 
-    // Get draft
+    // Get the draft
     const draft = await getDraftById(parseInt(draftId));
 
     if (!draft) {
@@ -173,7 +32,8 @@ export async function startDerbyHandler(
       return;
     }
 
-    // Verify user is commissioner
+    // Check if user is commissioner
+    const { getLeagueById } = await import("../models/League");
     const league = await getLeagueById(draft.league_id);
 
     if (!league) {
@@ -184,33 +44,71 @@ export async function startDerbyHandler(
       return;
     }
 
-    const commissionerId =
-      typeof league.settings === "object" && league.settings !== null
-        ? (league.settings as any).commissioner_user_id
-        : null;
-
-    if (commissionerId !== userId) {
+    const commissionerId = league.settings?.commissioner_id;
+    if (!commissionerId || commissionerId !== userId) {
       res.status(403).json({
         success: false,
-        message: "Only the commissioner can start the derby",
+        message: "Only commissioner can start derby",
       });
       return;
     }
 
-    // Start derby
-    const derby = await startDraftDerby(parseInt(draftId));
+    // Get all rosters for this league
+    const rosters = await getRostersByLeagueId(draft.league_id);
+    const rosterIds = rosters.map(r => r.id);
 
-    // Emit socket event
-    emitDerbyUpdate(parseInt(draftId), derby);
-    emitDerbyTurnChanged(parseInt(draftId), derby.current_turn_roster_id!);
+    // Randomize the derby order (order for picking positions)
+    const shuffledRosterIds = [...rosterIds].sort(() => Math.random() - 0.5);
+
+    // Calculate turn deadline
+    const derbyTimeLimit = draft.derby_time_limit_seconds || 60;
+    const turnDeadline = new Date(Date.now() + derbyTimeLimit * 1000);
+
+    // Create/update derby record with derby order
+    const derbyResult = await pool.query(
+      `INSERT INTO draft_derby (draft_id, status, derby_order, current_turn, turn_deadline)
+       VALUES ($1, 'in_progress', $2, 0, $3)
+       ON CONFLICT (draft_id)
+       DO UPDATE SET
+         status = 'in_progress',
+         derby_order = $2,
+         current_turn = 0,
+         turn_deadline = $3,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [draftId, JSON.stringify(shuffledRosterIds), turnDeadline]
+    );
+
+    const derby = derbyResult.rows[0];
+
+    // Schedule automatic timeout
+    scheduleDerbyTimeout(parseInt(draftId), turnDeadline);
+
+    // Emit to socket
+    io.to(`draft-${draftId}`).emit('derby:update', {
+      draftId: parseInt(draftId),
+      derby: {
+        ...derby,
+        derby_order: shuffledRosterIds,
+      },
+      derbyOrder: shuffledRosterIds,
+      currentTurn: 0,
+      currentRosterId: shuffledRosterIds[0],
+      turnDeadline: turnDeadline.toISOString(),
+      message: 'Derby has started - teams will now select their draft positions',
+    });
 
     res.status(200).json({
       success: true,
-      data: derby,
-      message: "Derby started successfully",
+      data: {
+        ...derby,
+        derby_order: shuffledRosterIds,
+      },
+      message: "Derby started - teams can now select their draft positions",
     });
+
   } catch (error: any) {
-    console.error("Start derby error:", error);
+    console.error('[Derby] Error starting derby:', error);
     res.status(500).json({
       success: false,
       message: error.message || "Error starting derby",
@@ -219,146 +117,31 @@ export async function startDerbyHandler(
 }
 
 /**
- * Get derby status and details
+ * Get derby status
  * GET /api/drafts/:draftId/derby
  */
-export async function getDerbyHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
+export async function getDerbyStatus(req: Request, res: Response): Promise<void> {
   try {
     const { draftId } = req.params;
 
-    const derby = await getDraftDerbyWithDetails(parseInt(draftId));
-
-    if (!derby) {
-      res.status(404).json({
-        success: false,
-        message: "Derby not found",
-      });
-      return;
-    }
-
-    res.status(200).json({
-      success: true,
-      data: derby,
-    });
-  } catch (error: any) {
-    console.error("Get derby error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error getting derby",
-    });
-  }
-}
-
-/**
- * Make a derby selection
- * POST /api/drafts/:draftId/derby/select
- */
-export async function makeDerbySelectionHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const { draftId } = req.params;
-    const { roster_id, draft_position } = req.body;
-    const userId = (req as any).user?.userId;
-
-    if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "Not authenticated",
-      });
-      return;
-    }
-
-    // Validate inputs
-    if (!roster_id || !draft_position) {
-      res.status(400).json({
-        success: false,
-        message: "roster_id and draft_position are required",
-      });
-      return;
-    }
-
-    // Make selection
-    const selection = await makeDerbySelection(
-      parseInt(draftId),
-      roster_id,
-      draft_position
+    // Get derby record
+    const result = await pool.query(
+      `SELECT * FROM draft_derby WHERE draft_id = $1`,
+      [draftId]
     );
 
-    // Get updated derby
-    const derby = await getDraftDerbyWithDetails(parseInt(draftId));
-
-    if (!derby) {
-      throw new Error("Derby not found after selection");
-    }
-
-    // Emit socket events
-    emitDerbySelectionMade(parseInt(draftId), selection);
-    emitDerbyUpdate(parseInt(draftId), derby);
-
-    // Check if derby is complete
-    if (derby.status === "completed") {
-      // Apply selections to draft order
-      const draftOrderData = derby.selections.map((s) => ({
-        roster_id: s.roster_id,
-        draft_position: s.draft_position,
-      }));
-
-      await setDraftOrder(parseInt(draftId), draftOrderData);
-
-      // Emit completion event
-      emitDerbyCompleted(parseInt(draftId));
-    } else {
-      // Emit turn change
-      if (derby.current_turn_roster_id) {
-        emitDerbyTurnChanged(parseInt(draftId), derby.current_turn_roster_id);
-      }
-    }
-
-    res.status(200).json({
-      success: true,
-      data: {
-        selection,
-        derby,
-      },
-      message: "Selection made successfully",
-    });
-  } catch (error: any) {
-    console.error("Make derby selection error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error making selection",
-    });
-  }
-}
-
-/**
- * Skip current turn (for timeout or commissioner action)
- * POST /api/drafts/:draftId/derby/skip
- */
-export async function skipDerbyTurnHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const { draftId } = req.params;
-    const userId = (req as any).user?.userId;
-
-    if (!userId) {
-      res.status(401).json({
+    if (result.rows.length === 0) {
+      res.status(404).json({
         success: false,
-        message: "Not authenticated",
+        message: "Derby not found for this draft",
       });
       return;
     }
 
-    // Get draft to check settings
-    const draft = await getDraftById(parseInt(draftId));
+    const derby = result.rows[0];
 
+    // Get draft to find league_id
+    const draft = await getDraftById(parseInt(draftId));
     if (!draft) {
       res.status(404).json({
         success: false,
@@ -367,7 +150,71 @@ export async function skipDerbyTurnHandler(
       return;
     }
 
-    // Verify commissioner or check timeout
+    // Get roster details with user mappings
+    const rostersResult = await pool.query(
+      `SELECT r.id as roster_id, r.user_id, u.username
+       FROM rosters r
+       LEFT JOIN users u ON u.id = r.user_id
+       WHERE r.league_id = $1`,
+      [draft.league_id]
+    );
+
+    // Get selections
+    const selectionsResult = await pool.query(
+      `SELECT * FROM draft_derby_selections WHERE derby_id = $1 ORDER BY selected_at ASC`,
+      [derby.id]
+    );
+
+    // Calculate available positions
+    const derbyOrder = typeof derby.derby_order === 'string'
+      ? JSON.parse(derby.derby_order)
+      : derby.derby_order || [];
+
+    const selectedPositions = selectionsResult.rows.map(s => s.draft_position);
+    const availablePositions = Array.from(
+      { length: derbyOrder.length },
+      (_, i) => i + 1
+    ).filter(pos => !selectedPositions.includes(pos));
+
+    res.status(200).json({
+      success: true,
+      data: {
+        ...derby,
+        rosters: rostersResult.rows,
+        selections: selectionsResult.rows,
+        available_positions: availablePositions,
+      },
+    });
+
+  } catch (error: any) {
+    console.error('[Derby] Error getting derby status:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error getting derby status",
+    });
+  }
+}
+
+/**
+ * Create derby for a draft
+ * POST /api/drafts/:draftId/derby/create
+ */
+export async function createDerby(req: Request, res: Response): Promise<void> {
+  try {
+    const { draftId } = req.params;
+    const userId = req.user?.userId;
+
+    // Get draft and league
+    const draft = await getDraftById(parseInt(draftId));
+    if (!draft) {
+      res.status(404).json({
+        success: false,
+        message: "Draft not found",
+      });
+      return;
+    }
+
+    const { getLeagueById } = await import("../models/League");
     const league = await getLeagueById(draft.league_id);
 
     if (!league) {
@@ -378,76 +225,494 @@ export async function skipDerbyTurnHandler(
       return;
     }
 
-    const commissionerId =
-      typeof league.settings === "object" && league.settings !== null
-        ? (league.settings as any).commissioner_user_id
-        : null;
+    // Check if user is commissioner
+    const commissionerId = league.settings?.commissioner_id;
+    if (!commissionerId || commissionerId !== userId) {
+      res.status(403).json({
+        success: false,
+        message: "Only commissioner can create derby",
+      });
+      return;
+    }
 
-    const isCommissioner = commissionerId === userId;
+    // Create derby record
+    const result = await pool.query(
+      `INSERT INTO draft_derby (draft_id, status)
+       VALUES ($1, 'not_started')
+       ON CONFLICT (draft_id) DO NOTHING
+       RETURNING *`,
+      [draftId]
+    );
 
-    // Check if derby timeout behavior is 'skip'
-    if (draft.derby_timeout_behavior === "skip" || isCommissioner) {
-      const derby = await skipDerbyTurn(parseInt(draftId));
-
-      // Emit socket events
-      emitDerbyUpdate(parseInt(draftId), derby);
-
-      if (derby.current_turn_roster_id) {
-        emitDerbyTurnChanged(parseInt(draftId), derby.current_turn_roster_id);
-      }
+    if (result.rows.length === 0) {
+      // Derby already exists
+      const existing = await pool.query(
+        `SELECT * FROM draft_derby WHERE draft_id = $1`,
+        [draftId]
+      );
 
       res.status(200).json({
         success: true,
-        data: derby,
-        message: "Turn skipped successfully",
+        data: existing.rows[0],
+        message: "Derby already exists",
       });
-    } else if (draft.derby_timeout_behavior === "auto") {
-      // Auto-assign random position
-      const selection = await autoAssignDerbyPosition(parseInt(draftId));
+      return;
+    }
 
-      // Get updated derby
-      const derby = await getDraftDerbyWithDetails(parseInt(draftId));
+    res.status(201).json({
+      success: true,
+      data: result.rows[0],
+    });
 
-      if (!derby) {
-        throw new Error("Derby not found after auto-assign");
-      }
+  } catch (error: any) {
+    console.error('[Derby] Error creating derby:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error creating derby",
+    });
+  }
+}
 
-      // Emit socket events
-      emitDerbySelectionMade(parseInt(draftId), selection);
-      emitDerbyUpdate(parseInt(draftId), derby);
+/**
+ * Select a draft position during derby
+ * POST /api/drafts/:draftId/derby/select
+ */
+export async function selectDerbyPosition(req: Request, res: Response): Promise<void> {
+  const client = await pool.connect();
 
-      // Check if derby is complete
-      if (derby.status === "completed") {
-        const draftOrderData = derby.selections.map((s) => ({
-          roster_id: s.roster_id,
-          draft_position: s.draft_position,
-        }));
+  try {
+    const { draftId } = req.params;
+    console.log('[Derby] Request body:', req.body);
+    const { rosterId, draftPosition } = req.body;
+    const userId = req.user?.userId;
 
-        await setDraftOrder(parseInt(draftId), draftOrderData);
-        emitDerbyCompleted(parseInt(draftId));
-      } else if (derby.current_turn_roster_id) {
-        emitDerbyTurnChanged(parseInt(draftId), derby.current_turn_roster_id);
-      }
+    console.log('[Derby] Position selection attempt:', { draftId, rosterId, draftPosition, userId });
 
-      res.status(200).json({
-        success: true,
-        data: {
-          selection,
-          derby,
-        },
-        message: "Position auto-assigned due to timeout",
+    await client.query('BEGIN');
+
+    // Get derby status
+    const derbyResult = await client.query(
+      `SELECT * FROM draft_derby WHERE draft_id = $1`,
+      [draftId]
+    );
+
+    if (derbyResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      res.status(404).json({
+        success: false,
+        message: "Derby not found",
       });
-    } else {
+      return;
+    }
+
+    const derby = derbyResult.rows[0];
+
+    // Validate derby is in progress
+    if (derby.status !== 'in_progress') {
+      await client.query('ROLLBACK');
       res.status(400).json({
         success: false,
-        message: "Invalid timeout behavior",
+        message: `Derby is not in progress (status: ${derby.status})`,
+      });
+      return;
+    }
+
+    // Parse derby order
+    const derbyOrder = typeof derby.derby_order === 'string'
+      ? JSON.parse(derby.derby_order)
+      : derby.derby_order;
+
+    // Validate it's this roster's turn
+    const currentRosterId = derbyOrder[derby.current_turn];
+    if (currentRosterId !== rosterId) {
+      await client.query('ROLLBACK');
+      res.status(403).json({
+        success: false,
+        message: "It's not your turn to select",
+      });
+      return;
+    }
+
+    // Verify user owns this roster
+    const rosterCheck = await client.query(
+      `SELECT r.id FROM rosters r
+       JOIN leagues l ON l.id = r.league_id
+       WHERE r.id = $1 AND r.user_id = $2`,
+      [rosterId, userId]
+    );
+
+    if (rosterCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      res.status(403).json({
+        success: false,
+        message: "You don't own this roster",
+      });
+      return;
+    }
+
+    // Check if position is already taken
+    const existingSelection = await client.query(
+      `SELECT * FROM draft_derby_selections
+       WHERE derby_id = $1 AND draft_position = $2`,
+      [derby.id, draftPosition]
+    );
+
+    if (existingSelection.rows.length > 0) {
+      await client.query('ROLLBACK');
+      res.status(400).json({
+        success: false,
+        message: "Position already selected",
+      });
+      return;
+    }
+
+    // Record the selection
+    const selectionResult = await client.query(
+      `INSERT INTO draft_derby_selections (derby_id, roster_id, draft_position, selected_at)
+       VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+       RETURNING *`,
+      [derby.id, rosterId, draftPosition]
+    );
+
+    const newSelection = selectionResult.rows[0];
+
+    // Update draft_order table with selected position
+    await client.query(
+      `INSERT INTO draft_order (draft_id, roster_id, draft_position)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (draft_id, roster_id)
+       DO UPDATE SET draft_position = $3`,
+      [draftId, rosterId, draftPosition]
+    );
+
+    // Get draft for time limit
+    const draft = await getDraftById(parseInt(draftId));
+    const derbyTimeLimit = draft?.derby_time_limit_seconds || 60;
+
+    // Calculate next turn
+    const nextTurn = derby.current_turn + 1;
+    const isComplete = nextTurn >= derbyOrder.length;
+
+    // Update derby status
+    if (isComplete) {
+      await client.query(
+        `UPDATE draft_derby
+         SET status = 'completed', current_turn = $1, turn_deadline = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [nextTurn, derby.id]
+      );
+    } else {
+      // Calculate new turn deadline
+      const newDeadline = new Date(Date.now() + derbyTimeLimit * 1000);
+
+      await client.query(
+        `UPDATE draft_derby
+         SET current_turn = $1, turn_deadline = $2, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3`,
+        [nextTurn, newDeadline, derby.id]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    // Cancel current timer
+    cancelDerbyTimer(parseInt(draftId));
+
+    // Schedule next timeout if not complete
+    if (!isComplete) {
+      const derbyTimeLimit = draft?.derby_time_limit_seconds || 60;
+      const newDeadline = new Date(Date.now() + derbyTimeLimit * 1000);
+      scheduleDerbyTimeout(parseInt(draftId), newDeadline);
+    }
+
+    // Get updated derby with selections
+    const updatedDerby = await client.query(
+      `SELECT dd.*,
+              json_agg(
+                json_build_object(
+                  'id', dds.id,
+                  'derby_id', dds.derby_id,
+                  'roster_id', dds.roster_id,
+                  'draft_position', dds.draft_position,
+                  'selected_at', dds.selected_at
+                ) ORDER BY dds.selected_at
+              ) FILTER (WHERE dds.id IS NOT NULL) as selections
+       FROM draft_derby dd
+       LEFT JOIN draft_derby_selections dds ON dds.derby_id = dd.id
+       WHERE dd.id = $1
+       GROUP BY dd.id`,
+      [derby.id]
+    );
+
+    const result = updatedDerby.rows[0];
+
+    // Get roster details
+    const rostersResult = await client.query(
+      `SELECT r.id as roster_id, r.user_id, u.username
+       FROM rosters r
+       LEFT JOIN users u ON u.id = r.user_id
+       WHERE r.league_id = $1`,
+      [draft?.league_id]
+    );
+
+    // Calculate available positions
+    const selectedPositions = (result.selections || []).map((s: any) => s.draft_position);
+    const availablePositions = Array.from(
+      { length: derbyOrder.length },
+      (_, i) => i + 1
+    ).filter(pos => !selectedPositions.includes(pos));
+
+    // Emit socket events
+    io.to(`draft-${draftId}`).emit('derby:selection_made', {
+      draftId: parseInt(draftId),
+      rosterId,
+      draftPosition,
+      currentTurn: nextTurn,
+      isComplete,
+    });
+
+    if (!isComplete) {
+      const nextRosterId = derbyOrder[nextTurn];
+      io.to(`draft-${draftId}`).emit('derby:turn_changed', {
+        draftId: parseInt(draftId),
+        currentTurn: nextTurn,
+        currentRosterId: nextRosterId,
+        turnDeadline: new Date(Date.now() + (draft?.derby_time_limit_seconds || 60) * 1000).toISOString(),
+      });
+    } else {
+      io.to(`draft-${draftId}`).emit('derby:completed', {
+        draftId: parseInt(draftId),
+        message: 'Derby completed - all positions selected',
       });
     }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        derby: {
+          ...result,
+          rosters: rostersResult.rows,
+          available_positions: availablePositions,
+        },
+        selection: newSelection,
+      },
+      message: isComplete ? "Derby completed!" : "Position selected successfully",
+    });
+
   } catch (error: any) {
-    console.error("Skip derby turn error:", error);
+    await client.query('ROLLBACK');
+    console.error('[Derby] Error selecting position:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error selecting position",
+    });
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Skip current derby turn (commissioner only)
+ * POST /api/drafts/:draftId/derby/skip
+ */
+export async function skipDerbyTurn(req: Request, res: Response): Promise<void> {
+  const client = await pool.connect();
+
+  try {
+    const { draftId } = req.params;
+    const userId = req.user?.userId;
+
+    console.log('[Derby] Skip turn attempt:', { draftId, userId });
+
+    // Get draft and league for commissioner check
+    const draftForCheck = await getDraftById(parseInt(draftId));
+    if (!draftForCheck) {
+      res.status(403).json({
+        success: false,
+        message: "Draft not found",
+      });
+      return;
+    }
+
+    const { getLeagueById } = await import("../models/League");
+    const league = await getLeagueById(draftForCheck.league_id);
+
+    if (!league) {
+      res.status(403).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    // Check if user is commissioner
+    const commissionerId = league.settings?.commissioner_id;
+    if (!commissionerId || commissionerId !== userId) {
+      res.status(403).json({
+        success: false,
+        message: "Only commissioner can skip turns",
+      });
+      return;
+    }
+
+    await client.query('BEGIN');
+
+    // Get derby status
+    const derbyResult = await client.query(
+      `SELECT * FROM draft_derby WHERE draft_id = $1`,
+      [draftId]
+    );
+
+    if (derbyResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      res.status(404).json({
+        success: false,
+        message: "Derby not found",
+      });
+      return;
+    }
+
+    const derby = derbyResult.rows[0];
+
+    // Validate derby is in progress
+    if (derby.status !== 'in_progress') {
+      await client.query('ROLLBACK');
+      res.status(400).json({
+        success: false,
+        message: `Derby is not in progress (status: ${derby.status})`,
+      });
+      return;
+    }
+
+    // Parse derby order
+    const derbyOrder = typeof derby.derby_order === 'string'
+      ? JSON.parse(derby.derby_order)
+      : derby.derby_order;
+
+    const currentRosterId = derbyOrder[derby.current_turn];
+
+    // Get draft to check timeout behavior
+    const draft = await getDraftById(parseInt(draftId));
+    const timeoutBehavior = draft?.derby_timeout_behavior || 'auto';
+
+    // If auto-assign, find available position
+    if (timeoutBehavior === 'auto') {
+      // Get already selected positions
+      const selectedPositions = await client.query(
+        `SELECT draft_position FROM draft_derby_selections WHERE derby_id = $1`,
+        [derby.id]
+      );
+
+      const takenPositions = new Set(selectedPositions.rows.map(r => r.draft_position));
+      const totalRosters = derbyOrder.length;
+
+      // Find first available position (1-indexed)
+      let assignedPosition = null;
+      for (let i = 1; i <= totalRosters; i++) {
+        if (!takenPositions.has(i)) {
+          assignedPosition = i;
+          break;
+        }
+      }
+
+      if (assignedPosition) {
+        // Record the auto-assigned selection
+        await client.query(
+          `INSERT INTO draft_derby_selections (derby_id, roster_id, draft_position, selected_at)
+           VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
+          [derby.id, currentRosterId, assignedPosition]
+        );
+
+        // Update draft_order table
+        await client.query(
+          `INSERT INTO draft_order (draft_id, roster_id, pick_order)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (draft_id, roster_id)
+           DO UPDATE SET pick_order = $3`,
+          [draftId, currentRosterId, assignedPosition]
+        );
+      }
+    }
+
+    // Advance to next turn
+    const nextTurn = derby.current_turn + 1;
+    const isComplete = nextTurn >= derbyOrder.length;
+
+    // Update derby status
+    if (isComplete) {
+      await client.query(
+        `UPDATE draft_derby
+         SET status = 'completed', current_turn = $1, turn_deadline = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [nextTurn, derby.id]
+      );
+    } else {
+      // Calculate new turn deadline
+      const derbyTimeLimit = draft?.derby_time_limit_seconds || 60;
+      const newDeadline = new Date(Date.now() + derbyTimeLimit * 1000);
+
+      await client.query(
+        `UPDATE draft_derby
+         SET current_turn = $1, turn_deadline = $2, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3`,
+        [nextTurn, newDeadline, derby.id]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    // Get updated derby with selections
+    const updatedDerby = await client.query(
+      `SELECT dd.*,
+              json_agg(
+                json_build_object(
+                  'id', dds.id,
+                  'derby_id', dds.derby_id,
+                  'roster_id', dds.roster_id,
+                  'draft_position', dds.draft_position,
+                  'selected_at', dds.selected_at
+                ) ORDER BY dds.selected_at
+              ) FILTER (WHERE dds.id IS NOT NULL) as selections
+       FROM draft_derby dd
+       LEFT JOIN draft_derby_selections dds ON dds.derby_id = dd.id
+       WHERE dd.id = $1
+       GROUP BY dd.id`,
+      [derby.id]
+    );
+
+    const result = updatedDerby.rows[0];
+
+    // Emit socket events
+    if (!isComplete) {
+      const nextRosterId = derbyOrder[nextTurn];
+      io.to(`draft-${draftId}`).emit('derby:turn_changed', {
+        draftId: parseInt(draftId),
+        currentTurn: nextTurn,
+        currentRosterId: nextRosterId,
+        turnDeadline: new Date(Date.now() + (draft?.derby_time_limit_seconds || 60) * 1000).toISOString(),
+        skipped: true,
+      });
+    } else {
+      io.to(`draft-${draftId}`).emit('derby:completed', {
+        draftId: parseInt(draftId),
+        message: 'Derby completed',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: result,
+      message: isComplete ? "Derby completed" : "Turn skipped",
+    });
+
+  } catch (error: any) {
+    await client.query('ROLLBACK');
+    console.error('[Derby] Error skipping turn:', error);
     res.status(500).json({
       success: false,
       message: error.message || "Error skipping turn",
     });
+  } finally {
+    client.release();
   }
 }

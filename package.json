@@ -21,6 +21,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@types/lodash": "^4.17.20",
     "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^7.0.3",
     "@types/uuid": "^8.3.4",
@@ -35,6 +36,7 @@
     "firebase-admin": "^13.5.0",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
+    "lodash": "^4.17.21",
     "node-cache": "^5.1.2",
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.10",

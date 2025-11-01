@@ -3,6 +3,7 @@ import pool from "../config/database";
 import { getDraftById } from "../models/Draft";
 import { getRostersByLeagueId } from "../models/Roster";
 import { io } from "../index";
+import { scheduleDerbyTimeout, cancelDerbyTimer } from "../socket/derbySocket";
 
 /**
  * Derby Controller
@@ -80,6 +81,9 @@ export async function startDerby(req: Request, res: Response): Promise<void> {
 
     const derby = derbyResult.rows[0];
 
+    // Schedule automatic timeout
+    scheduleDerbyTimeout(parseInt(draftId), turnDeadline);
+
     // Emit to socket
     io.to(`draft-${draftId}`).emit('derby:update', {
       draftId: parseInt(draftId),
@@ -120,6 +124,7 @@ export async function getDerbyStatus(req: Request, res: Response): Promise<void>
   try {
     const { draftId } = req.params;
 
+    // Get derby record
     const result = await pool.query(
       `SELECT * FROM draft_derby WHERE draft_id = $1`,
       [draftId]
@@ -133,9 +138,52 @@ export async function getDerbyStatus(req: Request, res: Response): Promise<void>
       return;
     }
 
+    const derby = result.rows[0];
+
+    // Get draft to find league_id
+    const draft = await getDraftById(parseInt(draftId));
+    if (!draft) {
+      res.status(404).json({
+        success: false,
+        message: "Draft not found",
+      });
+      return;
+    }
+
+    // Get roster details with user mappings
+    const rostersResult = await pool.query(
+      `SELECT r.id as roster_id, r.user_id, u.username
+       FROM rosters r
+       LEFT JOIN users u ON u.id = r.user_id
+       WHERE r.league_id = $1`,
+      [draft.league_id]
+    );
+
+    // Get selections
+    const selectionsResult = await pool.query(
+      `SELECT * FROM draft_derby_selections WHERE derby_id = $1 ORDER BY selected_at ASC`,
+      [derby.id]
+    );
+
+    // Calculate available positions
+    const derbyOrder = typeof derby.derby_order === 'string'
+      ? JSON.parse(derby.derby_order)
+      : derby.derby_order || [];
+
+    const selectedPositions = selectionsResult.rows.map(s => s.draft_position);
+    const availablePositions = Array.from(
+      { length: derbyOrder.length },
+      (_, i) => i + 1
+    ).filter(pos => !selectedPositions.includes(pos));
+
     res.status(200).json({
       success: true,
-      data: result.rows[0],
+      data: {
+        ...derby,
+        rosters: rostersResult.rows,
+        selections: selectionsResult.rows,
+        available_positions: availablePositions,
+      },
     });
 
   } catch (error: any) {
@@ -234,6 +282,7 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
 
   try {
     const { draftId } = req.params;
+    console.log('[Derby] Request body:', req.body);
     const { rosterId, draftPosition } = req.body;
     const userId = req.user?.userId;
 
@@ -318,18 +367,21 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
     }
 
     // Record the selection
-    await client.query(
+    const selectionResult = await client.query(
       `INSERT INTO draft_derby_selections (derby_id, roster_id, draft_position, selected_at)
-       VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
+       VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+       RETURNING *`,
       [derby.id, rosterId, draftPosition]
     );
 
+    const newSelection = selectionResult.rows[0];
+
     // Update draft_order table with selected position
     await client.query(
-      `INSERT INTO draft_order (draft_id, roster_id, pick_order)
+      `INSERT INTO draft_order (draft_id, roster_id, draft_position)
        VALUES ($1, $2, $3)
        ON CONFLICT (draft_id, roster_id)
-       DO UPDATE SET pick_order = $3`,
+       DO UPDATE SET draft_position = $3`,
       [draftId, rosterId, draftPosition]
     );
 
@@ -363,11 +415,23 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
 
     await client.query('COMMIT');
 
+    // Cancel current timer
+    cancelDerbyTimer(parseInt(draftId));
+
+    // Schedule next timeout if not complete
+    if (!isComplete) {
+      const derbyTimeLimit = draft?.derby_time_limit_seconds || 60;
+      const newDeadline = new Date(Date.now() + derbyTimeLimit * 1000);
+      scheduleDerbyTimeout(parseInt(draftId), newDeadline);
+    }
+
     // Get updated derby with selections
     const updatedDerby = await client.query(
       `SELECT dd.*,
               json_agg(
                 json_build_object(
+                  'id', dds.id,
+                  'derby_id', dds.derby_id,
                   'roster_id', dds.roster_id,
                   'draft_position', dds.draft_position,
                   'selected_at', dds.selected_at
@@ -381,6 +445,22 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
     );
 
     const result = updatedDerby.rows[0];
+
+    // Get roster details
+    const rostersResult = await client.query(
+      `SELECT r.id as roster_id, r.user_id, u.username
+       FROM rosters r
+       LEFT JOIN users u ON u.id = r.user_id
+       WHERE r.league_id = $1`,
+      [draft?.league_id]
+    );
+
+    // Calculate available positions
+    const selectedPositions = (result.selections || []).map((s: any) => s.draft_position);
+    const availablePositions = Array.from(
+      { length: derbyOrder.length },
+      (_, i) => i + 1
+    ).filter(pos => !selectedPositions.includes(pos));
 
     // Emit socket events
     io.to(`draft-${draftId}`).emit('derby:selection_made', {
@@ -409,12 +489,12 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
     res.status(200).json({
       success: true,
       data: {
-        derby: result,
-        selection: {
-          rosterId,
-          draftPosition,
-          isComplete,
+        derby: {
+          ...result,
+          rosters: rostersResult.rows,
+          available_positions: availablePositions,
         },
+        selection: newSelection,
       },
       message: isComplete ? "Derby completed!" : "Position selected successfully",
     });
@@ -586,6 +666,8 @@ export async function skipDerbyTurn(req: Request, res: Response): Promise<void> 
       `SELECT dd.*,
               json_agg(
                 json_build_object(
+                  'id', dds.id,
+                  'derby_id', dds.derby_id,
                   'roster_id', dds.roster_id,
                   'draft_position', dds.draft_position,
                   'selected_at', dds.selected_at

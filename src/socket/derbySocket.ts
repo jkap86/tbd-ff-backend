@@ -169,7 +169,7 @@ async function processDerbyTimeout(draftId: number) {
       const nextRosterId = derbyOrder[nextTurn];
 
       // Emit timeout event
-      io.to(`draft-${draftId}`).emit('derby:timeout', {
+      const timeoutEventData = {
         draftId,
         rosterId: currentRosterId,
         timeoutBehavior,
@@ -177,15 +177,19 @@ async function processDerbyTimeout(draftId: number) {
           `SELECT draft_position FROM draft_derby_selections WHERE derby_id = $1 AND roster_id = $2`,
           [derby.id, currentRosterId]
         )).rows[0]?.draft_position : null,
-      });
+      };
+      console.log(`[DerbyTimer] Emitting derby:timeout to draft-${draftId}:`, timeoutEventData);
+      io.to(`draft-${draftId}`).emit('derby:timeout', timeoutEventData);
 
       // Emit turn changed event
-      io.to(`draft-${draftId}`).emit('derby:turn_changed', {
+      const turnChangedEventData = {
         draftId,
         currentTurn: nextTurn,
         currentRosterId: nextRosterId,
         turnDeadline: newDeadline.toISOString(),
-      });
+      };
+      console.log(`[DerbyTimer] Emitting derby:turn_changed to draft-${draftId}:`, turnChangedEventData);
+      io.to(`draft-${draftId}`).emit('derby:turn_changed', turnChangedEventData);
 
       // Schedule next timeout
       scheduleDerbyTimeout(draftId, newDeadline);

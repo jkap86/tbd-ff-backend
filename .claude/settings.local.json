@@ -89,7 +89,8 @@
       "Bash(psql:*)",
       "Bash(set PGPASSWORD=password123)",
       "Bash(DATABASE_URL=\"postgresql://postgres:password123@localhost:5432/tbdff_test\" npm run migrate:*)",
-      "Bash(export DATABASE_URL=\"postgresql://postgres:password123@localhost:5432/tbdff_test\")"
+      "Bash(export DATABASE_URL=\"postgresql://postgres:password123@localhost:5432/tbdff_test\")",
+      "Bash(git rm:*)"
     ],
     "deny": [],
     "ask": []

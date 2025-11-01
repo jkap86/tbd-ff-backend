@@ -954,6 +954,10 @@ export async function resetLeagueHandler(
     const { getDraftByLeagueId, deleteDraft } = await import("../models/Draft");
     const draft = await getDraftByLeagueId(parseInt(leagueId));
     if (draft) {
+      // Stop draft timer broadcasts before deleting draft
+      const { stopTimerBroadcast } = await import("../socket/draftSocket");
+      stopTimerBroadcast(draft.id);
+
       await deleteDraft(draft.id);
     }
 

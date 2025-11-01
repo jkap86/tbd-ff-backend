@@ -1,0 +1,3 @@
+- flutter front end should always be committed and pushed to dev then merged with main
+- frontend should always be committed and pushed to dev branch and merged to main
+- THERE is no git repo in root

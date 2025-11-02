@@ -19,6 +19,7 @@ export interface Draft {
   derby_enabled: boolean;
   derby_time_limit_seconds: number | null;
   derby_timeout_behavior: "auto" | "skip";
+  derby_skipped_user_time_limit_seconds: number | null;
   // Auction-specific fields
   starting_budget: number;
   min_bid: number;
@@ -55,6 +56,7 @@ export async function createDraft(draftData: {
   derby_enabled?: boolean;
   derby_time_limit_seconds?: number;
   derby_timeout_behavior?: string;
+  derby_skipped_user_time_limit_seconds?: number;
   settings?: any;
 }): Promise<Draft> {
   try {
@@ -75,9 +77,10 @@ export async function createDraft(draftData: {
         starting_budget, min_bid, bid_increment, nominations_per_manager,
         nomination_timer_hours, reserve_budget_per_slot,
         derby_enabled, derby_time_limit_seconds, derby_timeout_behavior,
+        derby_skipped_user_time_limit_seconds,
         settings
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       RETURNING *
     `;
 
@@ -98,6 +101,7 @@ export async function createDraft(draftData: {
       draftData.derby_enabled || false,
       draftData.derby_time_limit_seconds || null,
       draftData.derby_timeout_behavior || 'auto',
+      draftData.derby_skipped_user_time_limit_seconds || null,
       JSON.stringify(draftData.settings || {}),
     ]);
 

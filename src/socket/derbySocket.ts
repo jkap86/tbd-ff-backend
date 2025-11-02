@@ -70,11 +70,10 @@ async function processDerbyTimeout(draftId: number) {
     }
 
     const currentRosterId = derby.current_turn_roster_id;
+    const onlySkippedRemaining = !currentRosterId && derby.skipped_roster_ids.length > 0;
 
-    if (!currentRosterId) {
+    if (onlySkippedRemaining) {
       console.log(`[DerbyTimer] No current roster on the clock (only skipped users remain)`);
-      // When only skipped users remain, we still timeout but with a different timer
-      // This handles the case where ALL remaining users are skipped and time runs out
     }
 
     // Get draft to check timeout behavior
@@ -83,11 +82,14 @@ async function processDerbyTimeout(draftId: number) {
 
     let derbyWithDetails;
     let autoAssignedPosition = null;
+    let timedOutRosterId = currentRosterId; // Track which roster timed out
 
-    if (timeoutBehavior === 'auto') {
+    // When only skipped remain, ALWAYS auto-assign (can't skip to anyone)
+    if (timeoutBehavior === 'auto' || onlySkippedRemaining) {
       // Auto-assign a random available position
       const selection = await autoAssignDerbyPosition(draftId);
       autoAssignedPosition = selection.draft_position;
+      timedOutRosterId = selection.roster_id;
 
       // Update draft_order table
       await pool.query(
@@ -95,15 +97,15 @@ async function processDerbyTimeout(draftId: number) {
          VALUES ($1, $2, $3)
          ON CONFLICT (draft_id, roster_id)
          DO UPDATE SET draft_position = $3`,
-        [draftId, currentRosterId, autoAssignedPosition]
+        [draftId, timedOutRosterId, autoAssignedPosition]
       );
 
-      console.log(`[DerbyTimer] Auto-assigned position ${autoAssignedPosition} to roster ${currentRosterId}`);
+      console.log(`[DerbyTimer] Auto-assigned position ${autoAssignedPosition} to roster ${timedOutRosterId}`);
 
       // Emit selection made event for auto-assign
       io.to(`draft_${draftId}`).emit('derby:selection_made', {
         draftId,
-        rosterId: currentRosterId,
+        rosterId: timedOutRosterId,
         draftPosition: autoAssignedPosition,
         isComplete: false, // We'll check this after getting updated derby
         selection: {
@@ -116,6 +118,7 @@ async function processDerbyTimeout(draftId: number) {
       });
     } else {
       // Skip: NFL-style skip (roster can still pick later)
+      // Note: This only happens when there's a current roster on the clock
       await skipDerbyTurn(draftId);
       console.log(`[DerbyTimer] Skipped roster ${currentRosterId} (can still pick later)`);
     }
@@ -156,7 +159,7 @@ async function processDerbyTimeout(draftId: number) {
       // Emit timeout event
       const timeoutEventData = {
         draftId,
-        rosterId: currentRosterId,
+        rosterId: timedOutRosterId,
         timeoutBehavior,
         autoAssignedPosition,
         skippedRosterIds,

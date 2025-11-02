@@ -420,8 +420,35 @@ export async function autoAssignDerbyPosition(
       throw new Error("Derby is not in progress");
     }
 
-    if (!derby.current_turn_roster_id) {
-      throw new Error("No current turn to auto-assign");
+    // Determine which roster to auto-assign
+    let rosterToAssign: number;
+
+    if (derby.current_turn_roster_id) {
+      // Normal case: assign to current roster on the clock
+      rosterToAssign = derby.current_turn_roster_id;
+    } else if (derby.skipped_roster_ids && derby.skipped_roster_ids.length > 0) {
+      // Only skipped users remain: pick a random skipped roster to auto-assign
+      const selectionsQuery = `
+        SELECT roster_id FROM draft_derby_selections
+        WHERE derby_id = $1
+      `;
+      const selectionsResult = await client.query(selectionsQuery, [derby.id]);
+      const selectedRosterIds = selectionsResult.rows.map((r: any) => r.roster_id);
+
+      // Get skipped rosters that haven't selected yet
+      const skippedNotSelected = derby.skipped_roster_ids.filter(
+        rosterId => !selectedRosterIds.includes(rosterId)
+      );
+
+      if (skippedNotSelected.length === 0) {
+        throw new Error("No skipped rosters available to auto-assign");
+      }
+
+      // Pick random skipped roster
+      rosterToAssign = skippedNotSelected[Math.floor(Math.random() * skippedNotSelected.length)];
+      console.log(`[DerbyAutoAssign] Only skipped remain, randomly selected roster ${rosterToAssign}`);
+    } else {
+      throw new Error("No current turn and no skipped rosters to auto-assign");
     }
 
     // Get available positions
@@ -446,14 +473,19 @@ export async function autoAssignDerbyPosition(
 
     const insertResult = await client.query(insertQuery, [
       derby.id,
-      derby.current_turn_roster_id,
+      rosterToAssign,
       randomPosition,
     ]);
 
     const selection = insertResult.rows[0];
 
-    // Calculate next turn (don't add to skipped list for auto-assign)
-    await calculateNextTurn(derby, derby.skipped_roster_ids, client);
+    // Remove the auto-assigned roster from skipped list if it was skipped
+    const updatedSkippedRosterIds = derby.skipped_roster_ids.filter(
+      id => id !== rosterToAssign
+    );
+
+    // Calculate next turn
+    await calculateNextTurn(derby, updatedSkippedRosterIds, client);
 
     await client.query("COMMIT");
 

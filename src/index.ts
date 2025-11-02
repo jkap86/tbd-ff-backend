@@ -260,6 +260,13 @@ v1Router.get("/profile", authenticate, (req: Request, res: Response) => {
   });
 });
 
+// Diagnostic logging endpoint (no auth required for debugging) - MUST be before v1Router
+app.post("/api/v1/diagnostic/log", (req: Request, res: Response) => {
+  const { message, data } = req.body;
+  console.log(`[DIAGNOSTIC] ${message}`, data ? JSON.stringify(data) : '');
+  res.json({ success: true });
+});
+
 // Mount v1 API (all routes now use versioned endpoints)
 app.use("/api/v1", v1Router);
 
@@ -284,13 +291,6 @@ app.get("/test-push", (_req: Request, res: Response) => {
     'if(res.ok){r.textContent="Success! "+JSON.stringify(d)}else{r.textContent="Failed: "+JSON.stringify(d)}}' +
     'catch(e){r.textContent="Error: "+e.message}});</script></body></html>';
   res.send(html);
-});
-
-// Diagnostic logging endpoint (no auth required for debugging)
-app.post("/api/v1/diagnostic/log", (req: Request, res: Response) => {
-  const { message, data } = req.body;
-  console.log(`[DIAGNOSTIC] ${message}`, data ? JSON.stringify(data) : '');
-  res.json({ success: true });
 });
 
 // 404 handler

@@ -19,7 +19,7 @@ import { projectionsCache } from "../services/statsPreloader";
  */
 export const globalApiLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute window
-  max: 100, // 100 requests per minute per IP
+  max: 300, // 300 requests per minute per IP (allows ~5 req/sec for normal usage)
   message: {
     success: false,
     message: "Too many requests from this IP, please try again later.",
@@ -35,18 +35,21 @@ export const globalApiLimiter = rateLimit({
 /**
  * Strict rate limiter for authentication endpoints
  * Prevents brute force attacks on login, registration, and password reset
+ * Note: Disabled in development mode for testing convenience
  */
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minute window
-  max: 5, // 5 requests per window per IP
+  max: 5, // 5 failed requests per window per IP
   message: {
     success: false,
-    message: "Too many authentication attempts. Please try again in 15 minutes.",
+    message: "Too many failed authentication attempts. Please try again in 15 minutes.",
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // Track failed attempts more strictly
-  skipSuccessfulRequests: false,
+  // Only count failed attempts - successful logins don't count toward limit
+  skipSuccessfulRequests: true,
+  // Skip rate limiting in development mode
+  skip: (_req: Request) => process.env.NODE_ENV === 'development',
 });
 
 /**
@@ -67,10 +70,11 @@ export const passwordResetLimiter = rateLimit({
 /**
  * Rate limiter for public data endpoints
  * Prevents data scraping and excessive queries
+ * Stricter limit for unauthenticated public access
  */
 export const publicDataLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute window
-  max: 30, // 30 requests per minute per IP
+  max: 15, // 15 requests per minute per IP (stricter for public/unauthenticated access)
   message: {
     success: false,
     message: "Too many requests. Please slow down.",

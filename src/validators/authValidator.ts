@@ -25,8 +25,10 @@ export const registerValidator: ValidationChain[] = [
     .withMessage("Email must be less than 255 characters"),
 
   body("password")
-    .isLength({ min: 8, max: 128 })
-    .withMessage("Password must be at least 8 characters"),
+    .isLength({ min: 6, max: 128 })
+    .withMessage("Password must be at least 6 characters")
+    .matches(/(?=.*[\d@$!%*?&])/)
+    .withMessage("Password must contain at least one number or special character"),
 
   body("phone_number")
     .optional({ nullable: true })

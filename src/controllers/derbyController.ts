@@ -57,53 +57,42 @@ export async function startDerby(req: Request, res: Response): Promise<void> {
     const rosters = await getRostersByLeagueId(draft.league_id);
     const rosterIds = rosters.map(r => r.id);
 
-    // Randomize the derby order (order for picking positions)
-    const shuffledRosterIds = [...rosterIds].sort(() => Math.random() - 0.5);
+    // Import DraftDerby model functions
+    const { createDraftDerby, startDraftDerby, getDraftDerbyByDraftId } = await import('../models/DraftDerby');
+
+    // Check if derby already exists
+    let derby = await getDraftDerbyByDraftId(parseInt(draftId));
+
+    if (!derby) {
+      // Create new derby with randomized selection order
+      derby = await createDraftDerby(parseInt(draftId), rosterIds);
+    }
+
+    // Start the derby (sets first roster's turn)
+    const startedDerby = await startDraftDerby(parseInt(draftId));
 
     // Calculate turn deadline
     const derbyTimeLimit = draft.derby_time_limit_seconds || 60;
     const turnDeadline = new Date(Date.now() + derbyTimeLimit * 1000);
 
-    // Create/update derby record with derby order
-    const derbyResult = await pool.query(
-      `INSERT INTO draft_derby (draft_id, status, derby_order, current_turn, turn_deadline)
-       VALUES ($1, 'in_progress', $2, 0, $3)
-       ON CONFLICT (draft_id)
-       DO UPDATE SET
-         status = 'in_progress',
-         derby_order = $2,
-         current_turn = 0,
-         turn_deadline = $3,
-         updated_at = CURRENT_TIMESTAMP
-       RETURNING *`,
-      [draftId, JSON.stringify(shuffledRosterIds), turnDeadline]
-    );
-
-    const derby = derbyResult.rows[0];
-
     // Schedule automatic timeout
     scheduleDerbyTimeout(parseInt(draftId), turnDeadline);
 
-    // Emit to socket
+    // Emit to socket with new schema
     io.to(`draft-${draftId}`).emit('derby:update', {
       draftId: parseInt(draftId),
-      derby: {
-        ...derby,
-        derby_order: shuffledRosterIds,
-      },
-      derbyOrder: shuffledRosterIds,
-      currentTurn: 0,
-      currentRosterId: shuffledRosterIds[0],
+      derby: startedDerby,
+      selectionOrder: startedDerby.selection_order,
+      currentRosterId: startedDerby.current_turn_roster_id,
+      skippedRosterIds: startedDerby.skipped_roster_ids,
+      onlySkippedRemaining: false,
       turnDeadline: turnDeadline.toISOString(),
       message: 'Derby has started - teams will now select their draft positions',
     });
 
     res.status(200).json({
       success: true,
-      data: {
-        ...derby,
-        derby_order: shuffledRosterIds,
-      },
+      data: startedDerby,
       message: "Derby started - teams can now select their draft positions",
     });
 
@@ -124,13 +113,11 @@ export async function getDerbyStatus(req: Request, res: Response): Promise<void>
   try {
     const { draftId } = req.params;
 
-    // Get derby record
-    const result = await pool.query(
-      `SELECT * FROM draft_derby WHERE draft_id = $1`,
-      [draftId]
-    );
+    // Use DraftDerby model function
+    const { getDraftDerbyWithDetails } = await import('../models/DraftDerby');
+    const derbyDetails = await getDraftDerbyWithDetails(parseInt(draftId));
 
-    if (result.rows.length === 0) {
+    if (!derbyDetails) {
       res.status(404).json({
         success: false,
         message: "Derby not found for this draft",
@@ -138,9 +125,7 @@ export async function getDerbyStatus(req: Request, res: Response): Promise<void>
       return;
     }
 
-    const derby = result.rows[0];
-
-    // Get draft to find league_id
+    // Get draft to find league_id for rosters
     const draft = await getDraftById(parseInt(draftId));
     if (!draft) {
       res.status(404).json({
@@ -159,30 +144,11 @@ export async function getDerbyStatus(req: Request, res: Response): Promise<void>
       [draft.league_id]
     );
 
-    // Get selections
-    const selectionsResult = await pool.query(
-      `SELECT * FROM draft_derby_selections WHERE derby_id = $1 ORDER BY selected_at ASC`,
-      [derby.id]
-    );
-
-    // Calculate available positions
-    const derbyOrder = typeof derby.derby_order === 'string'
-      ? JSON.parse(derby.derby_order)
-      : derby.derby_order || [];
-
-    const selectedPositions = selectionsResult.rows.map(s => s.draft_position);
-    const availablePositions = Array.from(
-      { length: derbyOrder.length },
-      (_, i) => i + 1
-    ).filter(pos => !selectedPositions.includes(pos));
-
     res.status(200).json({
       success: true,
       data: {
-        ...derby,
+        ...derbyDetails,
         rosters: rostersResult.rows,
-        selections: selectionsResult.rows,
-        available_positions: availablePositions,
       },
     });
 
@@ -235,33 +201,31 @@ export async function createDerby(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // Create derby record
-    const result = await pool.query(
-      `INSERT INTO draft_derby (draft_id, status)
-       VALUES ($1, 'not_started')
-       ON CONFLICT (draft_id) DO NOTHING
-       RETURNING *`,
-      [draftId]
-    );
+    // Import DraftDerby model functions
+    const { createDraftDerby, getDraftDerbyByDraftId } = await import('../models/DraftDerby');
 
-    if (result.rows.length === 0) {
-      // Derby already exists
-      const existing = await pool.query(
-        `SELECT * FROM draft_derby WHERE draft_id = $1`,
-        [draftId]
-      );
+    // Check if derby already exists
+    const existingDerby = await getDraftDerbyByDraftId(parseInt(draftId));
 
+    if (existingDerby) {
       res.status(200).json({
         success: true,
-        data: existing.rows[0],
+        data: existingDerby,
         message: "Derby already exists",
       });
       return;
     }
 
+    // Get all rosters for this league
+    const rosters = await getRostersByLeagueId(draft.league_id);
+    const rosterIds = rosters.map(r => r.id);
+
+    // Create new derby with randomized selection order
+    const derby = await createDraftDerby(parseInt(draftId), rosterIds);
+
     res.status(201).json({
       success: true,
-      data: result.rows[0],
+      data: derby,
     });
 
   } catch (error: any) {
@@ -278,8 +242,6 @@ export async function createDerby(req: Request, res: Response): Promise<void> {
  * POST /api/drafts/:draftId/derby/select
  */
 export async function selectDerbyPosition(req: Request, res: Response): Promise<void> {
-  const client = await pool.connect();
-
   try {
     const { draftId } = req.params;
     console.log('[Derby] Request body:', req.body);
@@ -288,53 +250,8 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
 
     console.log('[Derby] Position selection attempt:', { draftId, rosterId, draftPosition, userId });
 
-    await client.query('BEGIN');
-
-    // Get derby status
-    const derbyResult = await client.query(
-      `SELECT * FROM draft_derby WHERE draft_id = $1`,
-      [draftId]
-    );
-
-    if (derbyResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      res.status(404).json({
-        success: false,
-        message: "Derby not found",
-      });
-      return;
-    }
-
-    const derby = derbyResult.rows[0];
-
-    // Validate derby is in progress
-    if (derby.status !== 'in_progress') {
-      await client.query('ROLLBACK');
-      res.status(400).json({
-        success: false,
-        message: `Derby is not in progress (status: ${derby.status})`,
-      });
-      return;
-    }
-
-    // Parse derby order
-    const derbyOrder = typeof derby.derby_order === 'string'
-      ? JSON.parse(derby.derby_order)
-      : derby.derby_order;
-
-    // Validate it's this roster's turn
-    const currentRosterId = derbyOrder[derby.current_turn];
-    if (currentRosterId !== rosterId) {
-      await client.query('ROLLBACK');
-      res.status(403).json({
-        success: false,
-        message: "It's not your turn to select",
-      });
-      return;
-    }
-
     // Verify user owns this roster
-    const rosterCheck = await client.query(
+    const rosterCheck = await pool.query(
       `SELECT r.id FROM rosters r
        JOIN leagues l ON l.id = r.league_id
        WHERE r.id = $1 AND r.user_id = $2`,
@@ -342,7 +259,6 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
     );
 
     if (rosterCheck.rows.length === 0) {
-      await client.query('ROLLBACK');
       res.status(403).json({
         success: false,
         message: "You don't own this roster",
@@ -350,34 +266,14 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
       return;
     }
 
-    // Check if position is already taken
-    const existingSelection = await client.query(
-      `SELECT * FROM draft_derby_selections
-       WHERE derby_id = $1 AND draft_position = $2`,
-      [derby.id, draftPosition]
-    );
+    // Import DraftDerby model functions
+    const { makeDerbySelection, getDraftDerbyWithDetails } = await import('../models/DraftDerby');
 
-    if (existingSelection.rows.length > 0) {
-      await client.query('ROLLBACK');
-      res.status(400).json({
-        success: false,
-        message: "Position already selected",
-      });
-      return;
-    }
-
-    // Record the selection
-    const selectionResult = await client.query(
-      `INSERT INTO draft_derby_selections (derby_id, roster_id, draft_position, selected_at)
-       VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-       RETURNING *`,
-      [derby.id, rosterId, draftPosition]
-    );
-
-    const newSelection = selectionResult.rows[0];
+    // Make the selection using model function (handles all validation and turn logic)
+    const selection = await makeDerbySelection(parseInt(draftId), rosterId, draftPosition);
 
     // Update draft_order table with selected position
-    await client.query(
+    await pool.query(
       `INSERT INTO draft_order (draft_id, roster_id, draft_position)
        VALUES ($1, $2, $3)
        ON CONFLICT (draft_id, roster_id)
@@ -385,69 +281,31 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
       [draftId, rosterId, draftPosition]
     );
 
-    // Get draft for time limit
-    const draft = await getDraftById(parseInt(draftId));
-    const derbyTimeLimit = draft?.derby_time_limit_seconds || 60;
+    // Get updated derby with details
+    const derbyWithDetails = await getDraftDerbyWithDetails(parseInt(draftId));
 
-    // Calculate next turn
-    const nextTurn = derby.current_turn + 1;
-    const isComplete = nextTurn >= derbyOrder.length;
-
-    // Update derby status
-    if (isComplete) {
-      await client.query(
-        `UPDATE draft_derby
-         SET status = 'completed', current_turn = $1, turn_deadline = NULL, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2`,
-        [nextTurn, derby.id]
-      );
-    } else {
-      // Calculate new turn deadline
-      const newDeadline = new Date(Date.now() + derbyTimeLimit * 1000);
-
-      await client.query(
-        `UPDATE draft_derby
-         SET current_turn = $1, turn_deadline = $2, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $3`,
-        [nextTurn, newDeadline, derby.id]
-      );
+    if (!derbyWithDetails) {
+      res.status(500).json({
+        success: false,
+        message: "Error retrieving updated derby status",
+      });
+      return;
     }
 
-    await client.query('COMMIT');
+    const isComplete = derbyWithDetails.status === 'completed';
+    const nextRosterId = derbyWithDetails.current_turn_roster_id;
+    const skippedRosterIds = derbyWithDetails.skipped_roster_ids;
+    const onlySkippedRemaining = nextRosterId === null && skippedRosterIds.length > 0;
 
     // Cancel current timer
     cancelDerbyTimer(parseInt(draftId));
 
-    // Schedule next timeout if not complete
-    if (!isComplete) {
-      const derbyTimeLimit = draft?.derby_time_limit_seconds || 60;
-      const newDeadline = new Date(Date.now() + derbyTimeLimit * 1000);
-      scheduleDerbyTimeout(parseInt(draftId), newDeadline);
-    }
-
-    // Get updated derby with selections
-    const updatedDerby = await client.query(
-      `SELECT dd.*,
-              json_agg(
-                json_build_object(
-                  'id', dds.id,
-                  'derby_id', dds.derby_id,
-                  'roster_id', dds.roster_id,
-                  'draft_position', dds.draft_position,
-                  'selected_at', dds.selected_at
-                ) ORDER BY dds.selected_at
-              ) FILTER (WHERE dds.id IS NOT NULL) as selections
-       FROM draft_derby dd
-       LEFT JOIN draft_derby_selections dds ON dds.derby_id = dd.id
-       WHERE dd.id = $1
-       GROUP BY dd.id`,
-      [derby.id]
-    );
-
-    const result = updatedDerby.rows[0];
+    // Get draft for time limit
+    const draft = await getDraftById(parseInt(draftId));
+    const derbyTimeLimit = draft?.derby_time_limit_seconds || 60;
 
     // Get roster details
-    const rostersResult = await client.query(
+    const rostersResult = await pool.query(
       `SELECT r.id as roster_id, r.user_id, u.username
        FROM rosters r
        LEFT JOIN users u ON u.id = r.user_id
@@ -455,29 +313,32 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
       [draft?.league_id]
     );
 
-    // Calculate available positions
-    const selectedPositions = (result.selections || []).map((s: any) => s.draft_position);
-    const availablePositions = Array.from(
-      { length: derbyOrder.length },
-      (_, i) => i + 1
-    ).filter(pos => !selectedPositions.includes(pos));
-
     // Emit socket events
     io.to(`draft-${draftId}`).emit('derby:selection_made', {
       draftId: parseInt(draftId),
       rosterId,
       draftPosition,
-      currentTurn: nextTurn,
       isComplete,
     });
 
     if (!isComplete) {
-      const nextRosterId = derbyOrder[nextTurn];
+      // Determine which timer to use
+      let timerDuration = derbyTimeLimit;
+      if (onlySkippedRemaining) {
+        timerDuration = draft?.derby_skipped_user_time_limit_seconds || derbyTimeLimit;
+      }
+
+      const newDeadline = new Date(Date.now() + timerDuration * 1000);
+
+      // Schedule next timeout
+      scheduleDerbyTimeout(parseInt(draftId), newDeadline);
+
       io.to(`draft-${draftId}`).emit('derby:turn_changed', {
         draftId: parseInt(draftId),
-        currentTurn: nextTurn,
         currentRosterId: nextRosterId,
-        turnDeadline: new Date(Date.now() + (draft?.derby_time_limit_seconds || 60) * 1000).toISOString(),
+        skippedRosterIds,
+        onlySkippedRemaining,
+        turnDeadline: newDeadline.toISOString(),
       });
     } else {
       io.to(`draft-${draftId}`).emit('derby:completed', {
@@ -490,24 +351,20 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
       success: true,
       data: {
         derby: {
-          ...result,
+          ...derbyWithDetails,
           rosters: rostersResult.rows,
-          available_positions: availablePositions,
         },
-        selection: newSelection,
+        selection,
       },
       message: isComplete ? "Derby completed!" : "Position selected successfully",
     });
 
   } catch (error: any) {
-    await client.query('ROLLBACK');
     console.error('[Derby] Error selecting position:', error);
     res.status(500).json({
       success: false,
       message: error.message || "Error selecting position",
     });
-  } finally {
-    client.release();
   }
 }
 
@@ -516,8 +373,6 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
  * POST /api/drafts/:draftId/derby/skip
  */
 export async function skipDerbyTurn(req: Request, res: Response): Promise<void> {
-  const client = await pool.connect();
-
   try {
     const { draftId } = req.params;
     const userId = req.user?.userId;
@@ -525,9 +380,9 @@ export async function skipDerbyTurn(req: Request, res: Response): Promise<void> 
     console.log('[Derby] Skip turn attempt:', { draftId, userId });
 
     // Get draft and league for commissioner check
-    const draftForCheck = await getDraftById(parseInt(draftId));
-    if (!draftForCheck) {
-      res.status(403).json({
+    const draft = await getDraftById(parseInt(draftId));
+    if (!draft) {
+      res.status(404).json({
         success: false,
         message: "Draft not found",
       });
@@ -535,10 +390,10 @@ export async function skipDerbyTurn(req: Request, res: Response): Promise<void> 
     }
 
     const { getLeagueById } = await import("../models/League");
-    const league = await getLeagueById(draftForCheck.league_id);
+    const league = await getLeagueById(draft.league_id);
 
     if (!league) {
-      res.status(403).json({
+      res.status(404).json({
         success: false,
         message: "League not found",
       });
@@ -555,141 +410,60 @@ export async function skipDerbyTurn(req: Request, res: Response): Promise<void> 
       return;
     }
 
-    await client.query('BEGIN');
+    // Import DraftDerby model functions
+    const { skipDerbyTurn: skipDerbyTurnModel, getDraftDerbyWithDetails } = await import('../models/DraftDerby');
 
-    // Get derby status
-    const derbyResult = await client.query(
-      `SELECT * FROM draft_derby WHERE draft_id = $1`,
-      [draftId]
-    );
+    // Skip turn using model function
+    await skipDerbyTurnModel(parseInt(draftId));
 
-    if (derbyResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      res.status(404).json({
+    // Get updated derby with details
+    const derbyWithDetails = await getDraftDerbyWithDetails(parseInt(draftId));
+
+    if (!derbyWithDetails) {
+      res.status(500).json({
         success: false,
-        message: "Derby not found",
+        message: "Error retrieving updated derby status",
       });
       return;
     }
 
-    const derby = derbyResult.rows[0];
+    const isComplete = derbyWithDetails.status === 'completed';
+    const nextRosterId = derbyWithDetails.current_turn_roster_id;
+    const skippedRosterIds = derbyWithDetails.skipped_roster_ids;
+    const onlySkippedRemaining = nextRosterId === null && skippedRosterIds.length > 0;
 
-    // Validate derby is in progress
-    if (derby.status !== 'in_progress') {
-      await client.query('ROLLBACK');
-      res.status(400).json({
-        success: false,
-        message: `Derby is not in progress (status: ${derby.status})`,
-      });
-      return;
-    }
+    // Cancel current timer
+    cancelDerbyTimer(parseInt(draftId));
 
-    // Parse derby order
-    const derbyOrder = typeof derby.derby_order === 'string'
-      ? JSON.parse(derby.derby_order)
-      : derby.derby_order;
-
-    const currentRosterId = derbyOrder[derby.current_turn];
-
-    // Get draft to check timeout behavior
-    const draft = await getDraftById(parseInt(draftId));
-    const timeoutBehavior = draft?.derby_timeout_behavior || 'auto';
-
-    // If auto-assign, find available position
-    if (timeoutBehavior === 'auto') {
-      // Get already selected positions
-      const selectedPositions = await client.query(
-        `SELECT draft_position FROM draft_derby_selections WHERE derby_id = $1`,
-        [derby.id]
-      );
-
-      const takenPositions = new Set(selectedPositions.rows.map(r => r.draft_position));
-      const totalRosters = derbyOrder.length;
-
-      // Find first available position (1-indexed)
-      let assignedPosition = null;
-      for (let i = 1; i <= totalRosters; i++) {
-        if (!takenPositions.has(i)) {
-          assignedPosition = i;
-          break;
-        }
-      }
-
-      if (assignedPosition) {
-        // Record the auto-assigned selection
-        await client.query(
-          `INSERT INTO draft_derby_selections (derby_id, roster_id, draft_position, selected_at)
-           VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
-          [derby.id, currentRosterId, assignedPosition]
-        );
-
-        // Update draft_order table
-        await client.query(
-          `INSERT INTO draft_order (draft_id, roster_id, pick_order)
-           VALUES ($1, $2, $3)
-           ON CONFLICT (draft_id, roster_id)
-           DO UPDATE SET pick_order = $3`,
-          [draftId, currentRosterId, assignedPosition]
-        );
-      }
-    }
-
-    // Advance to next turn
-    const nextTurn = derby.current_turn + 1;
-    const isComplete = nextTurn >= derbyOrder.length;
-
-    // Update derby status
-    if (isComplete) {
-      await client.query(
-        `UPDATE draft_derby
-         SET status = 'completed', current_turn = $1, turn_deadline = NULL, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2`,
-        [nextTurn, derby.id]
-      );
-    } else {
-      // Calculate new turn deadline
-      const derbyTimeLimit = draft?.derby_time_limit_seconds || 60;
-      const newDeadline = new Date(Date.now() + derbyTimeLimit * 1000);
-
-      await client.query(
-        `UPDATE draft_derby
-         SET current_turn = $1, turn_deadline = $2, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $3`,
-        [nextTurn, newDeadline, derby.id]
-      );
-    }
-
-    await client.query('COMMIT');
-
-    // Get updated derby with selections
-    const updatedDerby = await client.query(
-      `SELECT dd.*,
-              json_agg(
-                json_build_object(
-                  'id', dds.id,
-                  'derby_id', dds.derby_id,
-                  'roster_id', dds.roster_id,
-                  'draft_position', dds.draft_position,
-                  'selected_at', dds.selected_at
-                ) ORDER BY dds.selected_at
-              ) FILTER (WHERE dds.id IS NOT NULL) as selections
-       FROM draft_derby dd
-       LEFT JOIN draft_derby_selections dds ON dds.derby_id = dd.id
-       WHERE dd.id = $1
-       GROUP BY dd.id`,
-      [derby.id]
+    // Get roster details
+    const rostersResult = await pool.query(
+      `SELECT r.id as roster_id, r.user_id, u.username
+       FROM rosters r
+       LEFT JOIN users u ON u.id = r.user_id
+       WHERE r.league_id = $1`,
+      [draft.league_id]
     );
-
-    const result = updatedDerby.rows[0];
 
     // Emit socket events
     if (!isComplete) {
-      const nextRosterId = derbyOrder[nextTurn];
+      // Determine which timer to use
+      const derbyTimeLimit = draft.derby_time_limit_seconds || 60;
+      let timerDuration = derbyTimeLimit;
+      if (onlySkippedRemaining) {
+        timerDuration = draft.derby_skipped_user_time_limit_seconds || derbyTimeLimit;
+      }
+
+      const newDeadline = new Date(Date.now() + timerDuration * 1000);
+
+      // Schedule next timeout
+      scheduleDerbyTimeout(parseInt(draftId), newDeadline);
+
       io.to(`draft-${draftId}`).emit('derby:turn_changed', {
         draftId: parseInt(draftId),
-        currentTurn: nextTurn,
         currentRosterId: nextRosterId,
-        turnDeadline: new Date(Date.now() + (draft?.derby_time_limit_seconds || 60) * 1000).toISOString(),
+        skippedRosterIds,
+        onlySkippedRemaining,
+        turnDeadline: newDeadline.toISOString(),
         skipped: true,
       });
     } else {
@@ -701,18 +475,18 @@ export async function skipDerbyTurn(req: Request, res: Response): Promise<void> 
 
     res.status(200).json({
       success: true,
-      data: result,
+      data: {
+        ...derbyWithDetails,
+        rosters: rostersResult.rows,
+      },
       message: isComplete ? "Derby completed" : "Turn skipped",
     });
 
   } catch (error: any) {
-    await client.query('ROLLBACK');
     console.error('[Derby] Error skipping turn:', error);
     res.status(500).json({
       success: false,
       message: error.message || "Error skipping turn",
     });
-  } finally {
-    client.release();
   }
 }

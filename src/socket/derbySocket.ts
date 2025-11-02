@@ -99,6 +99,21 @@ async function processDerbyTimeout(draftId: number) {
       );
 
       console.log(`[DerbyTimer] Auto-assigned position ${autoAssignedPosition} to roster ${currentRosterId}`);
+
+      // Emit selection made event for auto-assign
+      io.to(`draft-${draftId}`).emit('derby:selection_made', {
+        draftId,
+        rosterId: currentRosterId,
+        draftPosition: autoAssignedPosition,
+        isComplete: false, // We'll check this after getting updated derby
+        selection: {
+          id: selection.id,
+          derby_id: selection.derby_id,
+          roster_id: selection.roster_id,
+          draft_position: selection.draft_position,
+          selected_at: selection.selected_at,
+        },
+      });
     } else {
       // Skip: NFL-style skip (roster can still pick later)
       await skipDerbyTurn(draftId);

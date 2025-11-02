@@ -335,6 +335,13 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
       rosterId,
       draftPosition,
       isComplete,
+      selection: {
+        id: selection.id,
+        derby_id: selection.derby_id,
+        roster_id: selection.roster_id,
+        draft_position: selection.draft_position,
+        selected_at: selection.selected_at,
+      },
     });
 
     if (!isComplete) {

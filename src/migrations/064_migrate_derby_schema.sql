@@ -9,26 +9,48 @@ ALTER TABLE draft_derby
   ADD COLUMN IF NOT EXISTS current_turn_started_at TIMESTAMP,
   ADD COLUMN IF NOT EXISTS skipped_roster_ids JSONB DEFAULT '[]';
 
--- Step 2: Migrate data from old columns to new columns
--- Only migrate if old columns exist and new columns are null
-UPDATE draft_derby
-SET
-  selection_order = derby_order,
-  current_turn_roster_id = (
-    CASE
-      WHEN derby_order IS NOT NULL AND current_turn IS NOT NULL
-        AND current_turn < jsonb_array_length(derby_order)
-      THEN (derby_order->>current_turn)::INTEGER
-      ELSE NULL
-    END
-  ),
-  current_turn_started_at = COALESCE(current_turn_started_at, updated_at),
-  skipped_roster_ids = COALESCE(skipped_roster_ids, '[]'::jsonb)
-WHERE selection_order IS NULL AND derby_order IS NOT NULL;
+-- Step 2: Migrate data from old columns to new columns (only if old columns exist)
+DO $$
+BEGIN
+  -- Check if old column exists before trying to migrate
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'draft_derby' AND column_name = 'derby_order'
+  ) THEN
+    -- Migrate data from old schema to new schema
+    UPDATE draft_derby
+    SET
+      selection_order = derby_order,
+      current_turn_roster_id = (
+        CASE
+          WHEN derby_order IS NOT NULL AND current_turn IS NOT NULL
+            AND current_turn < jsonb_array_length(derby_order)
+          THEN (derby_order->>current_turn)::INTEGER
+          ELSE NULL
+        END
+      ),
+      current_turn_started_at = COALESCE(current_turn_started_at, updated_at),
+      skipped_roster_ids = COALESCE(skipped_roster_ids, '[]'::jsonb)
+    WHERE selection_order IS NULL AND derby_order IS NOT NULL;
+  ELSE
+    -- Old columns don't exist, ensure new columns have defaults
+    UPDATE draft_derby
+    SET
+      selection_order = COALESCE(selection_order, '[]'::jsonb),
+      skipped_roster_ids = COALESCE(skipped_roster_ids, '[]'::jsonb)
+    WHERE selection_order IS NULL;
+  END IF;
+END $$;
 
--- Step 3: Make selection_order NOT NULL after migration
-ALTER TABLE draft_derby
-  ALTER COLUMN selection_order SET NOT NULL;
+-- Step 3: Make selection_order NOT NULL after migration (only if there's data or set default)
+DO $$
+BEGIN
+  -- Only set NOT NULL if column exists and either has data or we can set a default
+  IF EXISTS (SELECT 1 FROM draft_derby WHERE selection_order IS NOT NULL) OR
+     NOT EXISTS (SELECT 1 FROM draft_derby LIMIT 1) THEN
+    ALTER TABLE draft_derby ALTER COLUMN selection_order SET NOT NULL;
+  END IF;
+END $$;
 
 -- Step 4: Drop old columns if they exist
 ALTER TABLE draft_derby

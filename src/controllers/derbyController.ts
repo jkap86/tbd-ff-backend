@@ -79,7 +79,7 @@ export async function startDerby(req: Request, res: Response): Promise<void> {
     scheduleDerbyTimeout(parseInt(draftId), turnDeadline);
 
     // Emit to socket with new schema
-    io.to(`draft-${draftId}`).emit('derby:update', {
+    io.to(`draft_${draftId}`).emit('derby:update', {
       draftId: parseInt(draftId),
       derby: startedDerby,
       selectionOrder: startedDerby.selection_order,
@@ -330,7 +330,7 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
     );
 
     // Emit socket events
-    io.to(`draft-${draftId}`).emit('derby:selection_made', {
+    io.to(`draft_${draftId}`).emit('derby:selection_made', {
       draftId: parseInt(draftId),
       rosterId,
       draftPosition,
@@ -356,7 +356,7 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
       // Schedule next timeout
       scheduleDerbyTimeout(parseInt(draftId), newDeadline);
 
-      io.to(`draft-${draftId}`).emit('derby:turn_changed', {
+      io.to(`draft_${draftId}`).emit('derby:turn_changed', {
         draftId: parseInt(draftId),
         currentRosterId: nextRosterId,
         skippedRosterIds,
@@ -364,7 +364,7 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
         turnDeadline: newDeadline.toISOString(),
       });
     } else {
-      io.to(`draft-${draftId}`).emit('derby:completed', {
+      io.to(`draft_${draftId}`).emit('derby:completed', {
         draftId: parseInt(draftId),
         message: 'Derby completed - all positions selected',
       });
@@ -481,7 +481,7 @@ export async function skipDerbyTurn(req: Request, res: Response): Promise<void> 
       // Schedule next timeout
       scheduleDerbyTimeout(parseInt(draftId), newDeadline);
 
-      io.to(`draft-${draftId}`).emit('derby:turn_changed', {
+      io.to(`draft_${draftId}`).emit('derby:turn_changed', {
         draftId: parseInt(draftId),
         currentRosterId: nextRosterId,
         skippedRosterIds,
@@ -490,7 +490,7 @@ export async function skipDerbyTurn(req: Request, res: Response): Promise<void> 
         skipped: true,
       });
     } else {
-      io.to(`draft-${draftId}`).emit('derby:completed', {
+      io.to(`draft_${draftId}`).emit('derby:completed', {
         draftId: parseInt(draftId),
         message: 'Derby completed',
       });

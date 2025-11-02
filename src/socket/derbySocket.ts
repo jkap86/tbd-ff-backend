@@ -101,7 +101,7 @@ async function processDerbyTimeout(draftId: number) {
       console.log(`[DerbyTimer] Auto-assigned position ${autoAssignedPosition} to roster ${currentRosterId}`);
 
       // Emit selection made event for auto-assign
-      io.to(`draft-${draftId}`).emit('derby:selection_made', {
+      io.to(`draft_${draftId}`).emit('derby:selection_made', {
         draftId,
         rosterId: currentRosterId,
         draftPosition: autoAssignedPosition,
@@ -135,7 +135,7 @@ async function processDerbyTimeout(draftId: number) {
 
     if (isComplete) {
       // Emit completion event
-      io.to(`draft-${draftId}`).emit('derby:completed', {
+      io.to(`draft_${draftId}`).emit('derby:completed', {
         draftId,
         message: 'Derby completed - all positions assigned',
       });
@@ -162,8 +162,8 @@ async function processDerbyTimeout(draftId: number) {
         skippedRosterIds,
         onlySkippedRemaining,
       };
-      console.log(`[DerbyTimer] Emitting derby:timeout to draft-${draftId}:`, timeoutEventData);
-      io.to(`draft-${draftId}`).emit('derby:timeout', timeoutEventData);
+      console.log(`[DerbyTimer] Emitting derby:timeout to draft_${draftId}:`, timeoutEventData);
+      io.to(`draft_${draftId}`).emit('derby:timeout', timeoutEventData);
 
       // Emit turn changed event
       const turnChangedEventData = {
@@ -173,8 +173,8 @@ async function processDerbyTimeout(draftId: number) {
         onlySkippedRemaining,
         turnDeadline: newDeadline.toISOString(),
       };
-      console.log(`[DerbyTimer] Emitting derby:turn_changed to draft-${draftId}:`, turnChangedEventData);
-      io.to(`draft-${draftId}`).emit('derby:turn_changed', turnChangedEventData);
+      console.log(`[DerbyTimer] Emitting derby:turn_changed to draft_${draftId}:`, turnChangedEventData);
+      io.to(`draft_${draftId}`).emit('derby:turn_changed', turnChangedEventData);
 
       // Schedule next timeout
       scheduleDerbyTimeout(draftId, newDeadline);

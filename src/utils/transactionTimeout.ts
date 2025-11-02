@@ -1,4 +1,4 @@
-import { DATABASE_TIMEOUTS } from '../config/constants';
+import { TRANSACTION_TIMEOUTS } from '../config/constants';
 import { PoolClient } from 'pg';
 
 /**
@@ -6,6 +6,6 @@ import { PoolClient } from 'pg';
  * Should be called after BEGIN but before any queries
  */
 export async function setTransactionTimeouts(client: PoolClient): Promise<void> {
-  await client.query(`SET LOCAL statement_timeout = ${DATABASE_TIMEOUTS.STATEMENT_TIMEOUT_MS}`);
-  await client.query(`SET LOCAL lock_timeout = ${DATABASE_TIMEOUTS.LOCK_TIMEOUT_MS}`);
+  await client.query(`SET LOCAL statement_timeout = ${TRANSACTION_TIMEOUTS.DEFAULT}`);
+  await client.query(`SET LOCAL lock_timeout = ${TRANSACTION_TIMEOUTS.DEFAULT}`);
 }

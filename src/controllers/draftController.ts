@@ -40,6 +40,7 @@ import pool from "../config/database";
 import { calculateADP } from "../services/adpService";
 import { validatePositiveInteger } from "../utils/validation";
 import { TRANSACTION_TIMEOUTS, DB_ERROR_CODES } from "../config/constants";
+import { setTransactionTimeouts } from "../utils/transactionTimeout";
 
 /**
  * Calculate which roster should be picking based on current pick number

@@ -134,7 +134,7 @@ async function processDerbyTimeout(draftId: number) {
     const isComplete = derbyWithDetails.status === 'completed';
     const nextRosterId = derbyWithDetails.current_turn_roster_id;
     const skippedRosterIds = derbyWithDetails.skipped_roster_ids;
-    const onlySkippedRemaining = nextRosterId === null && skippedRosterIds.length > 0;
+    const updatedOnlySkippedRemaining = nextRosterId === null && skippedRosterIds.length > 0;
 
     if (isComplete) {
       // Emit completion event
@@ -148,7 +148,7 @@ async function processDerbyTimeout(draftId: number) {
       // Determine which timer to use for the next turn
       let timerDuration = draft?.derby_time_limit_seconds || 60;
 
-      if (onlySkippedRemaining) {
+      if (updatedOnlySkippedRemaining) {
         // Use skipped user timer if configured, otherwise use normal timer
         timerDuration = draft?.derby_skipped_user_time_limit_seconds || timerDuration;
         console.log(`[DerbyTimer] Only skipped users remain, using timer: ${timerDuration}s`);
@@ -163,7 +163,7 @@ async function processDerbyTimeout(draftId: number) {
         timeoutBehavior,
         autoAssignedPosition,
         skippedRosterIds,
-        onlySkippedRemaining,
+        onlySkippedRemaining: updatedOnlySkippedRemaining,
       };
       console.log(`[DerbyTimer] Emitting derby:timeout to draft_${draftId}:`, timeoutEventData);
       io.to(`draft_${draftId}`).emit('derby:timeout', timeoutEventData);
@@ -173,7 +173,7 @@ async function processDerbyTimeout(draftId: number) {
         draftId,
         currentRosterId: nextRosterId,
         skippedRosterIds,
-        onlySkippedRemaining,
+        onlySkippedRemaining: updatedOnlySkippedRemaining,
         turnDeadline: newDeadline.toISOString(),
       };
       console.log(`[DerbyTimer] Emitting derby:turn_changed to draft_${draftId}:`, turnChangedEventData);

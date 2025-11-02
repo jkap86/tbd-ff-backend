@@ -72,10 +72,6 @@ async function processDerbyTimeout(draftId: number) {
     const currentRosterId = derby.current_turn_roster_id;
     const onlySkippedRemaining = !currentRosterId && derby.skipped_roster_ids.length > 0;
 
-    if (onlySkippedRemaining) {
-      console.log(`[DerbyTimer] No current roster on the clock (only skipped users remain)`);
-    }
-
     // Get draft to check timeout behavior
     const draft = await getDraftById(draftId);
     const timeoutBehavior = draft?.derby_timeout_behavior || 'auto';
@@ -84,9 +80,42 @@ async function processDerbyTimeout(draftId: number) {
     let autoAssignedPosition = null;
     let timedOutRosterId = currentRosterId; // Track which roster timed out
 
-    // When only skipped remain, ALWAYS auto-assign (can't skip to anyone)
-    if (timeoutBehavior === 'auto' || onlySkippedRemaining) {
-      // Auto-assign a random available position
+    // When only skipped remain, auto-assign ALL of them at once
+    if (onlySkippedRemaining) {
+      console.log(`[DerbyTimer] Only skipped users remain - auto-assigning ALL remaining rosters`);
+
+      const { autoAssignAllSkippedRosters } = await import('../models/DraftDerby');
+      const assignments = await autoAssignAllSkippedRosters(draftId);
+
+      console.log(`[DerbyTimer] Auto-assigned ${assignments.length} skipped rosters`);
+
+      // Update draft_order table for all assignments
+      for (const assignment of assignments) {
+        await pool.query(
+          `INSERT INTO draft_order (draft_id, roster_id, draft_position)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (draft_id, roster_id)
+           DO UPDATE SET draft_position = $3`,
+          [draftId, assignment.roster_id, assignment.draft_position]
+        );
+
+        // Emit selection made event for each assignment
+        io.to(`draft_${draftId}`).emit('derby:selection_made', {
+          draftId,
+          rosterId: assignment.roster_id,
+          draftPosition: assignment.draft_position,
+          isComplete: false, // Will check after
+          selection: {
+            id: assignment.id,
+            derby_id: assignment.derby_id,
+            roster_id: assignment.roster_id,
+            draft_position: assignment.draft_position,
+            selected_at: assignment.selected_at,
+          },
+        });
+      }
+    } else if (timeoutBehavior === 'auto') {
+      // Normal timeout - auto-assign single roster
       const selection = await autoAssignDerbyPosition(draftId);
       autoAssignedPosition = selection.draft_position;
       timedOutRosterId = selection.roster_id;

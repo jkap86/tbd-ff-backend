@@ -153,6 +153,7 @@ async function checkNotificationPreferences(
       'player_status': 'player_status_change',
       'league_announcement': 'league_announcements',
       'league_invite': 'league_invites',
+      'league_chat': 'league_chat_messages',
     };
 
     const column = preferenceMap[notificationType];

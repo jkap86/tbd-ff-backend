@@ -294,3 +294,34 @@ export async function notifyLeagueInvite(
     logger.error('Error sending league invite notification:', error);
   }
 }
+
+/**
+ * Notify users about a new league chat message
+ */
+export async function notifyLeagueChat(
+  recipientUserIds: number[],
+  senderName: string,
+  messagePreview: string,
+  leagueId: number,
+  leagueName: string
+): Promise<void> {
+  try {
+    if (recipientUserIds.length === 0) return;
+
+    await sendPushNotification({
+      userIds: recipientUserIds,
+      type: 'league_chat',
+      payload: {
+        title: `New message in ${leagueName}`,
+        body: `${senderName}: ${messagePreview}`,
+        data: {
+          type: 'league_chat',
+          leagueId: leagueId.toString(),
+          screen: 'LeagueChat'
+        }
+      }
+    });
+  } catch (error) {
+    logger.error('Error sending league chat notification:', error);
+  }
+}

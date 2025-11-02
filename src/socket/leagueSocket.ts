@@ -1,8 +1,10 @@
 import { Server, Socket } from "socket.io";
 import { createLeagueChatMessage } from "../models/LeagueChatMessage";
 import { getLeagueById } from "../models/League";
+import { getRostersByLeagueId } from "../models/Roster";
 import { socketAuthMiddleware } from "../middleware/socketAuthMiddleware";
 import { isUserLeagueMember } from "../utils/leagueAuthorization";
+import { notifyLeagueChat } from "../services/notificationHelpers";
 import validator from "validator";
 
 /**
@@ -156,6 +158,37 @@ export function setupLeagueSocket(io: Server) {
           ...chatMessage,
           username,
         });
+
+        // Send push notifications to league members (async, don't await)
+        // Get league details and members for notifications
+        getLeagueById(league_id)
+          .then(async (league) => {
+            if (!league) return;
+
+            // Get all league members
+            const rosters = await getRostersByLeagueId(league_id);
+            const allMemberIds = rosters.map(r => r.user_id);
+
+            // Filter out the sender
+            const recipientIds = allMemberIds.filter(id => id !== user_id);
+
+            // Create message preview (first 50 chars)
+            const messagePreview = message.length > 50
+              ? message.substring(0, 50) + '...'
+              : message;
+
+            // Send notification
+            await notifyLeagueChat(
+              recipientIds,
+              username,
+              messagePreview,
+              league_id,
+              league.name
+            );
+          })
+          .catch((error) => {
+            console.error("[LeagueSocket] Error sending chat notifications:", error);
+          });
       } catch (error) {
         console.error("[LeagueSocket] Error sending league chat message:", error);
         socket.emit("error", { message: "Error sending message" });

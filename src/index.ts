@@ -265,6 +265,10 @@ app.use("/api/v1", v1Router);
 
 // Test push notifications page
 app.get("/test-push", (_req: Request, res: Response) => {
+  // Disable CSP for this test page
+  res.removeHeader('Content-Security-Policy');
+  res.setHeader('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval'; script-src * 'unsafe-inline' 'unsafe-eval'; connect-src *; img-src * data: blob: 'unsafe-inline'; frame-src *; style-src * 'unsafe-inline';");
+
   const html = '<!DOCTYPE html><html><head><title>Push Test</title></head><body><h1>Push Test</h1>' +
     '<input id="u" placeholder="User"><input id="p" type="password" placeholder="Pass">' +
     '<button id="lb">Login</button><div id="lr"></div><br>' +

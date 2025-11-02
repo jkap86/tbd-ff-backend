@@ -35,6 +35,7 @@ export const globalApiLimiter = rateLimit({
 /**
  * Strict rate limiter for authentication endpoints
  * Prevents brute force attacks on login, registration, and password reset
+ * Note: Disabled in development mode for testing convenience
  */
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minute window
@@ -47,6 +48,8 @@ export const authLimiter = rateLimit({
   legacyHeaders: false,
   // Track failed attempts more strictly
   skipSuccessfulRequests: false,
+  // Skip rate limiting in development mode
+  skip: (_req: Request) => process.env.NODE_ENV === 'development',
 });
 
 /**

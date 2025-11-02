@@ -305,29 +305,31 @@ async function calculateNextTurn(
   }
 
   // Find next roster that hasn't selected yet
-  // Priority: skipped rosters first, then follow selection order
+  // NFL-style skip: follow selection order, but SKIP rosters that are already skipped
+  // Skipped rosters can only pick "out of turn" - they should not be set as current turn
   let nextRosterId: number | null = null;
 
-  // Check skipped rosters first
-  for (const rosterId of skippedRosterIds) {
-    if (!selectedRosterIds.includes(rosterId)) {
+  // Follow selection order, skip rosters that have selected OR are skipped
+  for (const rosterId of derby.selection_order) {
+    if (!selectedRosterIds.includes(rosterId) && !skippedRosterIds.includes(rosterId)) {
       nextRosterId = rosterId;
       break;
     }
   }
 
-  // If no skipped rosters, follow selection order
+  // If no non-skipped rosters remain, check if only skipped users are left
   if (!nextRosterId) {
-    for (const rosterId of derby.selection_order) {
-      if (!selectedRosterIds.includes(rosterId)) {
-        nextRosterId = rosterId;
-        break;
-      }
-    }
-  }
+    const hasSkippedRemaining = skippedRosterIds.some(
+      rosterId => !selectedRosterIds.includes(rosterId)
+    );
 
-  if (!nextRosterId) {
-    throw new Error("Could not determine next roster");
+    if (hasSkippedRemaining) {
+      // Only skipped users remain - set current_turn_roster_id to NULL
+      // This allows any skipped roster to pick out of turn
+      nextRosterId = null;
+    } else {
+      throw new Error("Could not determine next roster");
+    }
   }
 
   // Update current turn

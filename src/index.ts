@@ -154,7 +154,8 @@ setupAuctionSocket(io);
 export { io };
 
 // Trust proxy for Heroku (enables x-forwarded-* headers)
-app.set('trust proxy', true);
+// Set to 1 to trust only the first proxy (Heroku router) for security
+app.set('trust proxy', 1);
 
 // Middleware
 app.use(helmet()); // Security headers

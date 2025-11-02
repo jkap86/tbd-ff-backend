@@ -30,6 +30,8 @@ export const globalApiLimiter = rateLimit({
   skipSuccessfulRequests: false,
   // Skip rate limiting for failed requests (optional)
   skipFailedRequests: false,
+  // Trust proxy - required for Heroku
+  validate: { trustProxy: false },
 });
 
 /**
@@ -47,6 +49,8 @@ export const authLimiter = rateLimit({
   legacyHeaders: false,
   // Track failed attempts more strictly
   skipSuccessfulRequests: false,
+  // Trust proxy - required for Heroku
+  validate: { trustProxy: false },
 });
 
 /**
@@ -62,6 +66,8 @@ export const passwordResetLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // Trust proxy - required for Heroku
+  validate: { trustProxy: false },
 });
 
 /**
@@ -77,6 +83,8 @@ export const publicDataLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // Trust proxy - required for Heroku
+  validate: { trustProxy: false },
 });
 
 /**
@@ -92,6 +100,8 @@ export const searchLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // Trust proxy - required for Heroku
+  validate: { trustProxy: false },
 });
 
 /**
@@ -150,6 +160,8 @@ const bulkOperationLimiterStrict = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // Trust proxy - required for Heroku
+  validate: { trustProxy: false },
 });
 
 /**

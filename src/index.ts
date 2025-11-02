@@ -260,49 +260,8 @@ v1Router.get("/profile", authenticate, (req: Request, res: Response) => {
   });
 });
 
-// Mount v1 API
+// Mount v1 API (all routes now use versioned endpoints)
 app.use("/api/v1", v1Router);
-
-// Middleware to log deprecation warning for non-versioned routes
-app.use("/api", (req, res, next) => {
-  if (!req.path.startsWith("/v1/")) {
-    logger.warn("Non-versioned API route accessed", { method: req.method, path: req.path });
-    res.setHeader("X-API-Warn", "This endpoint is deprecated. Use /api/v1 instead");
-  }
-  next();
-});
-
-// Legacy routes (redirect to v1 for backward compatibility)
-app.use("/api/auth", authRoutes);
-app.use("/api/leagues", leagueRoutes);
-app.use("/api/invites", inviteRoutes);
-app.use("/api/users", userRoutes);
-app.use("/api/drafts", draftRoutes);
-app.use("/api/players", playerRoutes);
-app.use("/api/player-stats", playerStatsRoutes);
-app.use("/api/player-projections", playerProjectionsRoutes);
-app.use("/api/rosters", rosterRoutes);
-app.use("/api/matchups", matchupRoutes);
-app.use("/api/weekly-lineups", weeklyLineupRoutes);
-// Removed: /api/nfl - use /api/v1/nfl instead
-app.use("/api", waiverRoutes);
-app.use("/api/trades", tradeRoutes);
-app.use("/api", auctionRoutes);
-app.use("/api/playoffs", playoffRoutes);
-app.use("/api/league-median", leagueMedianRoutes);
-app.use("/api/injuries", injuryRoutes);
-app.use("/api/adp", adpRoutes);
-
-// Protected route example (to test authentication) - legacy
-app.get("/api/profile", authenticate, (req: Request, res: Response) => {
-  res.status(200).json({
-    success: true,
-    message: "Protected route accessed successfully",
-    data: {
-      user: req.user,
-    },
-  });
-});
 
 // 404 handler
 app.use((_req: Request, res: Response) => {

@@ -114,8 +114,24 @@ export async function getDerbyStatus(req: Request, res: Response): Promise<void>
     const { draftId } = req.params;
 
     // Use DraftDerby model function
-    const { getDraftDerbyWithDetails } = await import('../models/DraftDerby');
-    const derbyDetails = await getDraftDerbyWithDetails(parseInt(draftId));
+    const { getDraftDerbyWithDetails, createDraftDerby } = await import('../models/DraftDerby');
+    let derbyDetails = await getDraftDerbyWithDetails(parseInt(draftId));
+
+    // If derby doesn't exist but draft has derby enabled, auto-create it
+    if (!derbyDetails) {
+      const draft = await getDraftById(parseInt(draftId));
+
+      if (draft && draft.derby_enabled) {
+        console.log('[Derby] Auto-creating derby for draft', draftId);
+
+        // Get rosters and create derby
+        const rosters = await getRostersByLeagueId(draft.league_id);
+        const rosterIds = rosters.map(r => r.id);
+
+        await createDraftDerby(parseInt(draftId), rosterIds);
+        derbyDetails = await getDraftDerbyWithDetails(parseInt(draftId));
+      }
+    }
 
     if (!derbyDetails) {
       res.status(404).json({

@@ -263,6 +263,48 @@ v1Router.get("/profile", authenticate, (req: Request, res: Response) => {
 // Mount v1 API (all routes now use versioned endpoints)
 app.use("/api/v1", v1Router);
 
+// Test push notifications page
+app.get("/test-push", (req: Request, res: Response) => {
+  res.send(\`<!DOCTYPE html>
+<html><head><title>Push Test</title><style>
+body{font-family:Arial;max-width:800px;margin:50px auto;padding:20px;background:#f5f5f5}
+.container{background:white;padding:30px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,.1)}
+button{background:#4CAF50;color:white;padding:12px 24px;border:none;border-radius:4px;cursor:pointer;margin:5px}
+button:disabled{background:#ccc}
+.result{margin:15px 0;padding:15px;border-radius:4px;font-family:monospace;white-space:pre-wrap}
+.success{background:#d4edda;color:#155724}.error{background:#f8d7da;color:#721c24}.info{background:#d1ecf1;color:#0c5460}
+input{padding:8px;width:300px;margin:5px;border:1px solid #ddd;border-radius:4px}
+</style></head><body><div class="container">
+<h1>🔔 Push Notification Test</h1>
+<div><h2>Login</h2>
+<input id="user" placeholder="Username"><input id="pass" type="password" placeholder="Password">
+<button onclick="login()">Login</button><div id="loginRes" class="result" style="display:none"></div></div>
+<div><h2>Register Token</h2>
+<button onclick="reg()" id="regBtn" disabled>Register Test Token</button>
+<div id="regRes" class="result" style="display:none"></div></div></div>
+<script>
+const API='/api/v1';let token;
+async function login(){
+const u=document.getElementById('user').value,p=document.getElementById('pass').value,r=document.getElementById('loginRes');
+r.style.display='block';r.className='result info';r.textContent='Logging in...';
+try{
+const res=await fetch(API+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});
+const d=await res.json();
+if(res.ok){token=d.token;r.className='result success';r.textContent='✅ Login OK! User:'+d.user.username;document.getElementById('regBtn').disabled=false}
+else{r.className='result error';r.textContent='❌ Failed:'+d.message}}
+catch(e){r.className='result error';r.textContent='❌ Error:'+e.message}}
+async function reg(){
+const r=document.getElementById('regRes');r.style.display='block';r.className='result info';r.textContent='Registering...';
+try{
+const res=await fetch(API+'/notifications/token',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+body:JSON.stringify({token:'test_web_'+Date.now(),device_type:'web',device_id:'web_test'})});
+const d=await res.json();
+if(res.ok){r.className='result success';r.textContent='✅ Registered! '+JSON.stringify(d)}
+else{r.className='result error';r.textContent='❌ Failed('+res.status+'):'+JSON.stringify(d)}}
+catch(e){r.className='result error';r.textContent='❌ Error:'+e.message}}
+</script></body></html>\`);
+});
+
 // 404 handler
 app.use((_req: Request, res: Response) => {
   res.status(404).json({

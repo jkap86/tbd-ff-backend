@@ -276,7 +276,7 @@ app.get("/test-push", (_req: Request, res: Response) => {
     '<script>const API="/api/v1";let t;' +
     'document.getElementById("lb").addEventListener("click",async()=>{const u=document.getElementById("u").value,p=document.getElementById("p").value,r=document.getElementById("lr");' +
     'r.textContent="Logging in...";try{const res=await fetch(API+"/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},' +
-    'body:JSON.stringify({username:u,password:p})});const d=await res.json();if(res.ok){t=d.token;r.textContent="OK! "+d.user.username;' +
+    'body:JSON.stringify({username:u,password:p})});const d=await res.json();if(res.ok){t=d.data.token;r.textContent="OK! "+d.data.user.username;' +
     'document.getElementById("rb").disabled=false}else{r.textContent="Failed: "+d.message}}catch(e){r.textContent="Error: "+e.message}});' +
     'document.getElementById("rb").addEventListener("click",async()=>{const r=document.getElementById("rr");r.textContent="Registering...";try{' +
     'const res=await fetch(API+"/notifications/token",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+t},' +

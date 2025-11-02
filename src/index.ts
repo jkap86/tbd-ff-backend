@@ -286,6 +286,13 @@ app.get("/test-push", (_req: Request, res: Response) => {
   res.send(html);
 });
 
+// Diagnostic logging endpoint (no auth required for debugging)
+app.post("/api/v1/diagnostic/log", (req: Request, res: Response) => {
+  const { message, data } = req.body;
+  console.log(`[DIAGNOSTIC] ${message}`, data ? JSON.stringify(data) : '');
+  res.json({ success: true });
+});
+
 // 404 handler
 app.use((_req: Request, res: Response) => {
   res.status(404).json({

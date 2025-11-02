@@ -143,7 +143,7 @@ const PORT = process.env.PORT || 3000;
 
 // Setup Socket.io for draft, league, matchup, waiver, trade, and auction events
 setupDraftSocket(io);
-setupDerbySocket(io);
+setupDerbySocket();
 setupLeagueSocket(io);
 setupMatchupSocket(io);
 setupWaiverSocket(io);

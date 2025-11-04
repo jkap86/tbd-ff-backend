@@ -5,6 +5,9 @@ import {
   getLeagueChatMessagesSince,
 } from "../models/LeagueChatMessage";
 import { getLeagueById } from "../models/League";
+import { sendPushNotification } from "../services/pushNotificationService";
+import { getUserById } from "../models/User";
+import pool from "../config/database";
 
 /**
  * Send a league chat message
@@ -43,6 +46,41 @@ export async function sendLeagueChatMessageHandler(
       message_type,
       metadata,
     });
+
+    // Send push notifications to other league members
+    try {
+      const sender = await getUserById(user_id);
+      const senderUsername = sender?.username || "Someone";
+
+      // Get all league members except the sender
+      const leagueMembersQuery = await pool.query(
+        `SELECT user_id FROM league_users WHERE league_id = $1 AND user_id != $2`,
+        [parseInt(leagueId), user_id]
+      );
+
+      const recipientUserIds = leagueMembersQuery.rows.map((row: any) => row.user_id);
+
+      if (recipientUserIds.length > 0) {
+        await sendPushNotification({
+          userIds: recipientUserIds,
+          type: 'league_chat',
+          payload: {
+            title: `${senderUsername} in ${league.name}`,
+            body: message.length > 100 ? `${message.substring(0, 97)}...` : message,
+            data: {
+              type: 'league_chat',
+              league_id: leagueId,
+              league_name: league.name,
+              sender_id: user_id.toString(),
+              sender_username: senderUsername,
+            },
+          },
+        });
+      }
+    } catch (notifError: any) {
+      // Log but don't fail the request if notification fails
+      console.error("Error sending league chat notification:", notifError);
+    }
 
     res.status(201).json({
       success: true,

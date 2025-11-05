@@ -110,7 +110,30 @@ ALTER TABLE player_stats_default ADD CONSTRAINT unique_player_week_season_defaul
     UNIQUE (player_id, week, season, season_type);
 
 -- 7. Migrate data from old table to new partitioned table (if any exists)
-INSERT INTO player_stats SELECT * FROM player_stats_old;
+INSERT INTO player_stats (
+    player_id, week, season, season_type,
+    passing_attempts, passing_completions, passing_yards, passing_touchdowns, passing_interceptions, passing_2pt_conversions,
+    rushing_attempts, rushing_yards, rushing_touchdowns, rushing_2pt_conversions,
+    receiving_targets, receiving_receptions, receiving_yards, receiving_touchdowns, receiving_2pt_conversions,
+    fumbles_lost,
+    field_goals_made, field_goals_attempted, field_goals_made_0_19, field_goals_made_20_29, field_goals_made_30_39, field_goals_made_40_49, field_goals_made_50_plus,
+    extra_points_made, extra_points_attempted,
+    defensive_touchdowns, special_teams_touchdowns, defensive_interceptions, defensive_fumbles_recovered, defensive_sacks, defensive_safeties, defensive_points_allowed, defensive_yards_allowed,
+    tackles_solo, tackles_assisted, tackles_for_loss, quarterback_hits, passes_defended,
+    created_at, updated_at
+)
+SELECT
+    player_id, week, season, season_type,
+    passing_attempts, passing_completions, passing_yards, passing_touchdowns, passing_interceptions, passing_2pt_conversions,
+    rushing_attempts, rushing_yards, rushing_touchdowns, rushing_2pt_conversions,
+    receiving_targets, receiving_receptions, receiving_yards, receiving_touchdowns, receiving_2pt_conversions,
+    fumbles_lost,
+    field_goals_made, field_goals_attempted, field_goals_made_0_19, field_goals_made_20_29, field_goals_made_30_39, field_goals_made_40_49, field_goals_made_50_plus,
+    extra_points_made, extra_points_attempted,
+    defensive_touchdowns, special_teams_touchdowns, defensive_interceptions, defensive_fumbles_recovered, defensive_sacks, defensive_safeties, defensive_points_allowed, defensive_yards_allowed,
+    tackles_solo, tackles_assisted, tackles_for_loss, quarterback_hits, passes_defended,
+    created_at, updated_at
+FROM player_stats_old;
 
 -- 8. Drop old table
 DROP TABLE player_stats_old;

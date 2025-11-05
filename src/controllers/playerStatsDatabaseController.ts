@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { pool } from "../config/database";
+import pool from "../config/database";
 
 /**
  * Get bulk season stats from DATABASE (much faster than Sleeper API)

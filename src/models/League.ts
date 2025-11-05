@@ -17,6 +17,7 @@ export interface League {
   enable_league_median?: boolean;
   median_matchup_week_start?: number;
   median_matchup_week_end?: number;
+  enable_bestball?: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -48,6 +49,7 @@ export interface CreateLeagueInput {
   season_type?: string; // pre, regular, post
   league_type?: string; // redraft, keeper, dynasty
   total_rosters?: number;
+  enable_bestball?: boolean;
   settings?: LeagueSettings;
   scoring_settings?: ScoringSettings;
   roster_positions?: RosterPosition[];
@@ -67,6 +69,7 @@ export async function createLeague(
     season_type = "regular",
     league_type = "redraft",
     total_rosters = 12,
+    enable_bestball = false,
     settings = {},
     scoring_settings = {},
     roster_positions = [],
@@ -76,7 +79,7 @@ export async function createLeague(
     // Generate unique invite code
     const inviteCode = generateInviteCode();
 
-    // Merge settings with commissioner_id and other data
+    // Merge settings with commissioner_id and other data, including enable_bestball
     const mergedSettings: LeagueSettings = {
       ...settings,
       commissioner_id,
@@ -86,6 +89,7 @@ export async function createLeague(
       playoff_week_start: settings.playoff_week_start || 15,
       league_median:
         settings.league_median !== undefined ? settings.league_median : false,
+      enable_bestball: enable_bestball !== undefined ? enable_bestball : false,
     };
 
     const query = `
@@ -168,7 +172,8 @@ export async function getLeagueById(leagueId: number): Promise<League | null> {
 export async function getLeaguesForUser(userId: number): Promise<League[]> {
   try {
     const query = `
-      SELECT l.* 
+      SELECT DISTINCT l.*,
+        (SELECT COUNT(*)::int FROM rosters WHERE league_id = l.id) as current_rosters
       FROM leagues l
       INNER JOIN rosters r ON l.id = r.league_id
       WHERE r.user_id = $1
@@ -192,6 +197,7 @@ export async function updateLeague(
     enable_league_median?: boolean;
     median_matchup_week_start?: number;
     median_matchup_week_end?: number;
+    enable_bestball?: boolean;
   }
 ): Promise<League | null> {
   try {
@@ -355,6 +361,7 @@ export async function updateLeagueSettings(
     name?: string;
     league_type?: string;
     total_rosters?: number;
+    enable_bestball?: boolean;
     settings?: LeagueSettings;
     scoring_settings?: ScoringSettings;
     roster_positions?: RosterPosition[];

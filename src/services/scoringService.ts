@@ -267,13 +267,14 @@ export async function updateMatchupScoresForWeek(
     const { getLeagueById } = await import("../models/League");
     const { getMatchupsByLeagueAndWeek, updateMatchupScores } = await import("../models/Matchup");
 
-    // Get league to get scoring settings
+    // Get league to get scoring settings and bestball mode
     const league = await getLeagueById(leagueId);
     if (!league) {
       throw new Error("League not found");
     }
 
     const scoringSettings = league.scoring_settings || {};
+    const isBestball = league.settings?.enable_bestball === true;
 
     // Get all matchups for this week
     const matchups = await getMatchupsByLeagueAndWeek(leagueId, week);
@@ -287,56 +288,90 @@ export async function updateMatchupScoresForWeek(
       }
     }
 
-    // Batch fetch all weekly lineups at once (eliminates N+1 query problem)
-    const { batchGetOrCreateWeeklyLineups } = await import("../models/WeeklyLineup");
-    const lineupsMap = await batchGetOrCreateWeeklyLineups(rosterIds, week, season);
+    // For bestball leagues, use optimized lineups; otherwise use weekly lineups
+    if (isBestball) {
+      const { calculateOptimizedScore } = await import("./bestballService");
+      const rosterPositions = league.roster_positions || [];
 
-    // Calculate scores for each matchup
-    for (const matchup of matchups) {
-      // Get roster 1 weekly lineup from pre-fetched map
-      const roster1Lineup = lineupsMap.get(matchup.roster1_id);
-      if (!roster1Lineup) {
-        throw new Error(`Lineup not found for roster ${matchup.roster1_id}`);
-      }
+      // Calculate scores for each matchup using optimized lineups
+      for (const matchup of matchups) {
+        const roster1Score = await calculateOptimizedScore(
+          matchup.roster1_id,
+          rosterPositions,
+          week,
+          season,
+          seasonType
+        );
 
-      const roster1StarterIds = (roster1Lineup.starters || [])
-        .map((slot: any) => slot.player_id)
-        .filter((id: number | null) => id !== null);
-
-      const roster1Score = await calculateRosterScore(
-        roster1StarterIds,
-        week,
-        season,
-        scoringSettings,
-        seasonType
-      );
-
-      // Get roster 2 weekly lineup (if not a bye week)
-      let roster2Score = 0;
-      if (matchup.roster2_id) {
-        const roster2Lineup = lineupsMap.get(matchup.roster2_id);
-        if (!roster2Lineup) {
-          throw new Error(`Lineup not found for roster ${matchup.roster2_id}`);
+        let roster2Score = 0;
+        if (matchup.roster2_id) {
+          roster2Score = await calculateOptimizedScore(
+            matchup.roster2_id,
+            rosterPositions,
+            week,
+            season,
+            seasonType
+          );
         }
 
-        const roster2StarterIds = (roster2Lineup.starters || [])
+        // Update matchup scores
+        await updateMatchupScores(matchup.id, roster1Score, roster2Score);
+      }
+
+      console.log(`✓ Updated bestball scores for week ${week} matchups in league ${leagueId}`);
+    } else {
+      // Traditional scoring: use weekly lineups
+      // Batch fetch all weekly lineups at once (eliminates N+1 query problem)
+      const { batchGetOrCreateWeeklyLineups } = await import("../models/WeeklyLineup");
+      const lineupsMap = await batchGetOrCreateWeeklyLineups(rosterIds, week, season);
+
+      // Calculate scores for each matchup
+      for (const matchup of matchups) {
+        // Get roster 1 weekly lineup from pre-fetched map
+        const roster1Lineup = lineupsMap.get(matchup.roster1_id);
+        if (!roster1Lineup) {
+          throw new Error(`Lineup not found for roster ${matchup.roster1_id}`);
+        }
+
+        const roster1StarterIds = (roster1Lineup.starters || [])
           .map((slot: any) => slot.player_id)
           .filter((id: number | null) => id !== null);
 
-        roster2Score = await calculateRosterScore(
-          roster2StarterIds,
+        const roster1Score = await calculateRosterScore(
+          roster1StarterIds,
           week,
           season,
           scoringSettings,
           seasonType
         );
+
+        // Get roster 2 weekly lineup (if not a bye week)
+        let roster2Score = 0;
+        if (matchup.roster2_id) {
+          const roster2Lineup = lineupsMap.get(matchup.roster2_id);
+          if (!roster2Lineup) {
+            throw new Error(`Lineup not found for roster ${matchup.roster2_id}`);
+          }
+
+          const roster2StarterIds = (roster2Lineup.starters || [])
+            .map((slot: any) => slot.player_id)
+            .filter((id: number | null) => id !== null);
+
+          roster2Score = await calculateRosterScore(
+            roster2StarterIds,
+            week,
+            season,
+            scoringSettings,
+            seasonType
+          );
+        }
+
+        // Update matchup scores
+        await updateMatchupScores(matchup.id, roster1Score, roster2Score);
       }
 
-      // Update matchup scores
-      await updateMatchupScores(matchup.id, roster1Score, roster2Score);
+      console.log(`✓ Updated scores for week ${week} matchups in league ${leagueId}`);
     }
-
-    console.log(`✓ Updated scores for week ${week} matchups in league ${leagueId}`);
   } catch (error) {
     console.error("Error updating matchup scores:", error);
     throw error;

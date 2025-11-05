@@ -110,6 +110,8 @@ ALTER TABLE player_stats_default ADD CONSTRAINT unique_player_week_season_defaul
     UNIQUE (player_id, week, season, season_type);
 
 -- 7. Migrate data from old table to new partitioned table (if any exists)
+-- Note: If player_id is VARCHAR (sleeper_id), we need to join with players table to get integer id
+-- If player_id is already INTEGER, this will still work
 INSERT INTO player_stats (
     player_id, week, season, season_type,
     passing_attempts, passing_completions, passing_yards, passing_touchdowns, passing_interceptions, passing_2pt_conversions,
@@ -123,17 +125,23 @@ INSERT INTO player_stats (
     created_at, updated_at
 )
 SELECT
-    player_id, week, season, season_type,
-    passing_attempts, passing_completions, passing_yards, passing_touchdowns, passing_interceptions, passing_2pt_conversions,
-    rushing_attempts, rushing_yards, rushing_touchdowns, rushing_2pt_conversions,
-    receiving_targets, receiving_receptions, receiving_yards, receiving_touchdowns, receiving_2pt_conversions,
-    fumbles_lost,
-    field_goals_made, field_goals_attempted, field_goals_made_0_19, field_goals_made_20_29, field_goals_made_30_39, field_goals_made_40_49, field_goals_made_50_plus,
-    extra_points_made, extra_points_attempted,
-    defensive_touchdowns, special_teams_touchdowns, defensive_interceptions, defensive_fumbles_recovered, defensive_sacks, defensive_safeties, defensive_points_allowed, defensive_yards_allowed,
-    tackles_solo, tackles_assisted, tackles_for_loss, quarterback_hits, passes_defended,
-    created_at, updated_at
-FROM player_stats_old;
+    CASE
+        WHEN pso.player_id ~ '^[0-9]+$' AND LENGTH(pso.player_id::TEXT) < 10 THEN pso.player_id::INTEGER
+        ELSE p.id
+    END as player_id,
+    pso.week, pso.season, pso.season_type,
+    pso.passing_attempts, pso.passing_completions, pso.passing_yards, pso.passing_touchdowns, pso.passing_interceptions, pso.passing_2pt_conversions,
+    pso.rushing_attempts, pso.rushing_yards, pso.rushing_touchdowns, pso.rushing_2pt_conversions,
+    pso.receiving_targets, pso.receiving_receptions, pso.receiving_yards, pso.receiving_touchdowns, pso.receiving_2pt_conversions,
+    pso.fumbles_lost,
+    pso.field_goals_made, pso.field_goals_attempted, pso.field_goals_made_0_19, pso.field_goals_made_20_29, pso.field_goals_made_30_39, pso.field_goals_made_40_49, pso.field_goals_made_50_plus,
+    pso.extra_points_made, pso.extra_points_attempted,
+    pso.defensive_touchdowns, pso.special_teams_touchdowns, pso.defensive_interceptions, pso.defensive_fumbles_recovered, pso.defensive_sacks, pso.defensive_safeties, pso.defensive_points_allowed, pso.defensive_yards_allowed,
+    pso.tackles_solo, pso.tackles_assisted, pso.tackles_for_loss, pso.quarterback_hits, pso.passes_defended,
+    pso.created_at, pso.updated_at
+FROM player_stats_old pso
+LEFT JOIN players p ON p.sleeper_id = pso.player_id::TEXT
+WHERE (pso.player_id ~ '^[0-9]+$' AND LENGTH(pso.player_id::TEXT) < 10) OR p.id IS NOT NULL;
 
 -- 8. Drop old table
 DROP TABLE player_stats_old;

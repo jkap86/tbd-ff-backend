@@ -23,6 +23,8 @@ import { getDraftByLeagueHandler } from "../controllers/draftController";
 import {
   sendLeagueChatMessageHandler,
   getLeagueChatMessagesHandler,
+  markLeagueChatAsReadHandler,
+  getUnreadMessageCountHandler,
 } from "../controllers/leagueChatController";
 import { getLeagueTradesController } from "../controllers/tradeController";
 
@@ -98,6 +100,18 @@ router.post("/:leagueId/chat", authenticate, requireLeagueMember, sendLeagueChat
  * GET /api/leagues/:leagueId/chat
  */
 router.get("/:leagueId/chat", authenticate, requireLeagueMember, getLeagueChatMessagesHandler);
+
+/**
+ * Mark league chat as read
+ * POST /api/leagues/:leagueId/chat/mark-read
+ */
+router.post("/:leagueId/chat/mark-read", authenticate, requireLeagueMember, markLeagueChatAsReadHandler);
+
+/**
+ * Get unread message count
+ * GET /api/leagues/:leagueId/chat/unread-count
+ */
+router.get("/:leagueId/chat/unread-count", authenticate, requireLeagueMember, getUnreadMessageCountHandler);
 
 /**
  * Reset league to pre-draft status

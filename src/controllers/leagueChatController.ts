@@ -8,6 +8,45 @@ import { getLeagueById } from "../models/League";
 import { sendPushNotification } from "../services/pushNotificationService";
 import { getUserById } from "../models/User";
 import pool from "../config/database";
+import { io } from "../index";
+import { emitLeagueChat } from "../socket/leagueSocket";
+
+/**
+ * Mark league chat as read for a user
+ * Updates the last_read_at timestamp in league_chat_read_status
+ */
+async function markLeagueChatAsRead(
+  userId: number,
+  leagueId: number
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO league_chat_read_status (user_id, league_id, last_read_at, updated_at)
+     VALUES ($1, $2, NOW(), NOW())
+     ON CONFLICT (user_id, league_id)
+     DO UPDATE SET last_read_at = NOW(), updated_at = NOW()`,
+    [userId, leagueId]
+  );
+}
+
+/**
+ * Get unread message count for a user in a league
+ * Counts messages created after the user's last_read_at timestamp
+ */
+async function getUnreadMessageCount(
+  userId: number,
+  leagueId: number
+): Promise<number> {
+  const result = await pool.query(
+    `SELECT COUNT(*) as unread_count
+     FROM league_chat_messages lcm
+     LEFT JOIN league_chat_read_status lcrs
+       ON lcrs.user_id = $1 AND lcrs.league_id = $2
+     WHERE lcm.league_id = $2
+       AND (lcrs.last_read_at IS NULL OR lcm.created_at > lcrs.last_read_at)`,
+    [userId, leagueId]
+  );
+  return parseInt(result.rows[0]?.unread_count || "0");
+}
 
 /**
  * Send a league chat message
@@ -47,14 +86,22 @@ export async function sendLeagueChatMessageHandler(
       metadata,
     });
 
+    // Get sender info for socket emission
+    const sender = await getUserById(user_id);
+    const senderUsername = sender?.username || "Someone";
+
+    // Emit socket event to all users in the league room
+    emitLeagueChat(io, parseInt(leagueId), {
+      ...chatMessage,
+      username: senderUsername,
+    });
+
     // Send push notifications to other league members
     try {
-      const sender = await getUserById(user_id);
-      const senderUsername = sender?.username || "Someone";
 
       // Get all league members except the sender
       const leagueMembersQuery = await pool.query(
-        `SELECT user_id FROM league_users WHERE league_id = $1 AND user_id != $2`,
+        `SELECT user_id FROM rosters WHERE league_id = $1 AND user_id != $2`,
         [parseInt(leagueId), user_id]
       );
 
@@ -132,6 +179,90 @@ export async function getLeagueChatMessagesHandler(
     res.status(500).json({
       success: false,
       message: error.message || "Error getting league chat messages",
+    });
+  }
+}
+
+/**
+ * Mark league chat as read for the authenticated user
+ * POST /api/leagues/:leagueId/chat/mark-read
+ */
+export async function markLeagueChatAsReadHandler(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const { leagueId } = req.params;
+    const userId = (req as any).user?.userId;
+
+    console.log('[MarkRead] Request received:', {
+      leagueId,
+      user: (req as any).user,
+      userId,
+      hasAuthHeader: !!req.headers.authorization,
+    });
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+      return;
+    }
+
+    await markLeagueChatAsRead(userId, parseInt(leagueId));
+
+    res.status(200).json({
+      success: true,
+      message: "Chat marked as read",
+    });
+  } catch (error: any) {
+    console.error("Error marking chat as read:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error marking chat as read",
+    });
+  }
+}
+
+/**
+ * Get unread message count for the authenticated user
+ * GET /api/leagues/:leagueId/chat/unread-count
+ */
+export async function getUnreadMessageCountHandler(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const { leagueId } = req.params;
+    const userId = (req as any).user?.userId;
+
+    console.log('[UnreadCount] Request received:', {
+      leagueId,
+      user: (req as any).user,
+      userId,
+      hasAuthHeader: !!req.headers.authorization,
+    });
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+      return;
+    }
+
+    const unreadCount = await getUnreadMessageCount(userId, parseInt(leagueId));
+
+    res.status(200).json({
+      success: true,
+      data: { unread_count: unreadCount },
+    });
+  } catch (error: any) {
+    console.error("Error getting unread count:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error getting unread count",
     });
   }
 }

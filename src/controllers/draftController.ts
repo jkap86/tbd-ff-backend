@@ -587,8 +587,13 @@ export async function setDraftOrderHandler(
     if (randomize) {
       try {
         // Format draft order for chat message - create simple array of team names
-        const orderArray = detailedDraftOrder
-          .map((order) => order.team_name || order.username || `Team ${order.roster_id}`);
+        // Create detailed draft order list with position numbers
+        const draftOrderList = detailedDraftOrder.map((order, index) => ({
+          position: index + 1,
+          roster_id: order.roster_id,
+          team_name: order.team_name || order.username || `Team ${order.roster_id}`,
+          username: order.username,
+        }));
 
         // Create system chat message with collapsible draft order
         const chatMessage = await createLeagueChatMessage({
@@ -601,7 +606,7 @@ export async function setDraftOrderHandler(
             draft_id: draft.id,
             collapsible: true,
             details: {
-              draft_order: orderArray,
+              draft_order: draftOrderList,
             },
           },
         });

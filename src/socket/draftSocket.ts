@@ -308,11 +308,19 @@ export function setupDraftSocket(io: Server) {
       is_autodrafting: boolean;
     }) => {
       const { draft_id, roster_id, is_autodrafting } = data;
-      const user = socket.data.user!;
+
+      // Check if user is properly attached to socket
+      if (!socket.data.user) {
+        console.error("[DraftSocket] toggle_autodraft: User not attached to socket data");
+        socket.emit("error", { message: "User authentication lost" });
+        return;
+      }
+
+      const user = socket.data.user;
 
       try {
         // Verify user owns this roster or is the commissioner
-        console.log(`[DraftSocket] Checking autodraft toggle for user ${user.userId}, roster ${roster_id}, draft ${draft_id}`);
+        console.log(`[DraftSocket] Checking autodraft toggle for user ${user.userId} (${typeof user.userId}), roster ${roster_id}, draft ${draft_id}`);
 
         const ownsRoster = await doesUserOwnRoster(user.userId, roster_id, draft_id);
         const isCommissioner = await isUserDraftCommissioner(user.userId, draft_id);
@@ -342,6 +350,9 @@ export function setupDraftSocket(io: Server) {
           });
 
           console.log(`[DraftSocket] Autodraft ${is_autodrafting ? 'enabled' : 'disabled'} for roster ${roster_id} in draft ${draft_id} by ${user.username}`);
+        } else {
+          console.warn(`[DraftSocket] toggleAutodraft returned null/false for draft ${draft_id}, roster ${roster_id}`);
+          socket.emit("error", { message: "Failed to update autodraft status" });
         }
       } catch (error) {
         console.error("[DraftSocket] Error toggling autodraft:", error);

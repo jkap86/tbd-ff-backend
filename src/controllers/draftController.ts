@@ -865,6 +865,7 @@ export async function makeDraftPickHandler(
   req: Request,
   res: Response
 ): Promise<void> {
+  const startTime = Date.now();
   const pool = (await import("../config/database")).default;
   const client = await pool.connect();
     await setTransactionTimeouts(client);
@@ -874,6 +875,7 @@ export async function makeDraftPickHandler(
 
     const { draftId } = req.params;
     const { roster_id, player_id, is_auto_pick = false } = req.body;
+    console.log(`[MakePick] Request started - draftId: ${draftId}, rosterId: ${roster_id}, playerId: ${player_id}`);
 
     if (!roster_id || !player_id) {
       await client.query('ROLLBACK');
@@ -1318,6 +1320,9 @@ export async function makeDraftPickHandler(
       emitDraftPick(io, parseInt(draftId), pickWithDetails, updatedDraft);
     }
 
+    const responseTime = Date.now() - startTime;
+    console.log(`[MakePick] Request completed in ${responseTime}ms - Sending 201 response`);
+
     res.status(201).json({
       success: true,
       data: {
@@ -1327,7 +1332,8 @@ export async function makeDraftPickHandler(
     });
   } catch (error: any) {
     await client.query('ROLLBACK');
-    console.error("Error making draft pick:", error);
+    const responseTime = Date.now() - startTime;
+    console.error(`[MakePick] Error after ${responseTime}ms:`, error);
     res.status(500).json({
       success: false,
       message: error.message || "Error making draft pick",

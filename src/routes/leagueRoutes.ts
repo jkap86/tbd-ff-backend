@@ -19,6 +19,7 @@ import { removeLeagueMemberHandler } from "../controllers/leagueController";
 import { getLeagueStatsHandler } from "../controllers/leagueController";
 import { resetLeagueHandler } from "../controllers/leagueController";
 import { deleteLeagueHandler } from "../controllers/leagueController";
+import { generateInviteLinkHandler } from "../controllers/leagueController";
 import { getDraftByLeagueHandler } from "../controllers/draftController";
 import {
   sendLeagueChatMessageHandler,
@@ -128,5 +129,11 @@ router.delete("/:leagueId", authenticate, requireCommissioner, deleteLeagueHandl
 
 // GET /api/leagues/:id/trades - Get all trades for a league
 router.get("/:id/trades", authenticate, requireLeagueMember, getLeagueTradesController);
+
+/**
+ * Generate shareable league invitation link
+ * POST /api/leagues/:leagueId/generate-invite-link
+ */
+router.post("/:leagueId/generate-invite-link", authenticate, requireCommissioner, generateInviteLinkHandler);
 
 export default router;

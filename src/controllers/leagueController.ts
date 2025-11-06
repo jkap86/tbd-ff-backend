@@ -1129,3 +1129,89 @@ export async function deleteLeagueHandler(
     });
   }
 }
+
+/**
+ * Generate shareable league invitation link
+ * POST /api/leagues/:leagueId/generate-invite-link
+ *
+ * Generates both web and app deep links for league invitations.
+ * Only commissioners can generate invitation links.
+ *
+ * Response format:
+ * {
+ *   success: true,
+ *   data: {
+ *     leagueId: number,
+ *     webLink: string,
+ *     appLink: string
+ *   }
+ * }
+ */
+export async function generateInviteLinkHandler(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const leagueId = parseInt(req.params.leagueId);
+
+    if (isNaN(leagueId)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid league ID",
+      });
+      return;
+    }
+
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+      return;
+    }
+
+    // Get league and verify it exists
+    const league = await getLeagueById(leagueId);
+
+    if (!league) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    // Verify user is commissioner
+    const { getCommissionerIdFromLeague } = await import("../models/League");
+    const commissionerId = getCommissionerIdFromLeague(league);
+
+    if (commissionerId !== userId) {
+      res.status(403).json({
+        success: false,
+        message: "Only the commissioner can generate invitation links",
+      });
+      return;
+    }
+
+    // Generate invitation links
+    const webLink = `https://hypetrain.netlify.app/#/league/invite?leagueId=${leagueId}`;
+    const appLink = `tbdff://league/invite?leagueId=${leagueId}`;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        leagueId,
+        webLink,
+        appLink,
+      },
+    });
+  } catch (error: any) {
+    console.error("Generate invite link error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error generating invitation link",
+    });
+  }
+}

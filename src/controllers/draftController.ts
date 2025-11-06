@@ -1245,11 +1245,18 @@ export async function makeDraftPickHandler(
       );
 
       if (!nextRosterId) {
-        console.error(`[MakePick] ERROR: No roster found at draft position ${nextPickInfo.draftPosition} for draft ${draftId}. This may indicate invalid draft order setup.`);
+        // Get actual draft_order count to diagnose the issue
+        const draftOrderCount = await (await import("../models/DraftOrder")).getDraftOrder(parseInt(draftId));
+        const actualRosterCount = draftOrderCount.length;
+
+        console.error(`[MakePick] ERROR: No roster found at draft position ${nextPickInfo.draftPosition} for draft ${draftId}`);
+        console.error(`[MakePick] Expected roster count (totalRosters): ${totalRosters}, Actual draft_order entries: ${actualRosterCount}`);
+        console.error(`[MakePick] This likely means the league was modified after draft creation (e.g., roster count changed from ${actualRosterCount} to ${totalRosters})`);
+
         await client.query('ROLLBACK');
         res.status(500).json({
           success: false,
-          message: `No roster found at draft position ${nextPickInfo.draftPosition}. Draft order may be incomplete.`,
+          message: `Draft order mismatch: looking for position ${nextPickInfo.draftPosition} but only ${actualRosterCount} teams in draft order (expected ${totalRosters}). League may have been modified after draft creation.`,
         });
         return;
       }

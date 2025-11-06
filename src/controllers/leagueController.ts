@@ -1196,7 +1196,7 @@ export async function generateInviteLinkHandler(
     }
 
     // Generate invitation links
-    const webLink = `https://hypetrain.netlify.app/#/league/invite?leagueId=${leagueId}`;
+    const webLink = `https://hypetrain.netlify.app/invite.html?leagueId=${leagueId}`;
     const appLink = `tbdff://league/invite?leagueId=${leagueId}`;
 
     res.status(200).json({

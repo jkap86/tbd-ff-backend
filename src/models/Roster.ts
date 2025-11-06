@@ -111,12 +111,12 @@ export async function createRoster(
 export async function getRostersByLeagueId(leagueId: number): Promise<any[]> {
   try {
     const query = `
-      SELECT 
+      SELECT
         r.*,
         u.username,
         u.email
       FROM rosters r
-      INNER JOIN users u ON r.user_id = u.id
+      LEFT JOIN users u ON r.user_id = u.id
       WHERE r.league_id = $1
       ORDER BY r.roster_id ASC
     `;

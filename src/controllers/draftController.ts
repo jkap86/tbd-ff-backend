@@ -574,10 +574,9 @@ export async function setDraftOrderHandler(
     // If randomized, send system message to league chat
     if (randomize) {
       try {
-        // Format draft order for chat message
-        const orderList = detailedDraftOrder
-          .map((order) => `${order.draft_position}. ${order.team_name || order.username || `Team ${order.roster_id}`}`)
-          .join('\n');
+        // Format draft order for chat message - create simple array of team names
+        const orderArray = detailedDraftOrder
+          .map((order) => order.team_name || order.username || `Team ${order.roster_id}`);
 
         // Create system chat message with collapsible draft order
         const chatMessage = await createLeagueChatMessage({
@@ -588,10 +587,10 @@ export async function setDraftOrderHandler(
           metadata: {
             type: "draft_order_randomized",
             draft_id: draft.id,
-            draft_order: detailedDraftOrder,
             collapsible: true,
-            collapsed_text: "Draft order has been randomized",
-            expanded_content: orderList,
+            details: {
+              draft_order: orderArray,
+            },
           },
         });
 

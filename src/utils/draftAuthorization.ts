@@ -45,7 +45,7 @@ export async function isUserDraftCommissioner(
         SELECT 1
         FROM leagues l
         INNER JOIN drafts d ON d.league_id = l.id
-        WHERE d.id = $1 AND l.commissioner_id = $2
+        WHERE d.id = $1 AND (l.settings->>'commissioner_id')::int = $2
       ) as is_commissioner
     `;
 

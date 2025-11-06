@@ -690,6 +690,17 @@ export async function startDraftHandler(
 
     const draft = draftResult.rows[0];
 
+    // Check if user is commissioner
+    const userId = req.user?.userId;
+    if (!userId) {
+      await client.query('ROLLBACK');
+      res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+      return;
+    }
+
     // Check if already started
     if (draft.status !== "not_started") {
       await client.query('ROLLBACK');
@@ -701,6 +712,25 @@ export async function startDraftHandler(
     }
 
     const league = await getLeagueById(draft.league_id);
+
+    if (!league) {
+      await client.query('ROLLBACK');
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    const commissionerId = league.settings?.commissioner_id;
+    if (!commissionerId || commissionerId !== userId) {
+      await client.query('ROLLBACK');
+      res.status(403).json({
+        success: false,
+        message: "Only the commissioner can start the draft",
+      });
+      return;
+    }
 
     // For auction drafts, start is simpler - just set status
     if (draft.draft_type === "auction" || draft.draft_type === "slow_auction") {

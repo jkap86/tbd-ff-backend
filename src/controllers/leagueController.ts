@@ -551,6 +551,20 @@ export async function updateLeagueSettingsHandler(
       }
     }
 
+    // Get current league to check if total_rosters is changing
+    const currentLeague = await getLeagueById(leagueId);
+    if (!currentLeague) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    const oldTotalRosters = currentLeague.total_rosters;
+    const newTotalRosters = total_rosters ?? oldTotalRosters;
+    const rosterCountChanged = oldTotalRosters !== newTotalRosters;
+
     // Import the update function
     const { updateLeagueSettings } = await import("../models/League");
 
@@ -575,6 +589,38 @@ export async function updateLeagueSettingsHandler(
       return;
     }
 
+    // Handle draft order reset if roster count changed
+    if (rosterCountChanged) {
+      try {
+        console.log(`[LeagueController] Roster count changed from ${oldTotalRosters} to ${newTotalRosters} for league ${leagueId}`);
+
+        const { getDraftByLeagueId } = await import("../models/Draft");
+        const { getRostersByLeagueId } = await import("../models/Roster");
+        const { randomizeDraftOrder } = await import("../models/DraftOrder");
+
+        const draft = await getDraftByLeagueId(leagueId);
+
+        if (draft && draft.status === "not_started") {
+          console.log(`[LeagueController] Resetting draft order for draft ${draft.id}`);
+
+          // Get current rosters for the league
+          const rosters = await getRostersByLeagueId(leagueId);
+          const rosterIds = rosters.map((r) => r.id);
+
+          if (rosterIds.length > 0) {
+            // Regenerate randomized draft order
+            await randomizeDraftOrder(draft.id, rosterIds);
+            console.log(`[LeagueController] Draft order regenerated with ${rosterIds.length} rosters`);
+          }
+        } else if (draft) {
+          console.log(`[LeagueController] Draft ${draft.id} has status "${draft.status}", skipping order reset (only reset for not_started drafts)`);
+        }
+      } catch (draftOrderError: any) {
+        console.error("Error resetting draft order:", draftOrderError);
+        // Don't fail the request if draft order reset fails
+      }
+    }
+
     // Send league chat notification about settings change
     try {
       const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
@@ -594,7 +640,12 @@ export async function updateLeagueSettingsHandler(
 
       if (changedSettings.length > 0) {
         const settingsText = changedSettings.join(", ");
-        const message = `League settings have been updated: ${settingsText}`;
+        let message = `League settings have been updated: ${settingsText}`;
+
+        // Add note about draft order reset
+        if (rosterCountChanged) {
+          message += `. Draft order has been regenerated.`;
+        }
 
         await createLeagueChatMessage({
           league_id: leagueId,

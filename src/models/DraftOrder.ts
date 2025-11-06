@@ -94,7 +94,7 @@ export async function getDraftOrderWithDetails(draftId: number): Promise<any[]> 
         u.id as user_id,
         u.username
       FROM draft_order d
-      JOIN rosters r ON d.roster_id = r.id
+      LEFT JOIN rosters r ON d.roster_id = r.id
       LEFT JOIN users u ON r.user_id = u.id
       WHERE d.draft_id = $1
       ORDER BY d.draft_position ASC

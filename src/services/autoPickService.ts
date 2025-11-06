@@ -1,7 +1,6 @@
 import { getDraftById } from "../models/Draft";
 import { getDraftOrder, getRosterAtPosition } from "../models/DraftOrder";
-import { getAvailablePlayersForDraft } from "../models/Player";
-import { getLeagueById, updateLeague } from "../models/League";
+import { getLeagueById } from "../models/League";
 import { calculateCurrentRoster } from "../controllers/draftController";
 import { emitDraftPick, emitDraftStatusChange } from "../socket/draftSocket";
 import { io } from "../index";
@@ -12,6 +11,9 @@ import { DB_ERROR_CODES } from "../config/constants";
 
 // Map to track active timers for each draft
 const activeTimers: Map<number, NodeJS.Timeout> = new Map();
+
+// Map to track in-progress auto-picks to prevent concurrent attempts
+const inProgressAutoPicksMap: Map<number, boolean> = new Map();
 
 /**
  * Start monitoring a draft for auto-picks
@@ -46,6 +48,12 @@ export function stopAutoPickMonitoring(draftId: number): void {
  */
 async function checkAndAutoPickIfNeeded(draftId: number): Promise<void> {
   try {
+    // Skip if an auto-pick is already in progress for this draft
+    if (inProgressAutoPicksMap.get(draftId)) {
+      console.log(`[AutoPick] Auto-pick already in progress for draft ${draftId}, skipping check`);
+      return;
+    }
+
     const draft = await getDraftById(draftId);
 
     // Only auto-pick for drafts in progress
@@ -65,7 +73,13 @@ async function checkAndAutoPickIfNeeded(draftId: number): Promise<void> {
       console.log(
         `[AutoPick] Roster ${draft.current_roster_id} has autodraft enabled, picking immediately`
       );
-      await performAutoPickWithRetry(draftId, draft.current_roster_id);
+      // Mark as in-progress to prevent concurrent attempts
+      inProgressAutoPicksMap.set(draftId, true);
+      try {
+        await performAutoPickWithRetry(draftId, draft.current_roster_id);
+      } finally {
+        inProgressAutoPicksMap.delete(draftId);
+      }
       return;
     }
 
@@ -101,7 +115,13 @@ async function checkAndAutoPickIfNeeded(draftId: number): Promise<void> {
       }
 
       if (draft.current_roster_id) {
-        await performAutoPickWithRetry(draftId, draft.current_roster_id);
+        // Mark as in-progress to prevent concurrent attempts
+        inProgressAutoPicksMap.set(draftId, true);
+        try {
+          await performAutoPickWithRetry(draftId, draft.current_roster_id);
+        } finally {
+          inProgressAutoPicksMap.delete(draftId);
+        }
       }
     }
   } catch (error) {
@@ -129,17 +149,8 @@ async function performAutoPickWithRetry(
         throw new Error(`Draft ${draftId} not found`);
       }
 
-      const player = await selectBestAvailablePlayer(draftId, rosterId);
-
-      if (!player) {
-        console.warn(`[AutoPick] No available players for roster ${rosterId}`);
-        // Skip pick as last resort
-        await skipPick(draftId, rosterId);
-        return true;
-      }
-
-      await makeDraftPick(draftId, rosterId, player.id, draft);
-      console.log(`[AutoPick] Success: Drafted ${player.full_name} for roster ${rosterId}`);
+      await makeDraftPickWithPlayerSelection(draftId, rosterId);
+      console.log(`[AutoPick] Success: Auto-pick completed for roster ${rosterId}`);
       return true;
 
     } catch (error: any) {
@@ -235,21 +246,17 @@ async function createAutoPickFailureEvent(
 }
 
 /**
- * Make the actual draft pick (used by retry logic)
+ * Make a draft pick with player selection inside the transaction
+ * This prevents race conditions where player gets picked between selection and insertion
  */
-async function makeDraftPick(draftId: number, rosterId: number, playerId: number, draft: any): Promise<void> {
+async function makeDraftPickWithPlayerSelection(draftId: number, rosterId: number): Promise<void> {
   const client = await pool.connect();
-    await setTransactionTimeouts(client);
+  await setTransactionTimeouts(client);
 
   try {
     await client.query('BEGIN');
 
-    console.log(
-      `[AutoPick] Auto-picking player ${playerId} for roster ${rosterId}`
-    );
-
     // Lock the draft row to prevent concurrent picks
-    // Use SKIP LOCKED to avoid race condition with manual picks
     const draftResult = await client.query(
       'SELECT * FROM drafts WHERE id = $1 FOR UPDATE SKIP LOCKED',
       [draftId]
@@ -271,15 +278,32 @@ async function makeDraftPick(draftId: number, rosterId: number, playerId: number
       throw new Error(`Not roster ${rosterId}'s turn (current: ${lockedDraft.current_roster_id})`);
     }
 
-    // Check if player is already drafted (prevent double-draft)
-    const existingPickResult = await client.query(
-      'SELECT id FROM draft_picks WHERE draft_id = $1 AND player_id = $2',
-      [draftId, playerId]
+    // SELECT the best available player INSIDE the transaction, after locking the draft
+    // This ensures we get the most current available players and prevent double-drafting
+    const availablePlayersResult = await client.query(
+      `SELECT p.id, p.player_id, p.full_name, p.position, p.team
+       FROM players p
+       WHERE NOT EXISTS (
+         SELECT 1
+         FROM draft_picks dp
+         WHERE dp.draft_id = $1
+           AND dp.player_id = p.player_id
+           AND dp.player_id IS NOT NULL
+       )
+       ORDER BY p.search_rank NULLS LAST, p.full_name
+       LIMIT 1`,
+      [draftId]
     );
 
-    if (existingPickResult.rows.length > 0) {
-      throw new Error(`Player ${playerId} already drafted`);
+    if (availablePlayersResult.rows.length === 0) {
+      console.warn(`[AutoPick] No available players for roster ${rosterId}, skipping pick`);
+      await client.query('ROLLBACK');
+      await skipPick(draftId, rosterId);
+      return;
     }
+
+    const selectedPlayer = availablePlayersResult.rows[0];
+    console.log(`[AutoPick] Selected player ${selectedPlayer.id} (${selectedPlayer.full_name}) for roster ${rosterId}`);
 
     // Get league and draft order for calculations
     const league = await getLeagueById(lockedDraft.league_id);
@@ -293,7 +317,7 @@ async function makeDraftPick(draftId: number, rosterId: number, playerId: number
       lockedDraft.third_round_reversal
     );
 
-    // Create the auto-pick using transaction client
+    // Create the pick
     const pickResult = await client.query(
       `INSERT INTO draft_picks (
         draft_id, pick_number, round, pick_in_round,
@@ -307,7 +331,7 @@ async function makeDraftPick(draftId: number, rosterId: number, playerId: number
         round,
         pickInRound,
         rosterId,
-        playerId,
+        selectedPlayer.player_id,
         true,
         0,
         null
@@ -315,7 +339,6 @@ async function makeDraftPick(draftId: number, rosterId: number, playerId: number
     );
 
     const pick = pickResult.rows[0];
-
     console.log(`[AutoPick] Created pick:`, pick);
 
     // Calculate next pick
@@ -328,7 +351,6 @@ async function makeDraftPick(draftId: number, rosterId: number, playerId: number
       // Draft is complete
       console.log(`[AutoPick] Draft ${draftId} is complete! Total picks: ${totalPicks}`);
 
-      // Update draft status to completed
       const completeDraftResult = await client.query(
         `UPDATE drafts
          SET status = 'completed',
@@ -342,48 +364,32 @@ async function makeDraftPick(draftId: number, rosterId: number, playerId: number
       );
       updatedDraft = completeDraftResult.rows[0];
 
-      // Commit transaction before performing side effects
       await client.query('COMMIT');
 
       // Assign drafted players to rosters
       const { assignDraftedPlayersToRosters } = await import("../models/Draft");
       await assignDraftedPlayersToRosters(draftId);
 
-      // Update league status to 'in_season'
-      if (league) {
-        await updateLeague(league.id, { status: "in_season" });
-        console.log(`[AutoPick] League ${league.id} status updated to in_season`);
-      }
-
-      stopAutoPickMonitoring(draftId);
-
-      // Emit status change to notify clients that draft is complete
-      emitDraftStatusChange(io, draftId, "completed", updatedDraft);
+      console.log(`[AutoPick] Draft completed and rosters assigned`);
     } else {
-      // Move to next pick
-      const nextPickInfo = calculateCurrentRoster(
+      // Calculate the next roster
+      const nextRosterId = await getRosterAtPosition(draftId, calculateCurrentRoster(
         nextPickNumber,
         totalRosters,
         lockedDraft.draft_type,
         lockedDraft.third_round_reversal
-      );
-
-      const nextRosterId = await getRosterAtPosition(
-        draftId,
-        nextPickInfo.draftPosition
-      );
+      ).draftPosition);
 
       if (!nextRosterId) {
-        throw new Error(`Could not find roster at position ${nextPickInfo.draftPosition}`);
+        throw new Error('Could not calculate next roster');
       }
 
-      // Calculate new pick deadline
+      // Set the pick deadline for the next pick
       const pickDeadline = new Date();
-      pickDeadline.setSeconds(
-        pickDeadline.getSeconds() + lockedDraft.pick_time_seconds
-      );
+      pickDeadline.setSeconds(pickDeadline.getSeconds() + lockedDraft.pick_time_seconds);
 
-      const updateDraftResult = await client.query(
+      // Update draft state
+      const updateResult = await client.query(
         `UPDATE drafts
          SET current_pick = $1,
              current_round = $2,
@@ -392,111 +398,53 @@ async function makeDraftPick(draftId: number, rosterId: number, playerId: number
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $5
          RETURNING *`,
-        [nextPickNumber, nextPickInfo.round, nextRosterId, pickDeadline, draftId]
+        [
+          nextPickNumber,
+          calculateCurrentRoster(
+            nextPickNumber,
+            totalRosters,
+            lockedDraft.draft_type,
+            lockedDraft.third_round_reversal
+          ).round,
+          nextRosterId,
+          pickDeadline,
+          draftId
+        ]
       );
-      updatedDraft = updateDraftResult.rows[0];
+      updatedDraft = updateResult.rows[0];
 
-      // Commit transaction
+      // Update draft_order with deadline for next pick
+      await client.query(
+        `UPDATE draft_order
+         SET pick_expiration = $1
+         WHERE draft_id = $2 AND roster_id = $3`,
+        [pickDeadline, draftId, nextRosterId]
+      );
+
       await client.query('COMMIT');
     }
 
-    // Get roster and user details for WebSocket emission
-    const { getRosterById } = await import("../models/Roster");
-    const roster = await getRosterById(rosterId);
-    const { getUserById } = await import("../models/User");
-    const user = roster?.user_id ? await getUserById(roster.user_id) : null;
+    // Emit draft pick event
+    emitDraftPick(io, draftId, pick, updatedDraft);
 
-    // Get player details for WebSocket emission
-    const { getPlayerById } = await import("../models/Player");
-    const player = await getPlayerById(playerId);
+    // Emit updated draft state
+    emitDraftStatusChange(io, draftId, 'in_progress', updatedDraft);
 
-    // Emit socket event for the auto-pick
-    const pickWithDetails = {
-      ...pick,
-      player_name: player?.full_name,
-      player_position: player?.position,
-      player_team: player?.team,
-      roster_number: roster?.roster_id,
-      picked_by_username: user?.username,
-    };
-    console.log(`[AutoPick] Emitting pick with details:`, pickWithDetails);
-    emitDraftPick(io, draftId, pickWithDetails, updatedDraft);
-
-    // Emit auto-pick notification
-    io.to(`draft_${draftId}`).emit("auto_pick_made", {
-      draftId,
-      pickNumber: draft.current_pick,
-      rosterId,
-      playerId: playerId,
-      playerName: player?.full_name,
-      playerPosition: player?.position,
-      round,
-      pickInRound,
-    });
-
-    console.log(
-      `[AutoPick] Successfully auto-picked ${player?.full_name} for roster ${rosterId}`
-    );
   } catch (error: any) {
     await client.query('ROLLBACK');
 
     // Handle timeout errors
     if (error.code === DB_ERROR_CODES.STATEMENT_TIMEOUT) {
-      console.error('[Transaction] Statement timeout in makeDraftPick');
+      console.error('[Transaction] Statement timeout in makeDraftPickWithPlayerSelection');
       throw new Error('Operation timed out, please try again');
     }
 
-    console.error(`[AutoPick] Error performing auto-pick:`, error);
     throw error;
   } finally {
     client.release();
   }
 }
 
-/**
- * Select the best available player based on ADP and roster needs
- */
-async function selectBestAvailablePlayer(
-  draftId: number,
-  _rosterId: number
-): Promise<any | null> {
-  try {
-    // Get available players sorted by search_rank (best available by default)
-    const allAvailablePlayers = await getAvailablePlayersForDraft(draftId);
-
-    if (allAvailablePlayers.length === 0) {
-      return null;
-    }
-
-    // Limit to top 100 for performance
-    const availablePlayers = allAvailablePlayers.slice(0, 100);
-
-    // TODO: Future enhancement - analyze roster needs
-    // const allPicks = await getDraftPicks(draftId);
-    // const rosterPicks = allPicks.filter((pick) => pick.roster_id === rosterId);
-    // Count positions already drafted and pick based on needs
-
-    // Simple strategy: Pick best available by position priority
-    // Priority order: QB, RB, WR, TE, FLEX positions first
-    const positionPriority = ["QB", "RB", "WR", "TE", "K", "DEF"];
-
-    // Try to find best player following position priority
-    for (const position of positionPriority) {
-      const playerOfPosition = availablePlayers.find(
-        (p) => p.position === position
-      );
-      if (playerOfPosition) {
-        return playerOfPosition;
-      }
-    }
-
-    // If no priority position found, just take best available
-    return availablePlayers[0];
-  } catch (error) {
-    console.error(`[AutoPick] Error selecting best player:`, error);
-    return null;
-  }
-}
 
 /**
  * Stop all auto-pick monitoring (cleanup on server shutdown)

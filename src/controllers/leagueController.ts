@@ -411,6 +411,36 @@ export async function joinLeagueHandler(
       team_name: team_name || `Team ${nextRosterId}`,
     });
 
+    // Get user info for chat message
+    const { getUserById } = await import("../models/User");
+    const user = await getUserById(userId);
+
+    // Create system notification in league chat
+    try {
+      const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
+      const teamName = team_name || `Team ${nextRosterId}`;
+      const username = user?.username || `User ${userId}`;
+
+      await createLeagueChatMessage({
+        league_id: leagueId,
+        user_id: null, // System message
+        message: `${username} has joined the league as ${teamName}`,
+        message_type: "system",
+        metadata: {
+          type: "user_joined",
+          joined_user_id: userId,
+          joined_username: username,
+          team_name: teamName,
+          roster_id: roster.id,
+        },
+      });
+
+      console.log(`[LeagueController] System message created for user ${userId} joining league ${leagueId}`);
+    } catch (chatError: any) {
+      console.error(`[LeagueController] Error creating system message for league join:`, chatError);
+      // Don't fail the join if chat message creation fails
+    }
+
     res.status(201).json({
       success: true,
       message: "Successfully joined league",

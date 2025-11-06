@@ -215,6 +215,35 @@ export async function acceptInvite(req: Request, res: Response): Promise<void> {
     // Update invite status to accepted
     await updateInviteStatus(inviteId, "accepted");
 
+    // Get user info for chat message
+    const { getUserById } = await import("../models/User");
+    const user = await getUserById(userId);
+
+    // Create system notification in league chat
+    try {
+      const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
+      const username = user?.username || `User ${userId}`;
+
+      await createLeagueChatMessage({
+        league_id: invite.league_id,
+        user_id: null, // System message
+        message: `${username} has joined the league`,
+        message_type: "system",
+        metadata: {
+          type: "user_joined",
+          joined_user_id: userId,
+          joined_username: username,
+          roster_id: roster.id,
+          via_invite: true,
+        },
+      });
+
+      console.log(`[InviteController] System message created for user ${userId} accepting invite to league ${invite.league_id}`);
+    } catch (chatError: any) {
+      console.error(`[InviteController] Error creating system message for invite acceptance:`, chatError);
+      // Don't fail the invite if chat message creation fails
+    }
+
     res.status(200).json({
       success: true,
       message: "Invite accepted successfully",

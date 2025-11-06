@@ -575,6 +575,48 @@ export async function updateLeagueSettingsHandler(
       return;
     }
 
+    // Send league chat notification about settings change
+    try {
+      const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
+      const { io } = await import("../index");
+
+      // Determine what changed
+      const changedSettings = [];
+      if (name !== undefined) changedSettings.push("league name");
+      if (league_type !== undefined) changedSettings.push("league type");
+      if (total_rosters !== undefined) changedSettings.push("roster count");
+      if (enable_bestball !== undefined) changedSettings.push("best ball setting");
+      if (settings !== undefined) changedSettings.push("league settings");
+      if (scoring_settings !== undefined) changedSettings.push("scoring settings");
+      if (roster_positions !== undefined) changedSettings.push("roster positions");
+      if (trade_notification_setting !== undefined) changedSettings.push("trade notifications");
+      if (trade_details_setting !== undefined) changedSettings.push("trade details");
+
+      if (changedSettings.length > 0) {
+        const settingsText = changedSettings.join(", ");
+        const message = `League settings have been updated: ${settingsText}`;
+
+        await createLeagueChatMessage({
+          league_id: leagueId,
+          user_id: null, // System message
+          message,
+          message_type: "system",
+        });
+
+        const roomName = `league_${leagueId}`;
+        io.to(roomName).emit("league_chat_message", {
+          leagueId,
+          userId: null,
+          message,
+          messageType: "system",
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (notificationError) {
+      console.error("Error sending settings change notification:", notificationError);
+      // Don't fail the request if notification fails
+    }
+
     res.status(200).json({
       success: true,
       message: "League settings updated successfully",

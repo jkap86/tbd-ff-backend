@@ -41,6 +41,13 @@ router.get("/public", publicDataLimiter, getPublicLeaguesHandler);
 // GET /api/leagues/user/:userId - Get all leagues for a user
 router.get("/user/:userId", getUserLeaguesHandler);
 
+/**
+ * Generate shareable league invitation link
+ * POST /api/leagues/:leagueId/generate-invite-link
+ * MUST be before /:leagueId route to avoid matching
+ */
+router.post("/:leagueId/generate-invite-link", authenticate, requireCommissioner, generateInviteLinkHandler);
+
 // GET /api/leagues/:leagueId - Get specific league details with rosters
 router.get("/:leagueId", authenticate, requireLeagueMember, getLeagueDetailsHandler);
 
@@ -129,11 +136,5 @@ router.delete("/:leagueId", authenticate, requireCommissioner, deleteLeagueHandl
 
 // GET /api/leagues/:id/trades - Get all trades for a league
 router.get("/:id/trades", authenticate, requireLeagueMember, getLeagueTradesController);
-
-/**
- * Generate shareable league invitation link
- * POST /api/leagues/:leagueId/generate-invite-link
- */
-router.post("/:leagueId/generate-invite-link", authenticate, requireCommissioner, generateInviteLinkHandler);
 
 export default router;

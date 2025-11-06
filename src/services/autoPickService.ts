@@ -346,6 +346,7 @@ async function makeDraftPickWithPlayerSelection(draftId: number, rosterId: numbe
     const totalPicks = totalRosters * lockedDraft.rounds;
 
     let updatedDraft;
+    let isCompleted = false;
 
     if (nextPickNumber > totalPicks) {
       // Draft is complete
@@ -371,6 +372,9 @@ async function makeDraftPickWithPlayerSelection(draftId: number, rosterId: numbe
       await assignDraftedPlayersToRosters(draftId);
 
       console.log(`[AutoPick] Draft completed and rosters assigned`);
+
+      // Mark that we completed the draft so we emit the completion event below
+      isCompleted = true;
     } else {
       // Calculate the next roster
       const nextRosterId = await getRosterAtPosition(draftId, calculateCurrentRoster(
@@ -449,8 +453,10 @@ async function makeDraftPickWithPlayerSelection(draftId: number, rosterId: numbe
     // Emit draft pick event with enriched details
     emitDraftPick(io, draftId, pickWithDetails, updatedDraft);
 
-    // Emit updated draft state
-    emitDraftStatusChange(io, draftId, 'in_progress', updatedDraft);
+    // Emit updated draft state - use 'completed' status if draft finished, otherwise 'in_progress'
+    const draftStatus = isCompleted ? 'completed' : 'in_progress';
+    console.log(`[AutoPick] Emitting status change - status: ${draftStatus}`);
+    emitDraftStatusChange(io, draftId, draftStatus, updatedDraft);
 
   } catch (error: any) {
     await client.query('ROLLBACK');

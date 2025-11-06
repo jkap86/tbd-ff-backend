@@ -424,8 +424,30 @@ async function makeDraftPickWithPlayerSelection(draftId: number, rosterId: numbe
       await client.query('COMMIT');
     }
 
-    // Emit draft pick event
-    emitDraftPick(io, draftId, pick, updatedDraft);
+    // Enrich pick with player details before emitting
+    const { getPlayerById } = await import("../models/Player");
+    const { getRosterById } = await import("../models/Roster");
+    const { getUserById } = await import("../models/User");
+
+    const player = await getPlayerById(selectedPlayer.id);
+    const roster = await getRosterById(rosterId);
+    const user = roster?.user_id ? await getUserById(roster.user_id) : null;
+
+    const pickWithDetails = {
+      ...pick,
+      player_id: selectedPlayer.id,  // Database player ID
+      sleeper_player_id: selectedPlayer.player_id,  // Sleeper API ID
+      player_name: player?.full_name,
+      player_position: player?.position,
+      player_team: player?.team,
+      roster_number: roster?.roster_id,
+      picked_by_username: user?.username,
+    };
+
+    console.log(`[AutoPick] Emitting pick with details:`, pickWithDetails);
+
+    // Emit draft pick event with enriched details
+    emitDraftPick(io, draftId, pickWithDetails, updatedDraft);
 
     // Emit updated draft state
     emitDraftStatusChange(io, draftId, 'in_progress', updatedDraft);

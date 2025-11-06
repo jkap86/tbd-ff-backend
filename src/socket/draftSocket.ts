@@ -320,18 +320,28 @@ export function setupDraftSocket(io: Server) {
 
       try {
         // Verify user owns this roster or is the commissioner
-        console.log(`[DraftSocket] Checking autodraft toggle for user ${user.userId} (${typeof user.userId}), roster ${roster_id}, draft ${draft_id}`);
+        console.log(`[DraftSocket] ========== AUTODRAFT TOGGLE REQUEST ==========`);
+        console.log(`[DraftSocket] User: ${user.username} (ID: ${user.userId}, type: ${typeof user.userId})`);
+        console.log(`[DraftSocket] Roster: ${roster_id} (type: ${typeof roster_id})`);
+        console.log(`[DraftSocket] Draft: ${draft_id} (type: ${typeof draft_id})`);
 
+        console.log(`[DraftSocket] Checking roster ownership...`);
         const ownsRoster = await doesUserOwnRoster(user.userId, roster_id, draft_id);
-        const isCommissioner = await isUserDraftCommissioner(user.userId, draft_id);
+        console.log(`[DraftSocket] ownsRoster result: ${ownsRoster}`);
 
-        console.log(`[DraftSocket] Autodraft toggle - User ${user.username} (${user.userId}), ownsRoster: ${ownsRoster}, isCommissioner: ${isCommissioner}, draftId: ${draft_id}, rosterId: ${roster_id}`);
+        console.log(`[DraftSocket] Checking commissioner status...`);
+        const isCommissioner = await isUserDraftCommissioner(user.userId, draft_id);
+        console.log(`[DraftSocket] isCommissioner result: ${isCommissioner}`);
+
+        console.log(`[DraftSocket] Authorization result: ownsRoster=${ownsRoster}, isCommissioner=${isCommissioner}`);
 
         if (!ownsRoster && !isCommissioner) {
-          console.log(`[DraftSocket] User ${user.username} (${user.userId}) denied autodraft toggle for roster ${roster_id} in draft ${draft_id} - does not own roster and is not commissioner`);
+          console.error(`[DraftSocket] ❌ DENIED - User ${user.username} (${user.userId}) does not own roster ${roster_id} and is not commissioner of draft ${draft_id}`);
           socket.emit("error", { message: "Access denied: You can only toggle autodraft for your own roster or if you are the commissioner" });
           return;
         }
+
+        console.log(`[DraftSocket] ✅ AUTHORIZED`);
 
         console.log(`[DraftSocket] Autodraft toggle authorized for user ${user.userId} on roster ${roster_id} in draft ${draft_id}`);
 

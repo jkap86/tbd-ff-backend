@@ -1323,10 +1323,19 @@ export async function makeDraftPickHandler(
     const responseTime = Date.now() - startTime;
     console.log(`[MakePick] Request completed in ${responseTime}ms - Sending 201 response`);
 
+    // Transform pick object for HTTP response
+    // Database stores Sleeper ID (string) in player_id column
+    // Flutter expects database player ID (integer) for matching with available players
+    const pickResponse = {
+      ...pick,
+      player_id: player_id,  // Use database player ID (integer), not Sleeper ID (string)
+      sleeper_player_id: pick.player_id,  // Include Sleeper ID for reference
+    };
+
     res.status(201).json({
       success: true,
       data: {
-        pick,
+        pick: pickResponse,
         draft: updatedDraft,
       },
     });

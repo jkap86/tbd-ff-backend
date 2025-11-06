@@ -83,7 +83,17 @@ export function calculateCurrentRoster(
     draftPosition = isReversed ? totalRosters - pickInRound + 1 : pickInRound;
   }
 
-  console.log(`[calculateCurrentRoster] pickNumber=${pickNumber}, totalRosters=${totalRosters}, draftType=${draftType}, thirdRoundReversal=${thirdRoundReversal} => round=${round}, pickInRound=${pickInRound}, isReversed=${draftType === "linear" ? "N/A" : (draftType === "auction" || draftType === "slow_auction" ? "N/A" : (round % 2 === 0))}, draftPosition=${draftPosition}`);
+  let isReversedForLog = "N/A";
+  if (draftType === "snake") {
+    if (thirdRoundReversal && round === 3) {
+      isReversedForLog = "false";
+    } else if (thirdRoundReversal && round > 3) {
+      isReversedForLog = (round % 2 === 0).toString();
+    } else {
+      isReversedForLog = (round % 2 === 0).toString();
+    }
+  }
+  console.log(`[calculateCurrentRoster] pickNumber=${pickNumber}, totalRosters=${totalRosters}, draftType=${draftType}, thirdRoundReversal=${thirdRoundReversal} => round=${round}, pickInRound=${pickInRound}, isReversed=${isReversedForLog}, draftPosition=${draftPosition}`);
 
   return { round, pickInRound, draftPosition };
 }

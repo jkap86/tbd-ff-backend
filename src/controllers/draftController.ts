@@ -1225,10 +1225,24 @@ export async function makeDraftPickHandler(
         draft.third_round_reversal
       );
 
+      console.log(`[MakePick] Next pick calculation - pickNumber: ${nextPickNumber}, round: ${nextPickInfo.round}, pickInRound: ${nextPickInfo.pickInRound}, draftPosition: ${nextPickInfo.draftPosition}, totalRosters: ${totalRosters}`);
+
       const nextRosterId = await getRosterAtPosition(
         parseInt(draftId),
         nextPickInfo.draftPosition
       );
+
+      if (!nextRosterId) {
+        console.error(`[MakePick] ERROR: No roster found at draft position ${nextPickInfo.draftPosition} for draft ${draftId}. This may indicate invalid draft order setup.`);
+        await client.query('ROLLBACK');
+        res.status(500).json({
+          success: false,
+          message: `No roster found at draft position ${nextPickInfo.draftPosition}. Draft order may be incomplete.`,
+        });
+        return;
+      }
+
+      console.log(`[MakePick] Found roster ${nextRosterId} at position ${nextPickInfo.draftPosition}`);
 
       const nextPickDeadline = new Date();
       nextPickDeadline.setSeconds(

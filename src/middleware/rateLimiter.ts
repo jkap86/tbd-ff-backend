@@ -143,14 +143,15 @@ export const smartBulkProjectionsLimiter = (
 
 /**
  * Rate limiter for player sync/bulk operations
- * Very strict to prevent abuse of resource-intensive operations
+ * Strict but reasonable limits to prevent abuse while allowing normal usage
+ * Smart limiter for projections bypasses this for cached data
  */
 const bulkOperationLimiterStrict = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minute window
-  max: 5, // 5 requests per 5 minutes per IP
+  windowMs: 1 * 60 * 1000, // 1 minute window
+  max: 30, // 30 requests per minute per IP (allows reasonable bulk operations)
   message: {
     success: false,
-    message: "Too many bulk operations. Please wait 5 minutes.",
+    message: "Too many bulk operations. Please wait a moment.",
   },
   standardHeaders: true,
   legacyHeaders: false,

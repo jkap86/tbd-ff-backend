@@ -143,7 +143,20 @@ export async function getDraftPicksWithDetails(draftId: number): Promise<any[]> 
   try {
     const query = `
       SELECT
-        dp.*,
+        dp.id,
+        dp.draft_id,
+        dp.pick_number,
+        dp.round,
+        dp.pick_in_round,
+        dp.roster_id,
+        p.id as player_id,
+        dp.player_id as sleeper_player_id,
+        dp.is_auto_pick,
+        dp.picked_at,
+        dp.pick_time_seconds,
+        dp.created_at,
+        dp.pick_started_at,
+        dp.traded_to_roster_id,
         p.full_name as player_name,
         p.position as player_position,
         p.team as player_team,

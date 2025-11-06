@@ -8,7 +8,7 @@ export interface RosterSlot {
 export interface Roster {
   id: number;
   league_id: number;
-  user_id: number;
+  user_id: number | null; // Allow null for empty roster slots
   roster_id: number;
   settings: any;
   starters: RosterSlot[];
@@ -21,7 +21,7 @@ export interface Roster {
 
 export interface CreateRosterInput {
   league_id: number;
-  user_id: number;
+  user_id: number | null; // Allow null for empty roster slots
   roster_id: number;
   team_name?: string;
   settings?: any;

@@ -1219,7 +1219,7 @@ export async function generateInviteLinkHandler(
 /**
  * Get public league info for invite page
  * GET /api/leagues/:leagueId/public-info
- * No authentication required - returns only basic league info
+ * No authentication required - returns full league details for preview
  */
 export async function getPublicLeagueInfoHandler(
   req: Request,
@@ -1247,13 +1247,32 @@ export async function getPublicLeagueInfoHandler(
       return;
     }
 
+    // Get all rosters for the league
+    const rosters = await getRostersByLeagueId(leagueId);
+
     res.status(200).json({
       success: true,
       data: {
-        leagueId,
-        name: league.name,
-        season: league.season,
-        league_type: league.league_type,
+        league: {
+          id: league.id,
+          name: league.name,
+          season: league.season,
+          league_type: league.league_type,
+          total_rosters: league.total_rosters,
+          start_week: league.start_week,
+          end_week: league.end_week,
+          settings: league.settings,
+          scoring_settings: league.scoring_settings,
+          roster_positions: league.roster_positions,
+          draft_settings: league.draft_settings,
+        },
+        rosters: rosters.map((roster: any) => ({
+          roster_id: roster.roster_id,
+          owner_id: roster.owner_id,
+          owner_name: roster.owner_name,
+          players: roster.players,
+          settings: roster.settings,
+        })),
       },
     });
   } catch (error: any) {

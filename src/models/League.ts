@@ -125,16 +125,21 @@ export async function createLeague(
     const result = await pool.query(query, values);
     const league = result.rows[0];
 
-    // Create roster for commissioner using createRoster to get proper slot structure
+    // Create all rosters upfront - commissioner gets roster 1, rest are empty
     try {
       const { createRoster } = await import("./Roster");
-      await createRoster({
-        league_id: league.id,
-        user_id: commissioner_id,
-        roster_id: 1,
-      });
+
+      for (let i = 1; i <= total_rosters; i++) {
+        await createRoster({
+          league_id: league.id,
+          user_id: i === 1 ? commissioner_id : null, // Only assign commissioner to roster 1
+          roster_id: i,
+        });
+      }
+
+      console.log(`[League] Created ${total_rosters} rosters for league ${league.id}`);
     } catch (rosterError: any) {
-      console.error("Error creating commissioner roster:", rosterError);
+      console.error("Error creating rosters:", rosterError);
     }
 
     return league;

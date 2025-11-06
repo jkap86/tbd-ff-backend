@@ -315,9 +315,11 @@ export function setupDraftSocket(io: Server) {
         const ownsRoster = await doesUserOwnRoster(user.userId, roster_id, draft_id);
         const isCommissioner = await isUserDraftCommissioner(user.userId, draft_id);
 
+        console.log(`[DraftSocket] Autodraft toggle - User ${user.username} (${user.userId}), ownsRoster: ${ownsRoster}, isCommissioner: ${isCommissioner}, draftId: ${draft_id}, rosterId: ${roster_id}`);
+
         if (!ownsRoster && !isCommissioner) {
           console.log(`[DraftSocket] User ${user.username} (${user.userId}) denied autodraft toggle for roster ${roster_id} in draft ${draft_id}`);
-          socket.emit("error", { message: "Access denied: You can only toggle autodraft for your own roster" });
+          socket.emit("error", { message: "Access denied: You can only toggle autodraft for your own roster or if you are the commissioner" });
           return;
         }
 

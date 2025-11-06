@@ -6,6 +6,7 @@ import {
   joinLeagueHandler,
   getPublicLeaguesHandler,
   updateLeagueSettingsHandler,
+  getPublicLeagueInfoHandler,
 } from "../controllers/leagueController";
 import { authenticate } from "../middleware/authMiddleware";
 import {
@@ -47,6 +48,14 @@ router.get("/user/:userId", getUserLeaguesHandler);
  * MUST be before /:leagueId route to avoid matching
  */
 router.post("/:leagueId/generate-invite-link", authenticate, requireCommissioner, generateInviteLinkHandler);
+
+/**
+ * Get public league info for invite page
+ * GET /api/leagues/:leagueId/public-info
+ * No authentication required - returns only basic league info
+ * MUST be before /:leagueId route to avoid matching
+ */
+router.get("/:leagueId/public-info", getPublicLeagueInfoHandler);
 
 // GET /api/leagues/:leagueId - Get specific league details with rosters
 router.get("/:leagueId", authenticate, requireLeagueMember, getLeagueDetailsHandler);

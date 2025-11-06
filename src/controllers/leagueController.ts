@@ -1215,3 +1215,52 @@ export async function generateInviteLinkHandler(
     });
   }
 }
+
+/**
+ * Get public league info for invite page
+ * GET /api/leagues/:leagueId/public-info
+ * No authentication required - returns only basic league info
+ */
+export async function getPublicLeagueInfoHandler(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const leagueId = parseInt(req.params.leagueId);
+
+    if (isNaN(leagueId)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid league ID",
+      });
+      return;
+    }
+
+    // Get league and verify it exists
+    const league = await getLeagueById(leagueId);
+
+    if (!league) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        leagueId,
+        name: league.name,
+        season: league.season,
+        league_type: league.league_type,
+      },
+    });
+  } catch (error: any) {
+    console.error("Get public league info error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error fetching league info",
+    });
+  }
+}

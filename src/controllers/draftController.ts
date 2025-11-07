@@ -400,9 +400,22 @@ export async function updateDraftSettingsHandler(
     if (team_time_budget_seconds !== undefined) updates.team_time_budget_seconds = team_time_budget_seconds;
     if (settings) updates.settings = settings;
 
+    // Track if draft time was changed for system message
+    let draftTimeChanged = false;
+    let newDraftTime: Date | null = null;
+
     // Scheduling
     if (scheduled_start_time !== undefined) {
-      updates.scheduled_start_time = scheduled_start_time ? new Date(scheduled_start_time) : null;
+      const oldTime = draft.scheduled_start_time;
+      newDraftTime = scheduled_start_time ? new Date(scheduled_start_time) : null;
+      updates.scheduled_start_time = newDraftTime;
+
+      // Check if the time actually changed
+      const oldTimeStr = oldTime ? oldTime.toISOString() : null;
+      const newTimeStr = newDraftTime ? newDraftTime.toISOString() : null;
+      if (oldTimeStr !== newTimeStr) {
+        draftTimeChanged = true;
+      }
     }
     if (typeof auto_start === 'boolean') updates.auto_start = auto_start;
 
@@ -421,6 +434,46 @@ export async function updateDraftSettingsHandler(
     if (derby_timeout_behavior) updates.derby_timeout_behavior = derby_timeout_behavior;
 
     const updatedDraft = await updateDraft(parsedDraftId, updates);
+
+    // Send system message to league chat if draft time was changed
+    if (draftTimeChanged) {
+      try {
+        let message: string;
+        if (newDraftTime) {
+          // Format the date/time for display
+          const dateStr = newDraftTime.toLocaleString('en-US', {
+            weekday: 'short',
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            timeZoneName: 'short'
+          });
+          message = `Draft scheduled for ${dateStr}`;
+        } else {
+          message = 'Draft time has been cleared';
+        }
+
+        const chatMessage = await createLeagueChatMessage({
+          league_id: draft.league_id,
+          user_id: null, // null indicates system message
+          message: message,
+          message_type: 'system',
+          metadata: {
+            type: 'draft_time_update',
+            draft_id: draft.id,
+            scheduled_start_time: newDraftTime,
+          },
+        });
+
+        // Emit to league chat via socket
+        emitLeagueChat(io, draft.league_id, chatMessage);
+      } catch (chatError) {
+        console.error('Error sending draft time system message to chat:', chatError);
+        // Don't fail the request if chat message fails
+      }
+    }
 
     res.status(200).json({
       success: true,

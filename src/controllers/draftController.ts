@@ -116,6 +116,9 @@ export async function createDraftHandler(
       timer_mode = "traditional",
       team_time_budget_seconds,
       settings = {},
+      // Scheduling parameters
+      scheduled_start_time,
+      auto_start = false,
       // Derby parameters
       derby_enabled,
       derby_time_limit_seconds,
@@ -180,6 +183,19 @@ export async function createDraftHandler(
       return;
     }
 
+    // Parse scheduled_start_time if provided
+    let parsedStartTime: Date | undefined;
+    if (scheduled_start_time) {
+      parsedStartTime = new Date(scheduled_start_time);
+      if (isNaN(parsedStartTime.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid scheduled_start_time format",
+        });
+        return;
+      }
+    }
+
     // Create the draft
     const draft = await createDraft({
       league_id,
@@ -190,6 +206,9 @@ export async function createDraftHandler(
       timer_mode,
       team_time_budget_seconds,
       settings,
+      // Scheduling parameters
+      scheduled_start_time: parsedStartTime,
+      auto_start,
       // Derby parameters
       derby_enabled,
       derby_time_limit_seconds,
@@ -265,7 +284,30 @@ export async function updateDraftSettingsHandler(
 ): Promise<void> {
   try {
     const { draftId } = req.params;
-    const { draft_type, third_round_reversal, pick_time_seconds, rounds, timer_mode, team_time_budget_seconds, settings } = req.body;
+    const {
+      draft_type,
+      third_round_reversal,
+      pick_time_seconds,
+      rounds,
+      timer_mode,
+      team_time_budget_seconds,
+      settings,
+      // Scheduling
+      scheduled_start_time,
+      auto_start,
+      // Auction
+      starting_budget,
+      min_bid,
+      bid_increment,
+      nominations_per_manager,
+      nomination_timer_hours,
+      reserve_budget_per_slot,
+      // Derby
+      derby_enabled,
+      derby_time_limit_seconds,
+      derby_skipped_user_time_limit_seconds,
+      derby_timeout_behavior,
+    } = req.body;
 
     // Validate draftId is a positive integer
     let parsedDraftId: number;
@@ -357,6 +399,26 @@ export async function updateDraftSettingsHandler(
     if (timer_mode) updates.timer_mode = timer_mode;
     if (team_time_budget_seconds !== undefined) updates.team_time_budget_seconds = team_time_budget_seconds;
     if (settings) updates.settings = settings;
+
+    // Scheduling
+    if (scheduled_start_time !== undefined) {
+      updates.scheduled_start_time = scheduled_start_time ? new Date(scheduled_start_time) : null;
+    }
+    if (typeof auto_start === 'boolean') updates.auto_start = auto_start;
+
+    // Auction
+    if (starting_budget !== undefined) updates.starting_budget = starting_budget;
+    if (min_bid !== undefined) updates.min_bid = min_bid;
+    if (bid_increment !== undefined) updates.bid_increment = bid_increment;
+    if (nominations_per_manager !== undefined) updates.nominations_per_manager = nominations_per_manager;
+    if (nomination_timer_hours !== undefined) updates.nomination_timer_hours = nomination_timer_hours;
+    if (reserve_budget_per_slot !== undefined) updates.reserve_budget_per_slot = reserve_budget_per_slot;
+
+    // Derby
+    if (typeof derby_enabled === 'boolean') updates.derby_enabled = derby_enabled;
+    if (derby_time_limit_seconds !== undefined) updates.derby_time_limit_seconds = derby_time_limit_seconds;
+    if (derby_skipped_user_time_limit_seconds !== undefined) updates.derby_skipped_user_time_limit_seconds = derby_skipped_user_time_limit_seconds;
+    if (derby_timeout_behavior) updates.derby_timeout_behavior = derby_timeout_behavior;
 
     const updatedDraft = await updateDraft(parsedDraftId, updates);
 

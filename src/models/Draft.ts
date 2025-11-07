@@ -15,6 +15,9 @@ export interface Draft {
   rounds: number;
   timer_mode: "traditional" | "chess";
   team_time_budget_seconds: number | null;
+  // Scheduling fields
+  scheduled_start_time: Date | null;
+  auto_start: boolean;
   // Derby-specific fields
   derby_enabled: boolean;
   derby_time_limit_seconds: number | null;
@@ -45,6 +48,9 @@ export async function createDraft(draftData: {
   rounds?: number;
   timer_mode?: "traditional" | "chess";
   team_time_budget_seconds?: number;
+  // Scheduling settings
+  scheduled_start_time?: Date;
+  auto_start?: boolean;
   // Auction-specific settings
   starting_budget?: number;
   min_bid?: number;
@@ -74,13 +80,14 @@ export async function createDraft(draftData: {
       INSERT INTO drafts (
         league_id, draft_type, third_round_reversal, pick_time_seconds,
         rounds, timer_mode, team_time_budget_seconds,
+        scheduled_start_time, auto_start,
         starting_budget, min_bid, bid_increment, nominations_per_manager,
         nomination_timer_hours, reserve_budget_per_slot,
         derby_enabled, derby_time_limit_seconds, derby_timeout_behavior,
         derby_skipped_user_time_limit_seconds,
         settings
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
       RETURNING *
     `;
 
@@ -92,6 +99,8 @@ export async function createDraft(draftData: {
       draftData.rounds || 15,
       timerMode,
       timeBudget || null,
+      draftData.scheduled_start_time || null,
+      draftData.auto_start || false,
       draftData.starting_budget || 200,
       draftData.min_bid || 1,
       draftData.bid_increment || 1,

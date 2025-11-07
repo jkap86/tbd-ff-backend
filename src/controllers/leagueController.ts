@@ -690,6 +690,58 @@ export async function updateLeagueSettingsHandler(
         }
       }
 
+      // Handle scoring settings changes
+      if (scoring_settings !== undefined) {
+        const oldScoring = currentLeague.scoring_settings || {};
+        for (const [stat, points] of Object.entries(scoring_settings)) {
+          const oldPoints = oldScoring[stat];
+          if (oldPoints !== points) {
+            // Format stat name nicely (e.g., "pass_td" -> "Pass TD")
+            const label = stat.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            changes.push({
+              field: `scoring.${stat}`,
+              label: `${label} Points`,
+              oldValue: oldPoints ?? 0,
+              newValue: points
+            });
+          }
+        }
+      }
+
+      // Handle roster positions changes
+      if (roster_positions !== undefined) {
+        const oldPositions = currentLeague.roster_positions || [];
+
+        // Create maps for easier comparison
+        const oldPosMap = new Map(oldPositions.map((p: any) => [p.position, p.count]));
+        const newPosMap = new Map(roster_positions.map((p: any) => [p.position, p.count]));
+
+        // Check for changed or new positions
+        for (const pos of roster_positions) {
+          const oldCount = oldPosMap.get(pos.position);
+          if (oldCount !== pos.count) {
+            changes.push({
+              field: `roster.${pos.position}`,
+              label: `${pos.position} Slots`,
+              oldValue: oldCount ?? 0,
+              newValue: pos.count
+            });
+          }
+        }
+
+        // Check for removed positions
+        for (const [position, count] of oldPosMap.entries()) {
+          if (!newPosMap.has(position)) {
+            changes.push({
+              field: `roster.${position}`,
+              label: `${position} Slots`,
+              oldValue: count,
+              newValue: 0
+            });
+          }
+        }
+      }
+
       if (changes.length > 0) {
         const message = 'Commissioner has updated league settings';
 

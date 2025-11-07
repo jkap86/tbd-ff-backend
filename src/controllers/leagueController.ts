@@ -654,44 +654,62 @@ export async function updateLeagueSettingsHandler(
     // Send league chat notification about settings change
     try {
       const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
+      const { emitLeagueChat } = await import("../socket/leagueSocket");
       const { io } = await import("../index");
 
-      // Determine what changed
-      const changedSettings = [];
-      if (name !== undefined) changedSettings.push("league name");
-      if (league_type !== undefined) changedSettings.push("league type");
-      if (total_rosters !== undefined) changedSettings.push("roster count");
-      if (enable_bestball !== undefined) changedSettings.push("best ball setting");
-      if (settings !== undefined) changedSettings.push("league settings");
-      if (scoring_settings !== undefined) changedSettings.push("scoring settings");
-      if (roster_positions !== undefined) changedSettings.push("roster positions");
-      if (trade_notification_setting !== undefined) changedSettings.push("trade notifications");
-      if (trade_details_setting !== undefined) changedSettings.push("trade details");
+      // Track detailed changes with old and new values
+      const changes: Array<{field: string, label: string, oldValue: any, newValue: any}> = [];
 
-      if (changedSettings.length > 0) {
-        const settingsText = changedSettings.join(", ");
-        let message = `League settings have been updated: ${settingsText}`;
+      if (name !== undefined && name !== currentLeague.name) {
+        changes.push({ field: 'name', label: 'League Name', oldValue: currentLeague.name, newValue: name });
+      }
+      if (league_type !== undefined && league_type !== currentLeague.league_type) {
+        changes.push({ field: 'league_type', label: 'League Type', oldValue: currentLeague.league_type, newValue: league_type });
+      }
+      if (total_rosters !== undefined && total_rosters !== currentLeague.total_rosters) {
+        changes.push({ field: 'total_rosters', label: 'Team Count', oldValue: currentLeague.total_rosters, newValue: total_rosters });
+      }
+      if (enable_bestball !== undefined && enable_bestball !== currentLeague.enable_bestball) {
+        changes.push({ field: 'enable_bestball', label: 'Best Ball', oldValue: currentLeague.enable_bestball ? 'Enabled' : 'Disabled', newValue: enable_bestball ? 'Enabled' : 'Disabled' });
+      }
+      if (trade_notification_setting !== undefined && trade_notification_setting !== currentLeague.trade_notification_setting) {
+        changes.push({ field: 'trade_notification_setting', label: 'Trade Notifications', oldValue: currentLeague.trade_notification_setting || 'Off', newValue: trade_notification_setting });
+      }
+      if (trade_details_setting !== undefined && trade_details_setting !== currentLeague.trade_details_setting) {
+        changes.push({ field: 'trade_details_setting', label: 'Trade Details Visibility', oldValue: currentLeague.trade_details_setting || 'Public', newValue: trade_details_setting });
+      }
 
-        // Add note about draft order reset
-        if (rosterCountChanged) {
-          message += `. Draft order has been regenerated.`;
+      // Handle nested settings changes
+      if (settings !== undefined) {
+        const oldSettings = currentLeague.settings || {};
+        for (const [key, value] of Object.entries(settings)) {
+          if (oldSettings[key] !== value) {
+            const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            changes.push({ field: `settings.${key}`, label, oldValue: oldSettings[key], newValue: value });
+          }
         }
+      }
 
-        await createLeagueChatMessage({
+      if (changes.length > 0) {
+        const message = 'Commissioner has updated league settings';
+
+        const chatMessage = await createLeagueChatMessage({
           league_id: leagueId,
           user_id: null, // System message
           message,
           message_type: "system",
+          metadata: {
+            type: 'league_settings_update',
+            collapsible: true,
+            details: {
+              changes: changes,
+              draft_order_regenerated: rosterCountChanged,
+            },
+          },
         });
 
-        const roomName = `league_${leagueId}`;
-        io.to(roomName).emit("league_chat_message", {
-          leagueId,
-          userId: null,
-          message,
-          messageType: "system",
-          timestamp: new Date().toISOString(),
-        });
+        // Emit to league chat via socket
+        emitLeagueChat(io, leagueId, chatMessage);
       }
     } catch (notificationError) {
       console.error("Error sending settings change notification:", notificationError);

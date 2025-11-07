@@ -760,8 +760,16 @@ export async function updateLeagueSettingsHandler(
           },
         });
 
+        // Parse metadata before emitting (it's stored as JSON string in DB)
+        const messageToEmit = {
+          ...chatMessage,
+          metadata: typeof chatMessage.metadata === 'string'
+            ? JSON.parse(chatMessage.metadata)
+            : chatMessage.metadata
+        };
+
         // Emit to league chat via socket
-        emitLeagueChat(io, leagueId, chatMessage);
+        emitLeagueChat(io, leagueId, messageToEmit);
       }
     } catch (notificationError) {
       console.error("Error sending settings change notification:", notificationError);

@@ -467,8 +467,16 @@ export async function updateDraftSettingsHandler(
           },
         });
 
+        // Parse metadata before emitting (it's stored as JSON string in DB)
+        const messageToEmit = {
+          ...chatMessage,
+          metadata: typeof chatMessage.metadata === 'string'
+            ? JSON.parse(chatMessage.metadata)
+            : chatMessage.metadata
+        };
+
         // Emit to league chat via socket
-        emitLeagueChat(io, draft.league_id, chatMessage);
+        emitLeagueChat(io, draft.league_id, messageToEmit);
       } catch (chatError) {
         console.error('Error sending draft time system message to chat:', chatError);
         // Don't fail the request if chat message fails

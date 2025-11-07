@@ -301,6 +301,7 @@ export async function updateDraftSettingsHandler(
       bid_increment,
       nominations_per_manager,
       nomination_timer_hours,
+      bid_timer_seconds,
       reserve_budget_per_slot,
       // Derby
       derby_enabled,
@@ -425,6 +426,7 @@ export async function updateDraftSettingsHandler(
     if (bid_increment !== undefined) updates.bid_increment = bid_increment;
     if (nominations_per_manager !== undefined) updates.nominations_per_manager = nominations_per_manager;
     if (nomination_timer_hours !== undefined) updates.nomination_timer_hours = nomination_timer_hours;
+    if (bid_timer_seconds !== undefined) updates.bid_timer_seconds = bid_timer_seconds;
     if (reserve_budget_per_slot !== undefined) updates.reserve_budget_per_slot = reserve_budget_per_slot;
 
     // Derby

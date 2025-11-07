@@ -85,6 +85,8 @@ INSERT INTO schema_migrations (version, applied_at) VALUES
   ('066_create_league_chat_read_status_table.sql', NOW()),
   ('069_create_payment_tables.sql', NOW()),
   ('070_add_draft_start_time_fields.sql', NOW())
+  -- NOTE: 070b_cleanup_orphaned_player_references.sql will run on next deploy
+  -- It is NOT included here because it needs to run fresh to clean up orphans
 ON CONFLICT (version) DO NOTHING;
 
 -- Verify the seed

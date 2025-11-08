@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { BaseRepository } from "./BaseRepository";
 
 export interface DraftPick {
   id: number;
@@ -14,6 +15,19 @@ export interface DraftPick {
   pick_started_at: Date | null;
   created_at: Date;
 }
+
+/**
+ * DraftPickRepository - Extends BaseRepository for common CRUD operations
+ * Provides reusable database methods with automatic error handling
+ */
+class DraftPickRepository extends BaseRepository<DraftPick> {
+  constructor() {
+    super('draft_picks', 'id');
+  }
+}
+
+// Create singleton instance
+const draftPickRepo = new DraftPickRepository();
 
 /**
  * Create a draft pick
@@ -71,21 +85,10 @@ export async function createDraftPick(pickData: {
 
 /**
  * Get all picks for a draft
+ * REFACTORED: Now uses BaseRepository.findBy (was 15 lines, now 3 lines, saved 12 lines)
  */
 export async function getDraftPicks(draftId: number): Promise<DraftPick[]> {
-  try {
-    const query = `
-      SELECT * FROM draft_picks
-      WHERE draft_id = $1
-      ORDER BY pick_number ASC
-    `;
-
-    const result = await pool.query(query, [draftId]);
-    return result.rows;
-  } catch (error) {
-    console.error("Error getting draft picks:", error);
-    throw new Error("Error getting draft picks");
-  }
+  return draftPickRepo.findBy('draft_id', draftId, 'pick_number ASC');
 }
 
 /**
@@ -180,29 +183,13 @@ export async function getDraftPicksWithDetails(draftId: number): Promise<any[]> 
 
 /**
  * Get the latest pick for a draft
+ * REFACTORED: Now uses BaseRepository.findBy (was 20 lines, now 4 lines, saved 16 lines)
  */
 export async function getLatestDraftPick(
   draftId: number
 ): Promise<DraftPick | null> {
-  try {
-    const query = `
-      SELECT * FROM draft_picks
-      WHERE draft_id = $1
-      ORDER BY pick_number DESC
-      LIMIT 1
-    `;
-
-    const result = await pool.query(query, [draftId]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error getting latest draft pick:", error);
-    throw new Error("Error getting latest draft pick");
-  }
+  const picks = await draftPickRepo.findBy('draft_id', draftId, 'pick_number DESC');
+  return picks.length > 0 ? picks[0] : null;
 }
 
 /**

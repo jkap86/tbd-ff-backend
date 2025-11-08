@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { BaseRepository } from "./BaseRepository";
 
 export interface Transaction {
   id: number;
@@ -22,6 +23,19 @@ export interface CreateTransactionInput {
   drops?: number[];
   waiver_bid?: number | null;
 }
+
+/**
+ * TransactionRepository - Extends BaseRepository for common CRUD operations
+ * Provides reusable database methods with automatic error handling
+ */
+class TransactionRepository extends BaseRepository<Transaction> {
+  constructor() {
+    super('transactions', 'id');
+  }
+}
+
+// Create singleton instance
+const transactionRepo = new TransactionRepository();
 
 /**
  * Create a new transaction
@@ -124,21 +138,10 @@ export async function getTransactionsByRoster(
 
 /**
  * Get a single transaction by ID
+ * REFACTORED: Now uses BaseRepository.findById (was 15 lines, now 3 lines, saved 12 lines)
  */
 export async function getTransactionById(transactionId: number): Promise<Transaction | null> {
-  try {
-    const query = `SELECT * FROM transactions WHERE id = $1`;
-    const result = await pool.query(query, [transactionId]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error: any) {
-    console.error("Error getting transaction by ID:", error);
-    throw new Error("Error getting transaction by ID");
-  }
+  return transactionRepo.findById(transactionId);
 }
 
 /**

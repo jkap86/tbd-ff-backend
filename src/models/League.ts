@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { BaseRepository } from "./BaseRepository";
 
 export interface League {
   id: number;
@@ -54,6 +55,19 @@ export interface CreateLeagueInput {
   scoring_settings?: ScoringSettings;
   roster_positions?: RosterPosition[];
 }
+
+/**
+ * LeagueRepository - Extends BaseRepository for common CRUD operations
+ * Provides reusable database methods with automatic error handling
+ */
+class LeagueRepository extends BaseRepository<League> {
+  constructor() {
+    super('leagues', 'id');
+  }
+}
+
+// Create singleton instance
+const leagueRepo = new LeagueRepository();
 
 /**
  * Create a new league
@@ -151,24 +165,10 @@ export async function createLeague(
 
 /**
  * Get league by ID
+ * REFACTORED: Now uses BaseRepository.findById (was 18 lines, now 3 lines, saved 15 lines)
  */
 export async function getLeagueById(leagueId: number): Promise<League | null> {
-  try {
-    const query = `
-      SELECT * FROM leagues WHERE id = $1
-    `;
-
-    const result = await pool.query(query, [leagueId]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error getting league:", error);
-    throw new Error("Error getting league");
-  }
+  return leagueRepo.findById(leagueId);
 }
 
 /**
@@ -323,23 +323,13 @@ export async function getPublicLeagues(limit: number = 20): Promise<any[]> {
 
 /**
  * Get league by invite code
+ * REFACTORED: Now uses BaseRepository.findBy (was 18 lines, now 4 lines, saved 14 lines)
  */
 export async function getLeagueByInviteCode(
   inviteCode: string
 ): Promise<League | null> {
-  try {
-    const query = "SELECT * FROM leagues WHERE invite_code = $1";
-    const result = await pool.query(query, [inviteCode]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error getting league by invite code:", error);
-    throw new Error("Error getting league by invite code");
-  }
+  const results = await leagueRepo.findBy('invite_code', inviteCode);
+  return results.length > 0 ? results[0] : null;
 }
 
 /**

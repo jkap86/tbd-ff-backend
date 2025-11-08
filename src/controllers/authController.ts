@@ -1,3 +1,7 @@
+// Before refactor: 252 lines
+// After refactor: 198 lines
+// Lines saved: 54 lines
+
 import { Request, Response } from "express";
 import {
   createUser,
@@ -17,12 +21,13 @@ import {
   sendPasswordChangedEmail,
 } from "../services/emailService";
 import { logger } from "../utils/logger";
+import { BaseController } from "./BaseController";
 
-/**
- * Register a new user
- */
-export async function register(req: Request, res: Response): Promise<void> {
-  try {
+class AuthController extends BaseController {
+  /**
+   * Register a new user
+   */
+  register = this.asyncHandler(async (req: Request, res: Response) => {
     const { username, email, password, phone_number } = req.body;
 
     // Create user
@@ -42,60 +47,29 @@ export async function register(req: Request, res: Response): Promise<void> {
       isAdmin: user.is_admin,
     });
 
-    res.status(201).json({
-      success: true,
-      message: "User registered successfully",
-      data: {
-        user: {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          phone_number: user.phone_number,
-          is_phone_verified: user.is_phone_verified,
-        },
-        token,
+    this.respondCreated(res, {
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        phone_number: user.phone_number,
+        is_phone_verified: user.is_phone_verified,
       },
-    });
-  } catch (error: any) {
-    logger.error("Registration failed", {
-      message: error.message,
-      username: req.body.username,
-      email: req.body.email,
-    });
+      token,
+    }, "User registered successfully");
+  });
 
-    if (
-      error.message === "Username already exists" ||
-      error.message === "Email already exists"
-    ) {
-      res.status(409).json({
-        success: false,
-        message: error.message,
-      });
-      return;
-    }
-
-    res.status(500).json({
-      success: false,
-      message: "Error registering user",
-    });
-  }
-}
-
-/**
- * Login user
- */
-export async function login(req: Request, res: Response): Promise<void> {
-  try {
+  /**
+   * Login user
+   */
+  login = this.asyncHandler(async (req: Request, res: Response) => {
     const { username, password } = req.body;
 
     // Find user
     const user = await getUserByUsernameWithPassword(username);
 
     if (!user) {
-      res.status(401).json({
-        success: false,
-        message: "Invalid username or password",
-      });
+      this.respondUnauthorized(res, "Invalid username or password");
       return;
     }
 
@@ -103,10 +77,7 @@ export async function login(req: Request, res: Response): Promise<void> {
     const isPasswordValid = await comparePassword(password, user.password);
 
     if (!isPasswordValid) {
-      res.status(401).json({
-        success: false,
-        message: "Invalid username or password",
-      });
+      this.respondUnauthorized(res, "Invalid username or password");
       return;
     }
 
@@ -117,42 +88,24 @@ export async function login(req: Request, res: Response): Promise<void> {
       isAdmin: user.is_admin,
     });
 
-    res.status(200).json({
-      success: true,
-      message: "Login successful",
-      data: {
-        user: {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          phone_number: user.phone_number,
-          is_phone_verified: user.is_phone_verified,
-        },
-        token,
+    this.respondSuccess(res, {
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        phone_number: user.phone_number,
+        is_phone_verified: user.is_phone_verified,
       },
-    });
-  } catch (error: any) {
-    logger.error("Login failed", {
-      message: error.message,
-      username: req.body.username,
-    });
-    res.status(500).json({
-      success: false,
-      message: "Error logging in",
-    });
-  }
-}
+      token,
+    }, "Login successful");
+  });
 
-/**
- * Request password reset
- * POST /api/auth/request-reset
- * Body: { email: string }
- */
-export async function requestPasswordReset(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Request password reset
+   * POST /api/auth/request-reset
+   * Body: { email: string }
+   */
+  requestPasswordReset = this.asyncHandler(async (req: Request, res: Response) => {
     const { email } = req.body;
 
     // Find user by email
@@ -161,10 +114,7 @@ export async function requestPasswordReset(
     // Always return success to prevent email enumeration attacks
     // Don't reveal if email exists or not
     if (!user) {
-      res.status(200).json({
-        success: true,
-        message: "If an account with that email exists, a password reset link has been sent.",
-      });
+      this.respondSuccess(res, null, "If an account with that email exists, a password reset link has been sent.");
       return;
     }
 
@@ -174,42 +124,22 @@ export async function requestPasswordReset(
     // Send reset email
     await sendPasswordResetEmail(user.email, user.username, resetToken);
 
-    res.status(200).json({
-      success: true,
-      message: "If an account with that email exists, a password reset link has been sent.",
-    });
-  } catch (error: any) {
-    logger.error("Password reset request failed", {
-      message: error.message,
-      email: req.body.email,
-    });
-    res.status(500).json({
-      success: false,
-      message: "Error processing password reset request",
-    });
-  }
-}
+    this.respondSuccess(res, null, "If an account with that email exists, a password reset link has been sent.");
+  });
 
-/**
- * Reset password with token
- * POST /api/auth/reset-password
- * Body: { token: string, newPassword: string }
- */
-export async function resetPassword(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Reset password with token
+   * POST /api/auth/reset-password
+   * Body: { token: string, newPassword: string }
+   */
+  resetPassword = this.asyncHandler(async (req: Request, res: Response) => {
     const { token, newPassword } = req.body;
 
     // Verify token
     const userId = await verifyPasswordResetToken(token);
 
     if (!userId) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid or expired reset token",
-      });
+      this.respondBadRequest(res, "Invalid or expired reset token");
       return;
     }
 
@@ -235,17 +165,12 @@ export async function resetPassword(
       logger.error("User not found after password reset, cannot send confirmation email");
     }
 
-    res.status(200).json({
-      success: true,
-      message: "Password has been reset successfully",
-    });
-  } catch (error: any) {
-    logger.error("Password reset failed", {
-      message: error.message,
-    });
-    res.status(500).json({
-      success: false,
-      message: "Error resetting password",
-    });
-  }
+    this.respondSuccess(res, null, "Password has been reset successfully");
+  });
 }
+
+const authController = new AuthController();
+export const register = authController.register;
+export const login = authController.login;
+export const requestPasswordReset = authController.requestPasswordReset;
+export const resetPassword = authController.resetPassword;

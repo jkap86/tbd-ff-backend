@@ -1,3 +1,7 @@
+// Before refactor: 333 lines
+// After refactor: 268 lines
+// Lines saved: 65 lines
+
 import { Request, Response } from "express";
 import {
   createInvite,
@@ -13,50 +17,40 @@ import {
   getNextRosterId,
 } from "../models/Roster";
 import { getUserById } from "../models/User";
+import { BaseController } from "./BaseController";
 
-/**
- * Send league invite
- * POST /api/invites/send
- */
-export async function sendInvite(req: Request, res: Response): Promise<void> {
-  try {
-    const { league_id, invited_user_id } = req.body;
-
-    if (!league_id || !invited_user_id) {
-      res.status(400).json({
-        success: false,
-        message: "League ID and invited user ID are required",
-      });
+class InviteController extends BaseController {
+  /**
+   * Send league invite
+   * POST /api/invites/send
+   */
+  sendInvite = this.asyncHandler(async (req: Request, res: Response) => {
+    const validated = this.validateRequiredFields(req.body, ['league_id', 'invited_user_id']);
+    if (!validated) {
+      this.respondBadRequest(res, "League ID and invited user ID are required");
       return;
     }
 
+    const { league_id, invited_user_id } = validated;
+
     // Get inviter user ID from authenticated request
-    const inviter_user_id = req.user?.userId;
+    const inviter_user_id = this.getAuthenticatedUserId(req);
     if (!inviter_user_id) {
-      res.status(401).json({
-        success: false,
-        message: "Unauthorized",
-      });
+      this.respondUnauthorized(res);
       return;
     }
 
     // Check if league exists
     const league = await getLeagueById(league_id);
     if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
+      this.respondNotFound(res, "League not found");
       return;
     }
 
     // Check if invited user exists
     const invitedUser = await getUserById(invited_user_id);
     if (!invitedUser) {
-      res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
+      this.respondNotFound(res, "User not found");
       return;
     }
 
@@ -66,20 +60,14 @@ export async function sendInvite(req: Request, res: Response): Promise<void> {
       invited_user_id
     );
     if (existingRoster) {
-      res.status(409).json({
-        success: false,
-        message: "User is already in this league",
-      });
+      this.respondError(res, "User is already in this league", 409);
       return;
     }
 
     // Check if user is already invited
     const alreadyInvited = await isUserInvited(league_id, invited_user_id);
     if (alreadyInvited) {
-      res.status(409).json({
-        success: false,
-        message: "User is already invited to this league",
-      });
+      this.respondError(res, "User is already invited to this league", 409);
       return;
     }
 
@@ -90,115 +78,58 @@ export async function sendInvite(req: Request, res: Response): Promise<void> {
       invited_user_id,
     });
 
-    res.status(201).json({
-      success: true,
-      message: "Invite sent successfully",
-      data: invite,
-    });
-  } catch (error: any) {
-    console.error("Send invite error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error sending invite",
-    });
-  }
-}
+    this.respondCreated(res, invite, "Invite sent successfully");
+  });
 
-/**
- * Get invites for a user
- * GET /api/invites/user/:userId
- */
-export async function getUserInvites(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const userId = parseInt(req.params.userId);
-
-    if (isNaN(userId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid user ID",
-      });
-      return;
-    }
+  /**
+   * Get invites for a user
+   * GET /api/invites/user/:userId
+   */
+  getUserInvites = this.asyncHandler(async (req: Request, res: Response) => {
+    const userId = this.validateId(req.params.userId, "User ID");
 
     const invites = await getInvitesForUser(userId);
 
-    res.status(200).json({
-      success: true,
-      data: invites,
-    });
-  } catch (error: any) {
-    console.error("Get user invites error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Error getting user invites",
-    });
-  }
-}
+    this.respondSuccess(res, invites);
+  });
 
-/**
- * Accept league invite
- * POST /api/invites/:inviteId/accept
- */
-export async function acceptInvite(req: Request, res: Response): Promise<void> {
-  try {
-    const inviteId = parseInt(req.params.inviteId);
-
-    if (isNaN(inviteId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid invite ID",
-      });
-      return;
-    }
+  /**
+   * Accept league invite
+   * POST /api/invites/:inviteId/accept
+   */
+  acceptInvite = this.asyncHandler(async (req: Request, res: Response) => {
+    const inviteId = this.validateId(req.params.inviteId, "Invite ID");
 
     // Get user ID from authenticated request
-    const userId = req.user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
     if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "Unauthorized",
-      });
+      this.respondUnauthorized(res);
       return;
     }
 
     // Get invite
     const invite = await getInviteById(inviteId);
     if (!invite) {
-      res.status(404).json({
-        success: false,
-        message: "Invite not found",
-      });
+      this.respondNotFound(res, "Invite not found");
       return;
     }
 
     // Verify user is the invited user
     if (invite.invited_user_id !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "Not authorized to accept this invite",
-      });
+      this.respondForbidden(res, "Not authorized to accept this invite");
       return;
     }
 
     // Check if invite is still pending
     if (invite.status !== "pending") {
-      res.status(400).json({
-        success: false,
-        message: "Invite is no longer pending",
-      });
+      this.respondBadRequest(res, "Invite is no longer pending");
       return;
     }
 
     // Get league to check if full
     const league = await getLeagueById(invite.league_id);
     if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
+      this.respondNotFound(res, "League not found");
       return;
     }
 
@@ -216,7 +147,6 @@ export async function acceptInvite(req: Request, res: Response): Promise<void> {
     await updateInviteStatus(inviteId, "accepted");
 
     // Get user info for chat message
-    const { getUserById } = await import("../models/User");
     const user = await getUserById(userId);
 
     // Create system notification in league chat
@@ -244,89 +174,51 @@ export async function acceptInvite(req: Request, res: Response): Promise<void> {
       // Don't fail the invite if chat message creation fails
     }
 
-    res.status(200).json({
-      success: true,
-      message: "Invite accepted successfully",
-      data: roster,
-    });
-  } catch (error: any) {
-    console.error("Accept invite error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error accepting invite",
-    });
-  }
-}
+    this.respondSuccess(res, roster, "Invite accepted successfully");
+  });
 
-/**
- * Decline league invite
- * POST /api/invites/:inviteId/decline
- */
-export async function declineInvite(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const inviteId = parseInt(req.params.inviteId);
-
-    if (isNaN(inviteId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid invite ID",
-      });
-      return;
-    }
+  /**
+   * Decline league invite
+   * POST /api/invites/:inviteId/decline
+   */
+  declineInvite = this.asyncHandler(async (req: Request, res: Response) => {
+    const inviteId = this.validateId(req.params.inviteId, "Invite ID");
 
     // Get user ID from authenticated request
-    const userId = req.user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
     if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "Unauthorized",
-      });
+      this.respondUnauthorized(res);
       return;
     }
 
     // Get invite
     const invite = await getInviteById(inviteId);
     if (!invite) {
-      res.status(404).json({
-        success: false,
-        message: "Invite not found",
-      });
+      this.respondNotFound(res, "Invite not found");
       return;
     }
 
     // Verify user is the invited user
     if (invite.invited_user_id !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "Not authorized to decline this invite",
-      });
+      this.respondForbidden(res, "Not authorized to decline this invite");
       return;
     }
 
     // Check if invite is still pending
     if (invite.status !== "pending") {
-      res.status(400).json({
-        success: false,
-        message: "Invite is no longer pending",
-      });
+      this.respondBadRequest(res, "Invite is no longer pending");
       return;
     }
 
     // Update invite status to declined
     await updateInviteStatus(inviteId, "declined");
 
-    res.status(200).json({
-      success: true,
-      message: "Invite declined successfully",
-    });
-  } catch (error: any) {
-    console.error("Decline invite error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error declining invite",
-    });
-  }
+    this.respondSuccess(res, null, "Invite declined successfully");
+  });
 }
+
+const inviteController = new InviteController();
+export const sendInvite = inviteController.sendInvite;
+export const getUserInvites = inviteController.getUserInvites;
+export const acceptInvite = inviteController.acceptInvite;
+export const declineInvite = inviteController.declineInvite;

@@ -56,8 +56,8 @@ async function checkAndAutoPickIfNeeded(draftId: number): Promise<void> {
 
     const draft = await getDraftById(draftId);
 
-    // Only auto-pick for drafts in progress
-    if (!draft || draft.status !== "in_progress") {
+    // Only auto-pick for drafts in progress or paused
+    if (!draft || (draft.status !== "in_progress" && draft.status !== "paused")) {
       stopAutoPickMonitoring(draftId);
       return;
     }
@@ -268,9 +268,9 @@ async function makeDraftPickWithPlayerSelection(draftId: number, rosterId: numbe
 
     const lockedDraft = draftResult.rows[0];
 
-    // Validate draft is in progress
-    if (lockedDraft.status !== 'in_progress') {
-      throw new Error(`Draft is not in progress (status: ${lockedDraft.status})`);
+    // Validate draft is in progress or paused
+    if (lockedDraft.status !== 'in_progress' && lockedDraft.status !== 'paused') {
+      throw new Error(`Draft is not in progress or paused (status: ${lockedDraft.status})`);
     }
 
     // Validate it's this roster's turn

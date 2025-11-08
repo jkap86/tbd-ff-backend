@@ -1073,8 +1073,8 @@ export async function makeDraftPickHandler(
 
     const draft = draftResult.rows[0];
 
-    // Check if draft is in progress
-    if (draft.status !== "in_progress") {
+    // Check if draft is in progress or paused (picks allowed when paused)
+    if (draft.status !== "in_progress" && draft.status !== "paused") {
       await client.query('ROLLBACK');
       res.status(400).json({
         success: false,

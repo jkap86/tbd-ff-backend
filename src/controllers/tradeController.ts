@@ -20,7 +20,6 @@ import {
 import { createLeagueChatMessage } from "../models/LeagueChatMessage";
 import { getLeagueById } from "../models/League";
 import { validateId } from "../utils/validators";
-import { logger } from "../utils/logger";
 import { ApiResponse } from "../utils/ApiResponse";
 import { asyncHandler } from "../utils/asyncHandler";
 

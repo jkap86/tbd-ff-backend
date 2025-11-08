@@ -16,7 +16,7 @@ import {
 import { leagueBusinessService } from "../services/leagueBusinessService";
 import { ApiResponse } from "../utils/ApiResponse";
 import { asyncHandler } from "../utils/asyncHandler";
-import { validateId, validateSeason } from "../utils/validators";
+import { validateId } from "../utils/validators";
 
 /**
  * Create a new league with all settings

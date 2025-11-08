@@ -94,7 +94,7 @@ export const requireTradeParticipant = createAuthMiddleware({
 
     // Get rosters involved in trade
     const result = await pool.query(
-      \`SELECT user_id FROM rosters WHERE id IN ($1, $2)\`,
+      `SELECT user_id FROM rosters WHERE id IN ($1, $2)`,
       [trade.proposer_roster_id, trade.receiver_roster_id]
     );
 

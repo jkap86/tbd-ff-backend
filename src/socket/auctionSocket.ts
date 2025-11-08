@@ -124,6 +124,16 @@ export function setupAuctionSocket(io: Server) {
             throw new Error("Draft is not an auction type");
           }
 
+          // For regular auction, check if it's this roster's turn
+          if (draft.draft_type === "auction") {
+            if (draft.current_roster_id && draft.current_roster_id !== data.nominatingRosterId) {
+              socket.emit("error", {
+                message: "It's not your turn to nominate",
+              });
+              return;
+            }
+          }
+
           // For slow auction, check nominations per manager limit
           if (draft.draft_type === "slow_auction") {
             const activeNominations = await getActiveNominations(data.draftId);

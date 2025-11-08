@@ -1189,6 +1189,13 @@ export async function resetLeagueHandler(
 
     await client.query('COMMIT');
 
+    // Emit socket event to notify clients that league was reset
+    const { io } = await import("../index");
+    io.to(`league_${leagueId}`).emit("league_reset", {
+      leagueId: parseInt(leagueId),
+      message: "League has been reset to pre-draft status",
+    });
+
     res.status(200).json({
       success: true,
       message: "League reset to pre-draft status successfully",

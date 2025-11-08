@@ -59,7 +59,8 @@ export async function nominatePlayerHandler(req: Request, res: Response) {
 
     if (draft.status !== "in_progress" && draft.status !== "paused") {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: "Draft is not in progress" });
+      console.log(`[NominatePlayer] Draft ${draftId} nomination rejected - status: ${draft.status}, expected: in_progress or paused`);
+      return res.status(400).json({ error: `Draft is not in progress (current status: ${draft.status})` });
     }
 
     // Verify player is not already nominated/won in this draft

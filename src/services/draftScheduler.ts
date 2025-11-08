@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import pool from "../config/database";
 import { Draft, pauseDraft, updateDraft } from "../models/Draft";
-import { startAutoPickMonitoring, stopAutoPickMonitoring } from "./autoPickService";
+import { startAutoPickMonitoring } from "./autoPickService";
 import { withCronLogging } from "../utils/cronHelper";
 
 /**
@@ -92,8 +92,9 @@ async function checkAndUpdateDraftStatuses(): Promise<void> {
 
           const updatedDraft = await pauseDraft(draft.id);
 
-          // Stop auto-pick monitoring when paused
-          stopAutoPickMonitoring(draft.id);
+          // Keep auto-pick monitoring running even when paused
+          // This allows autodraft and manual picks to continue working
+          // The autoPickService already handles paused status correctly
 
           // Emit status change via WebSocket (if io is available)
           if (ioInstance) {
@@ -177,8 +178,9 @@ export async function checkAndAutoPauseDraft(draftId: number): Promise<void> {
 
       const updatedDraft = await pauseDraft(draftId);
 
-      // Stop auto-pick monitoring when paused
-      stopAutoPickMonitoring(draftId);
+      // Keep auto-pick monitoring running even when paused
+      // This allows autodraft and manual picks to continue working
+      // The autoPickService already handles paused status correctly
 
       // Emit status change via WebSocket (if io is available)
       if (ioInstance) {
@@ -209,3 +211,4 @@ export function startDraftScheduler(io?: any): void {
     await checkAndUpdateDraftStatuses();
   });
 }
+

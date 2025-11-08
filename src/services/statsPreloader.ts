@@ -13,8 +13,10 @@ const API_TIMEOUT = 30000; // 30 seconds
 
 // Cache references (same instances used by playerStatsController)
 // Export these so the controller can import them
-export const statsCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
-export const projectionsCache = new NodeCache({ stdTTL: 1800, checkperiod: 120 });
+// Stats cache: 1 hour TTL (stats change infrequently after games complete)
+// Projections cache: 1 hour TTL (projections update periodically but not constantly)
+export const statsCache = new NodeCache({ stdTTL: 3600, checkperiod: 300 });
+export const projectionsCache = new NodeCache({ stdTTL: 3600, checkperiod: 300 });
 
 // Preload every 5 minutes for stats, every 15 minutes for projections
 const STATS_PRELOAD_SCHEDULE = "*/5 * * * *"; // Every 5 minutes
@@ -49,40 +51,46 @@ function getCurrentWeek(): number {
 
 /**
  * Preload and index season stats
- * OPTIMIZED: Only cache current season + index (not raw array)
+ * OPTIMIZED: Cache current season + previous season (for comparison)
  */
 async function preloadSeasonStats(): Promise<void> {
   try {
     const currentSeason = getCurrentSeason();
-    // OPTIMIZATION: Only cache current season (not previous)
-    // Previous season can be fetched on-demand if needed
+    const previousSeason = currentSeason - 1;
 
-    const cacheKey = `season_stats_${currentSeason}_${SEASON_TYPE}`;
-    const indexCacheKey = `${cacheKey}_index`;
+    // Preload both current and previous season
+    const seasons = [currentSeason, previousSeason];
 
-    console.log(`[StatsPreloader] Preloading season stats for ${currentSeason}...`);
+    await Promise.all(
+      seasons.map(async (season) => {
+        const cacheKey = `season_stats_${season}_${SEASON_TYPE}`;
+        const indexCacheKey = `${cacheKey}_index`;
 
-    const response = await axios.get(
-      `${SLEEPER_API_BASE}/stats/nfl/${currentSeason}?season_type=${SEASON_TYPE}`,
-      { timeout: API_TIMEOUT }
-    );
-    const allStats = response.data;
+        console.log(`[StatsPreloader] Preloading season stats for ${season}...`);
 
-    // OPTIMIZATION: Only store indexed version, not the raw array
-    // This saves 50% memory by not duplicating data
-    const statsIndex: Record<string, any> = {};
-    if (allStats) {
-      for (const stat of allStats) {
-        if (stat.player_id) {
-          statsIndex[stat.player_id] = stat;
+        const response = await axios.get(
+          `${SLEEPER_API_BASE}/stats/nfl/${season}?season_type=${SEASON_TYPE}`,
+          { timeout: API_TIMEOUT }
+        );
+        const allStats = response.data;
+
+        // OPTIMIZATION: Only store indexed version, not the raw array
+        // This saves 50% memory by not duplicating data
+        const statsIndex: Record<string, any> = {};
+        if (allStats) {
+          for (const stat of allStats) {
+            if (stat.player_id) {
+              statsIndex[stat.player_id] = stat;
+            }
+          }
         }
-      }
-    }
 
-    // Only cache the index
-    statsCache.set(indexCacheKey, statsIndex);
-    console.log(
-      `[StatsPreloader] Cached season stats for ${currentSeason} with ${Object.keys(statsIndex).length} players`
+        // Only cache the index
+        statsCache.set(indexCacheKey, statsIndex);
+        console.log(
+          `[StatsPreloader] Cached season stats for ${season} with ${Object.keys(statsIndex).length} players`
+        );
+      })
     );
   } catch (error: any) {
     console.error("[StatsPreloader] Error preloading season stats:", error.message);

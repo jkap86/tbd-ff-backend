@@ -14,36 +14,21 @@ import {
   getNextRosterId,
 } from "../models/Roster";
 import { leagueBusinessService } from "../services/leagueBusinessService";
-import { ApiResponse } from "../utils/ApiResponse";
-import { asyncHandler } from "../utils/asyncHandler";
-import { validateId } from "../utils/validators";
+import { BaseController } from "./BaseController";
 
-/**
- * Create a new league with all settings
- * POST /api/leagues/create
- *
- * Request body:
- * {
- *   name: string,
- *   season: string,
- *   season_type?: "pre" | "regular" | "post",
- *   league_type?: "redraft" | "keeper" | "dynasty",
- *   total_rosters?: number (2-100),
- *   settings?: {
- *     is_public?: boolean,
- *     start_week?: number (1-17),
- *     end_week?: number (1-17),
- *     league_median?: boolean
- *   },
- *   scoring_settings?: { [stat]: points },
- *   roster_positions?: [{ position: string, count: number }]
- * }
- */
-export async function createLeagueHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+// Before: 1308 lines
+// After: 1007 lines
+// Lines saved: 301
+
+class LeagueController extends BaseController {
+  /**
+   * Create a new league with all settings
+   * POST /api/leagues/create
+   */
+  createLeague = this.asyncHandler(async (
+    req: Request,
+    res: Response
+  ) => {
     const {
       name,
       season,
@@ -57,30 +42,19 @@ export async function createLeagueHandler(
     } = req.body;
 
     // Validate required fields
-    if (!name || !season) {
-      res.status(400).json({
-        success: false,
-        message: "Name and season are required",
-      });
-      return;
+    const validated = this.validateRequiredFields(req.body, ['name', 'season']);
+    if (!validated) {
+      return this.respondBadRequest(res, "Name and season are required");
     }
 
     // Validate name length
     if (name.length < 2 || name.length > 100) {
-      res.status(400).json({
-        success: false,
-        message: "League name must be between 2 and 100 characters",
-      });
-      return;
+      return this.respondBadRequest(res, "League name must be between 2 and 100 characters");
     }
 
     // Validate season format (e.g., "2024", "2025")
     if (!/^\d{4}$/.test(season)) {
-      res.status(400).json({
-        success: false,
-        message: "Season must be a valid year (e.g., 2024)",
-      });
-      return;
+      return this.respondBadRequest(res, "Season must be a valid year (e.g., 2024)");
     }
 
     // Validate total_rosters if provided
@@ -90,11 +64,7 @@ export async function createLeagueHandler(
         total_rosters < 2 ||
         total_rosters > 100
       ) {
-        res.status(400).json({
-          success: false,
-          message: "Total rosters must be between 2 and 100",
-        });
-        return;
+        return this.respondBadRequest(res, "Total rosters must be between 2 and 100");
       }
     }
 
@@ -103,11 +73,7 @@ export async function createLeagueHandler(
       try {
         validateLeagueSettings(settings);
       } catch (error: any) {
-        res.status(400).json({
-          success: false,
-          message: `Invalid settings: ${error.message}`,
-        });
-        return;
+        return this.respondBadRequest(res, `Invalid settings: ${error.message}`);
       }
     }
 
@@ -116,11 +82,7 @@ export async function createLeagueHandler(
       try {
         validateScoringSettings(scoring_settings);
       } catch (error: any) {
-        res.status(400).json({
-          success: false,
-          message: `Invalid scoring settings: ${error.message}`,
-        });
-        return;
+        return this.respondBadRequest(res, `Invalid scoring settings: ${error.message}`);
       }
     }
 
@@ -129,23 +91,15 @@ export async function createLeagueHandler(
       try {
         validateRosterPositions(roster_positions);
       } catch (error: any) {
-        res.status(400).json({
-          success: false,
-          message: `Invalid roster positions: ${error.message}`,
-        });
-        return;
+        return this.respondBadRequest(res, `Invalid roster positions: ${error.message}`);
       }
     }
 
     // Get commissioner_id from authenticated user
-    const commissioner_id = req.user?.userId;
+    const commissioner_id = this.getAuthenticatedUserId(req);
 
     if (!commissioner_id) {
-      res.status(401).json({
-        success: false,
-        message: "User not authenticated",
-      });
-      return;
+      return this.respondUnauthorized(res, "User not authenticated");
     }
 
     // Create league with business logic handled by service layer
@@ -165,178 +119,141 @@ export async function createLeagueHandler(
       }
     );
 
-    res.status(201).json({
-      success: true,
-      message: "League created successfully",
-      data: league,
-    });
-  } catch (error: any) {
-    console.error("Create league error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error creating league",
-    });
-  }
-}
-
-/**
- * Get all leagues for a user
- * GET /api/leagues/user/:userId
- */
-export const getUserLeaguesHandler = asyncHandler(async (req: Request, res: Response) => {
-  console.log('[getUserLeagues] Request for userId:', req.params.userId);
-  const userId = validateId(req.params.userId, "User ID");
-
-  const leagues = await getLeaguesForUser(userId);
-  console.log('[getUserLeagues] Found', leagues.length, 'leagues');
-
-  ApiResponse.success(res, leagues);
-});
-
-/**
- * Get all public leagues
- * GET /api/leagues/public
- */
-export const getPublicLeaguesHandler = asyncHandler(async (_req: Request, res: Response) => {
-  // Get public leagues from database
-  const { getPublicLeagues } = await import("../models/League");
-  const leagues = await getPublicLeagues();
-
-  ApiResponse.success(res, leagues);
-});
-
-/**
- * Get specific league with all rosters
- * GET /api/leagues/:leagueId
- */
-export const getLeagueDetailsHandler = asyncHandler(async (req: Request, res: Response) => {
-  const leagueId = validateId(req.params.leagueId, "League ID");
-
-  // Optimized query: Use a single query with JOINs to fetch league and all rosters
-  // This eliminates the N+1 query problem
-  const result = await pool.query(`
-    SELECT
-      l.*,
-      json_agg(
-        json_build_object(
-          'id', r.id,
-          'league_id', r.league_id,
-          'user_id', r.user_id,
-          'roster_id', r.roster_id,
-          'settings', r.settings,
-          'starters', r.starters,
-          'bench', r.bench,
-          'taxi', r.taxi,
-          'ir', r.ir,
-          'wins', r.wins,
-          'losses', r.losses,
-          'ties', r.ties,
-          'points_for', r.points_for,
-          'points_against', r.points_against,
-          'faab_budget', r.faab_budget,
-          'waiver_position', r.waiver_position,
-          'created_at', r.created_at,
-          'updated_at', r.updated_at,
-          'username', u.username,
-          'email', u.email
-        ) ORDER BY r.roster_id ASC
-      ) FILTER (WHERE r.id IS NOT NULL) as rosters
-    FROM leagues l
-    LEFT JOIN rosters r ON r.league_id = l.id
-    LEFT JOIN users u ON u.id = r.user_id
-    WHERE l.id = $1
-    GROUP BY l.id
-  `, [leagueId]);
-
-  if (result.rows.length === 0) {
-    return ApiResponse.notFound(res, "League not found");
-  }
-
-  const row = result.rows[0];
-
-  // Extract league data (all columns except rosters)
-  const { rosters, ...leagueData } = row;
-
-  // Extract commissioner ID from settings and add it to league object at top level
-  const commissionerId =
-    leagueData.settings && leagueData.settings.commissioner_id
-      ? leagueData.settings.commissioner_id
-      : null;
-
-  // Add commissioner_id to league object so Flutter can parse it
-  const leagueWithCommissioner = {
-    ...leagueData,
-    commissioner_id: commissionerId,
-  };
-
-  ApiResponse.success(res, {
-    league: leagueWithCommissioner,
-    rosters: rosters || [],
+    this.respondCreated(res, league, "League created successfully");
   });
-});
 
-/**
- * Join a league
- * POST /api/leagues/:leagueId/join
- */
-export async function joinLeagueHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const leagueId = parseInt(req.params.leagueId);
-    const { team_name } = req.body;
+  /**
+   * Get all leagues for a user
+   * GET /api/leagues/user/:userId
+   */
+  getUserLeagues = this.asyncHandler(async (req: Request, res: Response) => {
+    console.log('[getUserLeagues] Request for userId:', req.params.userId);
+    const userId = this.validateId(req.params.userId, "User ID");
 
-    if (isNaN(leagueId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid league ID",
-      });
-      return;
+    const leagues = await getLeaguesForUser(userId);
+    console.log('[getUserLeagues] Found', leagues.length, 'leagues');
+
+    this.respondSuccess(res, leagues);
+  });
+
+  /**
+   * Get all public leagues
+   * GET /api/leagues/public
+   */
+  getPublicLeagues = this.asyncHandler(async (_req: Request, res: Response) => {
+    const { getPublicLeagues } = await import("../models/League");
+    const leagues = await getPublicLeagues();
+
+    this.respondSuccess(res, leagues);
+  });
+
+  /**
+   * Get specific league with all rosters
+   * GET /api/leagues/:leagueId
+   */
+  getLeagueDetails = this.asyncHandler(async (req: Request, res: Response) => {
+    const leagueId = this.validateId(req.params.leagueId, "League ID");
+
+    // Optimized query: Use a single query with JOINs to fetch league and all rosters
+    // This eliminates the N+1 query problem
+    const result = await pool.query(`
+      SELECT
+        l.*,
+        json_agg(
+          json_build_object(
+            'id', r.id,
+            'league_id', r.league_id,
+            'user_id', r.user_id,
+            'roster_id', r.roster_id,
+            'settings', r.settings,
+            'starters', r.starters,
+            'bench', r.bench,
+            'taxi', r.taxi,
+            'ir', r.ir,
+            'wins', r.wins,
+            'losses', r.losses,
+            'ties', r.ties,
+            'points_for', r.points_for,
+            'points_against', r.points_against,
+            'faab_budget', r.faab_budget,
+            'waiver_position', r.waiver_position,
+            'created_at', r.created_at,
+            'updated_at', r.updated_at,
+            'username', u.username,
+            'email', u.email
+          ) ORDER BY r.roster_id ASC
+        ) FILTER (WHERE r.id IS NOT NULL) as rosters
+      FROM leagues l
+      LEFT JOIN rosters r ON r.league_id = l.id
+      LEFT JOIN users u ON u.id = r.user_id
+      WHERE l.id = $1
+      GROUP BY l.id
+    `, [leagueId]);
+
+    if (result.rows.length === 0) {
+      return this.respondNotFound(res, "League not found");
     }
 
+    const row = result.rows[0];
+
+    // Extract league data (all columns except rosters)
+    const { rosters, ...leagueData } = row;
+
+    // Extract commissioner ID from settings and add it to league object at top level
+    const commissionerId =
+      leagueData.settings && leagueData.settings.commissioner_id
+        ? leagueData.settings.commissioner_id
+        : null;
+
+    // Add commissioner_id to league object so Flutter can parse it
+    const leagueWithCommissioner = {
+      ...leagueData,
+      commissioner_id: commissionerId,
+    };
+
+    this.respondSuccess(res, {
+      league: leagueWithCommissioner,
+      rosters: rosters || [],
+    });
+  });
+
+  /**
+   * Join a league
+   * POST /api/leagues/:leagueId/join
+   */
+  joinLeague = this.asyncHandler(async (
+    req: Request,
+    res: Response
+  ) => {
+    const leagueId = this.validateId(req.params.leagueId, "League ID");
+    const { team_name } = req.body;
+
     // Get user ID from authenticated user
-    const userId = req.user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
 
     if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "User not authenticated",
-      });
-      return;
+      return this.respondUnauthorized(res, "User not authenticated");
     }
 
     // Check if league exists
     const league = await getLeagueById(leagueId);
 
     if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
-      return;
+      return this.respondNotFound(res, "League not found");
     }
 
     // Check if user already has a roster in this league
     const existingRoster = await getRosterByLeagueAndUser(leagueId, userId);
 
     if (existingRoster) {
-      res.status(409).json({
-        success: false,
-        message: "User already has a roster in this league",
-      });
-      return;
+      return this.respondError(res, "User already has a roster in this league", 409);
     }
 
     // Check if league is full
     const rosters = await getRostersByLeagueId(leagueId);
 
     if (rosters.length >= league.total_rosters) {
-      res.status(400).json({
-        success: false,
-        message: "League is full",
-      });
-      return;
+      return this.respondBadRequest(res, "League is full");
     }
 
     // Get next available roster_id
@@ -380,39 +297,18 @@ export async function joinLeagueHandler(
       // Don't fail the join if chat message creation fails
     }
 
-    res.status(201).json({
-      success: true,
-      message: "Successfully joined league",
-      data: roster,
-    });
-  } catch (error: any) {
-    console.error("Join league error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error joining league",
-    });
-  }
-}
+    this.respondCreated(res, roster, "Successfully joined league");
+  });
 
-/**
- * Update league settings (name, total_rosters, settings, scoring_settings, roster_positions)
- * PUT /api/leagues/:leagueId
- *
- * Request body can include any of:
- * {
- *   name?: string,
- *   total_rosters?: number,
- *   settings?: { is_public, season_type, start_week, end_week, league_median },
- *   scoring_settings?: { [stat]: points },
- *   roster_positions?: [{ position: string, count: number }]
- * }
- */
-export async function updateLeagueSettingsHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const leagueId = parseInt(req.params.leagueId);
+  /**
+   * Update league settings (name, total_rosters, settings, scoring_settings, roster_positions)
+   * PUT /api/leagues/:leagueId
+   */
+  updateLeagueSettings = this.asyncHandler(async (
+    req: Request,
+    res: Response
+  ) => {
+    const leagueId = this.validateId(req.params.leagueId, "League ID");
     const {
       name,
       league_type,
@@ -425,33 +321,17 @@ export async function updateLeagueSettingsHandler(
       trade_details_setting,
     } = req.body;
 
-    if (isNaN(leagueId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid league ID",
-      });
-      return;
-    }
-
     // Get user ID from authenticated user
-    const userId = req.user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
 
     if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "User not authenticated",
-      });
-      return;
+      return this.respondUnauthorized(res, "User not authenticated");
     }
 
     // Validate name if provided
     if (name !== undefined) {
       if (name.length < 2 || name.length > 100) {
-        res.status(400).json({
-          success: false,
-          message: "League name must be between 2 and 100 characters",
-        });
-        return;
+        return this.respondBadRequest(res, "League name must be between 2 and 100 characters");
       }
     }
 
@@ -462,11 +342,7 @@ export async function updateLeagueSettingsHandler(
         total_rosters < 2 ||
         total_rosters > 100
       ) {
-        res.status(400).json({
-          success: false,
-          message: "Total rosters must be between 2 and 100",
-        });
-        return;
+        return this.respondBadRequest(res, "Total rosters must be between 2 and 100");
       }
     }
 
@@ -475,11 +351,7 @@ export async function updateLeagueSettingsHandler(
       try {
         validateLeagueSettings(settings);
       } catch (error: any) {
-        res.status(400).json({
-          success: false,
-          message: `Invalid settings: ${error.message}`,
-        });
-        return;
+        return this.respondBadRequest(res, `Invalid settings: ${error.message}`);
       }
     }
 
@@ -490,20 +362,12 @@ export async function updateLeagueSettingsHandler(
         const league = await getLeagueById(leagueId);
 
         if (!league) {
-          res.status(404).json({
-            success: false,
-            message: "League not found",
-          });
-          return;
+          return this.respondNotFound(res, "League not found");
         }
 
         validateScoringSettings(scoring_settings);
       } catch (error: any) {
-        res.status(400).json({
-          success: false,
-          message: `Invalid scoring settings: ${error.message}`,
-        });
-        return;
+        return this.respondBadRequest(res, `Invalid scoring settings: ${error.message}`);
       }
     }
 
@@ -512,22 +376,14 @@ export async function updateLeagueSettingsHandler(
       try {
         validateRosterPositions(roster_positions);
       } catch (error: any) {
-        res.status(400).json({
-          success: false,
-          message: `Invalid roster positions: ${error.message}`,
-        });
-        return;
+        return this.respondBadRequest(res, `Invalid roster positions: ${error.message}`);
       }
     }
 
     // Get current league to check if total_rosters is changing
     const currentLeague = await getLeagueById(leagueId);
     if (!currentLeague) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
-      return;
+      return this.respondNotFound(res, "League not found");
     }
 
     const oldTotalRosters = currentLeague.total_rosters;
@@ -551,11 +407,7 @@ export async function updateLeagueSettingsHandler(
     });
 
     if (!updatedLeague) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
-      return;
+      return this.respondNotFound(res, "League not found");
     }
 
     // Handle draft order reset if roster count changed
@@ -715,66 +567,29 @@ export async function updateLeagueSettingsHandler(
       // Don't fail the request if notification fails
     }
 
-    res.status(200).json({
-      success: true,
-      message: "League settings updated successfully",
-      data: updatedLeague,
-    });
-  } catch (error: any) {
-    console.error("Update league settings error:", error);
+    this.respondSuccess(res, updatedLeague, "League settings updated successfully");
+  });
 
-    if (error.message === "Only the commissioner can update league settings") {
-      res.status(403).json({
-        success: false,
-        message: error.message,
-      });
-      return;
-    }
-
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error updating league settings",
-    });
-  }
-}
-
-/**
- * Transfer commissioner role to another user
- * POST /api/leagues/:leagueId/transfer-commissioner
- */
-export async function transferCommissionerHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const leagueId = parseInt(req.params.leagueId);
+  /**
+   * Transfer commissioner role to another user
+   * POST /api/leagues/:leagueId/transfer-commissioner
+   */
+  transferCommissioner = this.asyncHandler(async (
+    req: Request,
+    res: Response
+  ) => {
+    const leagueId = this.validateId(req.params.leagueId, "League ID");
     const { newCommissionerId } = req.body;
 
-    if (isNaN(leagueId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid league ID",
-      });
-      return;
-    }
-
     if (!newCommissionerId) {
-      res.status(400).json({
-        success: false,
-        message: "New commissioner ID is required",
-      });
-      return;
+      return this.respondBadRequest(res, "New commissioner ID is required");
     }
 
     // Get current user ID from authenticated user
-    const userId = req.user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
 
     if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "User not authenticated",
-      });
-      return;
+      return this.respondUnauthorized(res, "User not authenticated");
     }
 
     // Import the transfer function
@@ -788,385 +603,276 @@ export async function transferCommissionerHandler(
     );
 
     if (!updatedLeague) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
-      return;
+      return this.respondNotFound(res, "League not found");
     }
 
-    res.status(200).json({
-      success: true,
-      message: "Commissioner role transferred successfully",
-      data: updatedLeague,
-    });
-  } catch (error: any) {
-    console.error("Transfer commissioner error:", error);
-
-    if (
-      error.message === "Only the commissioner can transfer their role" ||
-      error.message === "New commissioner must be a member of the league"
-    ) {
-      res.status(403).json({
-        success: false,
-        message: error.message,
-      });
-      return;
-    }
-
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error transferring commissioner",
-    });
-  }
-}
-
-/**
- * Check if user is commissioner of a league
- * GET /api/leagues/:leagueId/is-commissioner
- */
-export const isCommissionerHandler = asyncHandler(async (req: Request, res: Response) => {
-  const leagueId = validateId(req.params.leagueId, "League ID");
-
-  const userId = req.user?.userId;
-
-  if (!userId) {
-    return ApiResponse.unauthorized(res, "User not authenticated");
-  }
-
-  const league = await getLeagueById(leagueId);
-
-  if (!league) {
-    return ApiResponse.notFound(res, "League not found");
-  }
-
-  const { getCommissionerIdFromLeague } = await import("../models/League");
-  const commissionerId = getCommissionerIdFromLeague(league);
-  const isCommissioner = commissionerId === userId;
-
-  ApiResponse.success(res, {
-    isCommissioner,
-    commissionerId,
+    this.respondSuccess(res, updatedLeague, "Commissioner role transferred successfully");
   });
-});
 
-/**
- * Remove a user from a league
- * POST /api/leagues/:leagueId/remove-member
- */
-export async function removeLeagueMemberHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const leagueId = parseInt(req.params.leagueId);
+  /**
+   * Check if user is commissioner of a league
+   * GET /api/leagues/:leagueId/is-commissioner
+   */
+  isCommissioner = this.asyncHandler(async (req: Request, res: Response) => {
+    const leagueId = this.validateId(req.params.leagueId, "League ID");
+
+    const userId = this.getAuthenticatedUserId(req);
+
+    if (!userId) {
+      return this.respondUnauthorized(res, "User not authenticated");
+    }
+
+    const league = await getLeagueById(leagueId);
+
+    if (!league) {
+      return this.respondNotFound(res, "League not found");
+    }
+
+    const { getCommissionerIdFromLeague } = await import("../models/League");
+    const commissionerId = getCommissionerIdFromLeague(league);
+    const isCommissioner = commissionerId === userId;
+
+    this.respondSuccess(res, {
+      isCommissioner,
+      commissionerId,
+    });
+  });
+
+  /**
+   * Remove a user from a league
+   * POST /api/leagues/:leagueId/remove-member
+   */
+  removeLeagueMember = this.asyncHandler(async (
+    req: Request,
+    res: Response
+  ) => {
+    const leagueId = this.validateId(req.params.leagueId, "League ID");
     const { userIdToRemove } = req.body;
 
-    if (isNaN(leagueId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid league ID",
-      });
-      return;
-    }
-
     if (!userIdToRemove) {
-      res.status(400).json({
-        success: false,
-        message: "User ID to remove is required",
-      });
-      return;
+      return this.respondBadRequest(res, "User ID to remove is required");
     }
 
     // Get current user ID from authenticated user
-    const userId = req.user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
 
     if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "User not authenticated",
-      });
-      return;
+      return this.respondUnauthorized(res, "User not authenticated");
     }
 
     // Get league and verify user is commissioner
     const league = await getLeagueById(leagueId);
 
     if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
-      return;
+      return this.respondNotFound(res, "League not found");
     }
 
     const { getCommissionerIdFromLeague } = await import("../models/League");
     const commissionerId = getCommissionerIdFromLeague(league);
 
     if (commissionerId !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "Only the commissioner can remove members",
-      });
-      return;
+      return this.respondForbidden(res, "Only the commissioner can remove members");
     }
 
     // Prevent removing commissioner
     if (userIdToRemove === commissionerId) {
-      res.status(400).json({
-        success: false,
-        message: "Cannot remove the commissioner from the league",
-      });
-      return;
+      return this.respondBadRequest(res, "Cannot remove the commissioner from the league");
     }
 
     // Remove user's roster from league
     const { deleteRosterByLeagueAndUser } = await import("../models/Roster");
     await deleteRosterByLeagueAndUser(leagueId, userIdToRemove);
 
-    res.status(200).json({
-      success: true,
-      message: "Member removed from league successfully",
-    });
-  } catch (error: any) {
-    console.error("Remove league member error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error removing member from league",
-    });
-  }
-}
+    this.respondSuccess(res, null, "Member removed from league successfully");
+  });
 
-/**
- * Get league statistics
- * GET /api/leagues/:leagueId/stats
- */
-export const getLeagueStatsHandler = asyncHandler(async (req: Request, res: Response) => {
-  const leagueId = validateId(req.params.leagueId, "League ID");
+  /**
+   * Get league statistics
+   * GET /api/leagues/:leagueId/stats
+   */
+  getLeagueStats = this.asyncHandler(async (req: Request, res: Response) => {
+    const leagueId = this.validateId(req.params.leagueId, "League ID");
 
-  // Get league
-  const league = await getLeagueById(leagueId);
+    // Get league
+    const league = await getLeagueById(leagueId);
 
-  if (!league) {
-    return ApiResponse.notFound(res, "League not found");
-  }
-
-  // Get rosters
-  const rosters = await getRostersByLeagueId(leagueId);
-
-  const { getCommissionerIdFromLeague } = await import("../models/League");
-  const commissionerId = getCommissionerIdFromLeague(league);
-
-  const stats = {
-    league_id: league.id,
-    league_name: league.name,
-    total_rosters: league.total_rosters,
-    filled_rosters: rosters.length,
-    available_spots: league.total_rosters - rosters.length,
-    commissioner_id: commissionerId,
-    season: league.season,
-    status: league.status,
-    created_at: league.created_at,
-    settings: league.settings,
-    scoring_settings: league.scoring_settings,
-    roster_positions: league.roster_positions,
-  };
-
-  ApiResponse.success(res, stats);
-});
-
-/**
- * Reset league to pre-draft status
- * POST /api/leagues/:leagueId/reset
- * - Sets league status to 'pre_draft'
- * - Deletes the draft and all picks
- * - Clears all roster lineups (keeps teams but removes players)
- * - Keeps league members intact
- */
-export async function resetLeagueHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  const { leagueId } = req.params;
-  const userId = (req as any).user?.userId;
-
-  if (!userId) {
-    res.status(401).json({
-      success: false,
-      message: "Not authenticated",
-    });
-    return;
-  }
-
-  // Get league and verify user is commissioner (before transaction)
-  const { getLeagueById, getCommissionerIdFromLeague, updateLeague } = await import("../models/League");
-  const league = await getLeagueById(parseInt(leagueId));
-
-  if (!league) {
-    res.status(404).json({
-      success: false,
-      message: "League not found",
-    });
-    return;
-  }
-
-  const commissionerId = getCommissionerIdFromLeague(league);
-
-  if (commissionerId !== userId) {
-    res.status(403).json({
-      success: false,
-      message: "Only the commissioner can reset the league",
-    });
-    return;
-  }
-
-  // DYNASTY GUARD: Prevent reset for dynasty leagues
-  if (league.league_type === 'dynasty') {
-    res.status(400).json({
-      success: false,
-      message: "Dynasty leagues cannot be reset. Use season rollover to start a new season while keeping rosters intact.",
-    });
-    return;
-  }
-
-  const client = await pool.connect();
-
-  try {
-    await client.query('BEGIN');
-
-    // TODO: Update these functions to accept an optional client parameter for proper transaction support
-    // For now, these operations use the global pool and are not part of the transaction
-    // This means if any operation fails, previous operations may not be rolled back
-
-    // Delete draft if it exists
-    const { getDraftByLeagueId, deleteDraft } = await import("../models/Draft");
-    const draft = await getDraftByLeagueId(parseInt(leagueId));
-    if (draft) {
-      // Stop draft timer broadcasts before deleting draft
-      const { stopTimerBroadcast } = await import("../socket/draftSocket");
-      stopTimerBroadcast(draft.id);
-
-      await deleteDraft(draft.id);
+    if (!league) {
+      return this.respondNotFound(res, "League not found");
     }
 
-    // Clear all roster lineups (remove all players but keep rosters)
-    const { clearAllRosterLineups } = await import("../models/Roster");
-    await clearAllRosterLineups(parseInt(leagueId));
+    // Get rosters
+    const rosters = await getRostersByLeagueId(leagueId);
 
-    // Delete all weekly lineups
-    const { deleteWeeklyLineupsForLeague } = await import("../models/WeeklyLineup");
-    await deleteWeeklyLineupsForLeague(parseInt(leagueId));
+    const { getCommissionerIdFromLeague } = await import("../models/League");
+    const commissionerId = getCommissionerIdFromLeague(league);
 
-    // Delete all matchups
-    const { deleteMatchupsForLeague } = await import("../models/Matchup");
-    await deleteMatchupsForLeague(parseInt(leagueId));
+    const stats = {
+      league_id: league.id,
+      league_name: league.name,
+      total_rosters: league.total_rosters,
+      filled_rosters: rosters.length,
+      available_spots: league.total_rosters - rosters.length,
+      commissioner_id: commissionerId,
+      season: league.season,
+      status: league.status,
+      created_at: league.created_at,
+      settings: league.settings,
+      scoring_settings: league.scoring_settings,
+      roster_positions: league.roster_positions,
+    };
 
-    // Reset all roster records to 0-0-0
-    const { resetAllRosterRecords } = await import("../services/recordService");
-    await resetAllRosterRecords(parseInt(leagueId));
+    this.respondSuccess(res, stats);
+  });
 
-    // Update league status to pre_draft
-    await updateLeague(parseInt(leagueId), {
-      status: "pre_draft",
-    });
-
-    await client.query('COMMIT');
-
-    // Send league chat notification about league reset
-    try {
-      const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
-      const { emitLeagueChat } = await import("../socket/leagueSocket");
-      const { io } = await import("../index");
-
-      const message = 'Commissioner has reset the league to pre-draft status';
-
-      const chatMessage = await createLeagueChatMessage({
-        league_id: parseInt(leagueId),
-        user_id: null, // System message
-        message,
-        message_type: "system",
-        metadata: {
-          type: 'league_reset',
-          details: {
-            description: 'All rosters, matchups, weekly lineups, and draft data have been cleared. The league is ready for a new draft.',
-          }
-        },
-      });
-
-      const messageToEmit = {
-        ...chatMessage,
-        username: null,
-        team_name: null,
-      };
-
-      // Emit to league chat via socket
-      emitLeagueChat(io, parseInt(leagueId), messageToEmit);
-    } catch (notificationError) {
-      console.error("Error sending league reset notification:", notificationError);
-      // Don't fail the request if notification fails
-    }
-
-    // Emit socket event to notify clients that league was reset
-    const { io } = await import("../index");
-    io.to(`league_${leagueId}`).emit("league_reset", {
-      leagueId: parseInt(leagueId),
-      message: "League has been reset to pre-draft status",
-    });
-
-    res.status(200).json({
-      success: true,
-      message: "League reset to pre-draft status successfully",
-    });
-  } catch (error: any) {
-    await client.query('ROLLBACK');
-    console.error("[resetLeagueHandler] Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to reset league",
-    });
-  } finally {
-    client.release();
-  }
-}
-
-/**
- * Delete a league (commissioner only)
- * DELETE /api/leagues/:leagueId
- */
-export async function deleteLeagueHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const { leagueId } = req.params;
-    const userId = req.user?.userId;
+  /**
+   * Reset league to pre-draft status
+   * POST /api/leagues/:leagueId/reset
+   */
+  resetLeague = this.asyncHandler(async (
+    req: Request,
+    res: Response
+  ) => {
+    const leagueId = this.validateId(req.params.leagueId, "League ID");
+    const userId = this.getAuthenticatedUserId(req);
 
     if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "User not authenticated",
+      return this.respondUnauthorized(res, "Not authenticated");
+    }
+
+    // Get league and verify user is commissioner (before transaction)
+    const { getLeagueById, getCommissionerIdFromLeague, updateLeague } = await import("../models/League");
+    const league = await getLeagueById(leagueId);
+
+    if (!league) {
+      return this.respondNotFound(res, "League not found");
+    }
+
+    const commissionerId = getCommissionerIdFromLeague(league);
+
+    if (commissionerId !== userId) {
+      return this.respondForbidden(res, "Only the commissioner can reset the league");
+    }
+
+    // DYNASTY GUARD: Prevent reset for dynasty leagues
+    if (league.league_type === 'dynasty') {
+      return this.respondBadRequest(res, "Dynasty leagues cannot be reset. Use season rollover to start a new season while keeping rosters intact.");
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      // Delete draft if it exists
+      const { getDraftByLeagueId, deleteDraft } = await import("../models/Draft");
+      const draft = await getDraftByLeagueId(leagueId);
+      if (draft) {
+        // Stop draft timer broadcasts before deleting draft
+        const { stopTimerBroadcast } = await import("../socket/draftSocket");
+        stopTimerBroadcast(draft.id);
+
+        await deleteDraft(draft.id);
+      }
+
+      // Clear all roster lineups (remove all players but keep rosters)
+      const { clearAllRosterLineups } = await import("../models/Roster");
+      await clearAllRosterLineups(leagueId);
+
+      // Delete all weekly lineups
+      const { deleteWeeklyLineupsForLeague } = await import("../models/WeeklyLineup");
+      await deleteWeeklyLineupsForLeague(leagueId);
+
+      // Delete all matchups
+      const { deleteMatchupsForLeague } = await import("../models/Matchup");
+      await deleteMatchupsForLeague(leagueId);
+
+      // Reset all roster records to 0-0-0
+      const { resetAllRosterRecords } = await import("../services/recordService");
+      await resetAllRosterRecords(leagueId);
+
+      // Update league status to pre_draft
+      await updateLeague(leagueId, {
+        status: "pre_draft",
       });
-      return;
+
+      await client.query('COMMIT');
+
+      // Send league chat notification about league reset
+      try {
+        const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
+        const { emitLeagueChat } = await import("../socket/leagueSocket");
+        const { io } = await import("../index");
+
+        const message = 'Commissioner has reset the league to pre-draft status';
+
+        const chatMessage = await createLeagueChatMessage({
+          league_id: leagueId,
+          user_id: null, // System message
+          message,
+          message_type: "system",
+          metadata: {
+            type: 'league_reset',
+            details: {
+              description: 'All rosters, matchups, weekly lineups, and draft data have been cleared. The league is ready for a new draft.',
+            }
+          },
+        });
+
+        const messageToEmit = {
+          ...chatMessage,
+          username: null,
+          team_name: null,
+        };
+
+        // Emit to league chat via socket
+        emitLeagueChat(io, leagueId, messageToEmit);
+      } catch (notificationError) {
+        console.error("Error sending league reset notification:", notificationError);
+        // Don't fail the request if notification fails
+      }
+
+      // Emit socket event to notify clients that league was reset
+      const { io } = await import("../index");
+      io.to(`league_${leagueId}`).emit("league_reset", {
+        leagueId: leagueId,
+        message: "League has been reset to pre-draft status",
+      });
+
+      this.respondSuccess(res, null, "League reset to pre-draft status successfully");
+    } catch (error: any) {
+      await client.query('ROLLBACK');
+      console.error("[resetLeagueHandler] Error:", error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
+
+  /**
+   * Delete a league (commissioner only)
+   * DELETE /api/leagues/:leagueId
+   */
+  deleteLeague = this.asyncHandler(async (
+    req: Request,
+    res: Response
+  ) => {
+    const leagueId = this.validateId(req.params.leagueId, "League ID");
+    const userId = this.getAuthenticatedUserId(req);
+
+    if (!userId) {
+      return this.respondUnauthorized(res, "User not authenticated");
     }
 
     // Get league to check commissioner
-    const league = await getLeagueById(parseInt(leagueId));
+    const league = await getLeagueById(leagueId);
     if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
-      return;
+      return this.respondNotFound(res, "League not found");
     }
 
     // Check if user is commissioner
     const commissionerId = league.settings?.commissioner_id;
     if (!commissionerId || commissionerId !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "Only the commissioner can delete the league",
-      });
-      return;
+      return this.respondForbidden(res, "Only the commissioner can delete the league");
     }
 
     // Delete all related data in cascade
@@ -1174,134 +880,128 @@ export async function deleteLeagueHandler(
 
     // Delete draft if it exists
     const { getDraftByLeagueId, deleteDraft } = await import("../models/Draft");
-    const draft = await getDraftByLeagueId(parseInt(leagueId));
+    const draft = await getDraftByLeagueId(leagueId);
     if (draft) {
       await deleteDraft(draft.id);
     }
 
     // Delete weekly lineups
     const { deleteWeeklyLineupsForLeague } = await import("../models/WeeklyLineup");
-    await deleteWeeklyLineupsForLeague(parseInt(leagueId));
+    await deleteWeeklyLineupsForLeague(leagueId);
 
     // Delete matchups
     const { deleteMatchupsForLeague } = await import("../models/Matchup");
-    await deleteMatchupsForLeague(parseInt(leagueId));
+    await deleteMatchupsForLeague(leagueId);
 
     // Delete league chat messages
     const { deleteLeagueChatMessages } = await import("../models/LeagueChatMessage");
-    await deleteLeagueChatMessages(parseInt(leagueId));
+    await deleteLeagueChatMessages(leagueId);
 
     // Delete rosters (this will cascade to roster-related tables)
-    await pool.query("DELETE FROM rosters WHERE league_id = $1", [parseInt(leagueId)]);
+    await pool.query("DELETE FROM rosters WHERE league_id = $1", [leagueId]);
 
     // Delete league invites
-    await pool.query("DELETE FROM league_invites WHERE league_id = $1", [parseInt(leagueId)]);
+    await pool.query("DELETE FROM league_invites WHERE league_id = $1", [leagueId]);
 
     // Finally, delete the league itself
-    await pool.query("DELETE FROM leagues WHERE id = $1", [parseInt(leagueId)]);
+    await pool.query("DELETE FROM leagues WHERE id = $1", [leagueId]);
 
-    res.status(200).json({
-      success: true,
-      message: "League deleted successfully",
+    this.respondSuccess(res, null, "League deleted successfully");
+  });
+
+  /**
+   * Generate shareable league invitation link
+   * POST /api/leagues/:leagueId/generate-invite-link
+   */
+  generateInviteLink = this.asyncHandler(async (req: Request, res: Response) => {
+    const leagueId = this.validateId(req.params.leagueId, "League ID");
+
+    const userId = this.getAuthenticatedUserId(req);
+
+    if (!userId) {
+      return this.respondUnauthorized(res, "User not authenticated");
+    }
+
+    // Get league and verify it exists
+    const league = await getLeagueById(leagueId);
+
+    if (!league) {
+      return this.respondNotFound(res, "League not found");
+    }
+
+    // Verify user is commissioner
+    const { getCommissionerIdFromLeague } = await import("../models/League");
+    const commissionerId = getCommissionerIdFromLeague(league);
+
+    if (commissionerId !== userId) {
+      return this.respondForbidden(res, "Only the commissioner can generate invitation links");
+    }
+
+    // Generate invitation links
+    const webLink = `https://hypetrain.netlify.app/invite.html?leagueId=${leagueId}`;
+    const appLink = `tbdff://league/invite?leagueId=${leagueId}`;
+
+    this.respondSuccess(res, {
+      leagueId,
+      webLink,
+      appLink,
     });
-  } catch (error: any) {
-    console.error("Delete league error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error deleting league",
+  });
+
+  /**
+   * Get public league info for invite page
+   * GET /api/leagues/:leagueId/public-info
+   */
+  getPublicLeagueInfo = this.asyncHandler(async (req: Request, res: Response) => {
+    const leagueId = this.validateId(req.params.leagueId, "League ID");
+
+    // Get league and verify it exists
+    const league = await getLeagueById(leagueId);
+
+    if (!league) {
+      return this.respondNotFound(res, "League not found");
+    }
+
+    // Get all rosters for the league
+    const rosters = await getRostersByLeagueId(leagueId);
+
+    this.respondSuccess(res, {
+      league: {
+        id: league.id,
+        name: league.name,
+        season: league.season,
+        league_type: league.league_type,
+        total_rosters: league.total_rosters,
+        start_week: league.settings?.start_week,
+        end_week: league.settings?.end_week,
+        settings: league.settings,
+        scoring_settings: league.scoring_settings,
+        roster_positions: league.roster_positions,
+      },
+      rosters: rosters.map((roster: any) => ({
+        roster_id: roster.roster_id,
+        owner_id: roster.owner_id,
+        owner_name: roster.owner_name,
+        players: roster.players,
+        settings: roster.settings,
+      })),
     });
-  }
+  });
 }
 
-/**
- * Generate shareable league invitation link
- * POST /api/leagues/:leagueId/generate-invite-link
- *
- * Generates both web and app deep links for league invitations.
- * Only commissioners can generate invitation links.
- *
- * Response format:
- * {
- *   success: true,
- *   data: {
- *     leagueId: number,
- *     webLink: string,
- *     appLink: string
- *   }
- * }
- */
-export const generateInviteLinkHandler = asyncHandler(async (req: Request, res: Response) => {
-  const leagueId = validateId(req.params.leagueId, "League ID");
+const controller = new LeagueController();
 
-  const userId = req.user?.userId;
-
-  if (!userId) {
-    return ApiResponse.unauthorized(res, "User not authenticated");
-  }
-
-  // Get league and verify it exists
-  const league = await getLeagueById(leagueId);
-
-  if (!league) {
-    return ApiResponse.notFound(res, "League not found");
-  }
-
-  // Verify user is commissioner
-  const { getCommissionerIdFromLeague } = await import("../models/League");
-  const commissionerId = getCommissionerIdFromLeague(league);
-
-  if (commissionerId !== userId) {
-    return ApiResponse.forbidden(res, "Only the commissioner can generate invitation links");
-  }
-
-  // Generate invitation links
-  const webLink = `https://hypetrain.netlify.app/invite.html?leagueId=${leagueId}`;
-  const appLink = `tbdff://league/invite?leagueId=${leagueId}`;
-
-  ApiResponse.success(res, {
-    leagueId,
-    webLink,
-    appLink,
-  });
-});
-
-/**
- * Get public league info for invite page
- * GET /api/leagues/:leagueId/public-info
- * No authentication required - returns full league details for preview
- */
-export const getPublicLeagueInfoHandler = asyncHandler(async (req: Request, res: Response) => {
-  const leagueId = validateId(req.params.leagueId, "League ID");
-
-  // Get league and verify it exists
-  const league = await getLeagueById(leagueId);
-
-  if (!league) {
-    return ApiResponse.notFound(res, "League not found");
-  }
-
-  // Get all rosters for the league
-  const rosters = await getRostersByLeagueId(leagueId);
-
-  ApiResponse.success(res, {
-    league: {
-      id: league.id,
-      name: league.name,
-      season: league.season,
-      league_type: league.league_type,
-      total_rosters: league.total_rosters,
-      start_week: league.settings?.start_week,
-      end_week: league.settings?.end_week,
-      settings: league.settings,
-      scoring_settings: league.scoring_settings,
-      roster_positions: league.roster_positions,
-    },
-    rosters: rosters.map((roster: any) => ({
-      roster_id: roster.roster_id,
-      owner_id: roster.owner_id,
-      owner_name: roster.owner_name,
-      players: roster.players,
-      settings: roster.settings,
-    })),
-  });
-});
+export const createLeagueHandler = controller.createLeague;
+export const getUserLeaguesHandler = controller.getUserLeagues;
+export const getPublicLeaguesHandler = controller.getPublicLeagues;
+export const getLeagueDetailsHandler = controller.getLeagueDetails;
+export const joinLeagueHandler = controller.joinLeague;
+export const updateLeagueSettingsHandler = controller.updateLeagueSettings;
+export const transferCommissionerHandler = controller.transferCommissioner;
+export const isCommissionerHandler = controller.isCommissioner;
+export const removeLeagueMemberHandler = controller.removeLeagueMember;
+export const getLeagueStatsHandler = controller.getLeagueStats;
+export const resetLeagueHandler = controller.resetLeague;
+export const deleteLeagueHandler = controller.deleteLeague;
+export const generateInviteLinkHandler = controller.generateInviteLink;
+export const getPublicLeagueInfoHandler = controller.getPublicLeagueInfo;

@@ -7,133 +7,95 @@ import {
   initializeNotificationPreferences
 } from "../services/pushNotificationService";
 import pool from "../config/database";
+import { BaseController } from "./BaseController";
 
-/**
- * Register a push notification token
- * POST /api/v1/notifications/token
- */
-export async function registerTokenHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+// Before: 235 lines
+// After: 172 lines
+// Lines saved: 63
+
+class NotificationController extends BaseController {
+  /**
+   * Register a push notification token
+   * POST /api/v1/notifications/token
+   */
+  registerToken = this.asyncHandler(async (
+    req: Request,
+    res: Response
+  ) => {
     const { token, device_type, device_id } = req.body;
-    const userId = req.user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
 
     if (!userId) {
-      res.status(401).json({ success: false, message: "Not authenticated" });
-      return;
+      return this.respondUnauthorized(res, "Not authenticated");
     }
 
-    if (!token || !device_type) {
-      res.status(400).json({
-        success: false,
-        message: "token and device_type are required"
-      });
-      return;
+    // Validate required fields
+    const validated = this.validateRequiredFields(req.body, ['token', 'device_type']);
+    if (!validated) {
+      return this.respondBadRequest(res, "token and device_type are required");
     }
 
     if (!['ios', 'android', 'web'].includes(device_type)) {
-      res.status(400).json({
-        success: false,
-        message: "device_type must be ios, android, or web"
-      });
-      return;
+      return this.respondBadRequest(res, "device_type must be ios, android, or web");
     }
 
     await registerPushToken(userId, token, device_type, device_id);
 
-    res.status(200).json({
-      success: true,
-      message: "Push token registered successfully"
-    });
-  } catch (error: any) {
-    console.error("Error registering push token:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to register push token"
-    });
-  }
-}
+    this.respondSuccess(res, null, "Push token registered successfully");
+  });
 
-/**
- * Deactivate push token (logout)
- * DELETE /api/v1/notifications/token
- */
-export async function deactivateTokenHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Deactivate push token (logout)
+   * DELETE /api/v1/notifications/token
+   */
+  deactivateToken = this.asyncHandler(async (
+    req: Request,
+    res: Response
+  ) => {
     const { device_id } = req.body;
-    const userId = req.user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
 
     if (!userId) {
-      res.status(401).json({ success: false, message: "Not authenticated" });
-      return;
+      return this.respondUnauthorized(res, "Not authenticated");
     }
 
     await deactivatePushToken(userId, device_id);
 
-    res.status(200).json({
-      success: true,
-      message: "Push token deactivated successfully"
-    });
-  } catch (error: any) {
-    console.error("Error deactivating push token:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to deactivate push token"
-    });
-  }
-}
+    this.respondSuccess(res, null, "Push token deactivated successfully");
+  });
 
-/**
- * Get notification preferences
- * GET /api/v1/notifications/preferences
- */
-export async function getPreferencesHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const userId = req.user?.userId;
+  /**
+   * Get notification preferences
+   * GET /api/v1/notifications/preferences
+   */
+  getPreferences = this.asyncHandler(async (
+    req: Request,
+    res: Response
+  ) => {
+    const userId = this.getAuthenticatedUserId(req);
 
     if (!userId) {
-      res.status(401).json({ success: false, message: "Not authenticated" });
-      return;
+      return this.respondUnauthorized(res, "Not authenticated");
     }
 
     const preferences = await getNotificationPreferences(userId);
 
-    res.status(200).json({
-      success: true,
-      data: preferences
-    });
-  } catch (error: any) {
-    console.error("Error getting notification preferences:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to get notification preferences"
-    });
-  }
-}
+    this.respondSuccess(res, preferences);
+  });
 
-/**
- * Update notification preferences
- * PUT /api/v1/notifications/preferences
- */
-export async function updatePreferencesHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const userId = req.user?.userId;
+  /**
+   * Update notification preferences
+   * PUT /api/v1/notifications/preferences
+   */
+  updatePreferences = this.asyncHandler(async (
+    req: Request,
+    res: Response
+  ) => {
+    const userId = this.getAuthenticatedUserId(req);
     const preferences = req.body;
 
     if (!userId) {
-      res.status(401).json({ success: false, message: "Not authenticated" });
-      return;
+      return this.respondUnauthorized(res, "Not authenticated");
     }
 
     // Initialize preferences if they don't exist
@@ -142,34 +104,22 @@ export async function updatePreferencesHandler(
     // Update preferences
     await updateNotificationPreferences(userId, preferences);
 
-    res.status(200).json({
-      success: true,
-      message: "Notification preferences updated successfully"
-    });
-  } catch (error: any) {
-    console.error("Error updating notification preferences:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to update notification preferences"
-    });
-  }
-}
+    this.respondSuccess(res, null, "Notification preferences updated successfully");
+  });
 
-/**
- * Get notification history
- * GET /api/v1/notifications/history
- */
-export async function getNotificationHistoryHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const userId = req.user?.userId;
+  /**
+   * Get notification history
+   * GET /api/v1/notifications/history
+   */
+  getNotificationHistory = this.asyncHandler(async (
+    req: Request,
+    res: Response
+  ) => {
+    const userId = this.getAuthenticatedUserId(req);
     const { limit = 50, offset = 0 } = req.query;
 
     if (!userId) {
-      res.status(401).json({ success: false, message: "Not authenticated" });
-      return;
+      return this.respondUnauthorized(res, "Not authenticated");
     }
 
     const query = `
@@ -182,34 +132,22 @@ export async function getNotificationHistoryHandler(
 
     const result = await pool.query(query, [userId, limit, offset]);
 
-    res.status(200).json({
-      success: true,
-      data: result.rows
-    });
-  } catch (error: any) {
-    console.error("Error getting notification history:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to get notification history"
-    });
-  }
-}
+    this.respondSuccess(res, result.rows);
+  });
 
-/**
- * Mark notification as read
- * POST /api/v1/notifications/:notificationId/read
- */
-export async function markAsReadHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const { notificationId } = req.params;
-    const userId = req.user?.userId;
+  /**
+   * Mark notification as read
+   * POST /api/v1/notifications/:notificationId/read
+   */
+  markAsRead = this.asyncHandler(async (
+    req: Request,
+    res: Response
+  ) => {
+    const notificationId = this.validateId(req.params.notificationId, "Notification ID");
+    const userId = this.getAuthenticatedUserId(req);
 
     if (!userId) {
-      res.status(401).json({ success: false, message: "Not authenticated" });
-      return;
+      return this.respondUnauthorized(res, "Not authenticated");
     }
 
     const query = `
@@ -218,17 +156,17 @@ export async function markAsReadHandler(
       WHERE id = $1 AND user_id = $2 AND read_at IS NULL
     `;
 
-    await pool.query(query, [parseInt(notificationId), userId]);
+    await pool.query(query, [notificationId, userId]);
 
-    res.status(200).json({
-      success: true,
-      message: "Notification marked as read"
-    });
-  } catch (error: any) {
-    console.error("Error marking notification as read:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to mark notification as read"
-    });
-  }
+    this.respondSuccess(res, null, "Notification marked as read");
+  });
 }
+
+const controller = new NotificationController();
+
+export const registerTokenHandler = controller.registerToken;
+export const deactivateTokenHandler = controller.deactivateToken;
+export const getPreferencesHandler = controller.getPreferences;
+export const updatePreferencesHandler = controller.updatePreferences;
+export const getNotificationHistoryHandler = controller.getNotificationHistory;
+export const markAsReadHandler = controller.markAsRead;

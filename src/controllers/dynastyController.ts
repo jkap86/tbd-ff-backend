@@ -1,47 +1,43 @@
+// BEFORE refactor: 178 lines
+// AFTER refactor: 137 lines
+// LINES SAVED: 41 lines
+
 import { Request, Response } from "express";
 import { rolloverSeason } from "../services/dynastyService";
 import { getLeagueById } from "../models/League";
 import pool from "../config/database";
+import { BaseController } from "./BaseController";
 
-/**
- * Rollover dynasty league to new season
- * POST /api/v1/leagues/:leagueId/season/rollover
- */
-export async function rolloverSeasonHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+class DynastyController extends BaseController {
+  /**
+   * Rollover dynasty league to new season
+   * POST /api/v1/leagues/:leagueId/season/rollover
+   */
+  rolloverSeason = this.asyncHandler(async (req: Request, res: Response) => {
     const { leagueId } = req.params;
-    const userId = req.user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
 
     if (!userId) {
-      res.status(401).json({ success: false, message: "Not authenticated" });
+      this.respondUnauthorized(res, "Not authenticated");
       return;
     }
 
     // Verify league exists and is dynasty
     const league = await getLeagueById(parseInt(leagueId));
     if (!league) {
-      res.status(404).json({ success: false, message: "League not found" });
+      this.respondNotFound(res, "League not found");
       return;
     }
 
     if (league.league_type !== 'dynasty') {
-      res.status(400).json({
-        success: false,
-        message: "Season rollover only available for dynasty leagues"
-      });
+      this.respondBadRequest(res, "Season rollover only available for dynasty leagues");
       return;
     }
 
     // Verify user is commissioner
     const commissionerId = league.settings?.commissioner_id;
     if (commissionerId !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "Only the commissioner can rollover the season"
-      });
+      this.respondForbidden(res, "Only the commissioner can rollover the season");
       return;
     }
 
@@ -49,35 +45,17 @@ export async function rolloverSeasonHandler(
     const result = await rolloverSeason(parseInt(leagueId), userId);
 
     if (result.success) {
-      res.status(200).json({
-        success: true,
-        message: result.message,
-        data: { newSeason: result.newSeason }
-      });
+      this.respondSuccess(res, { newSeason: result.newSeason }, result.message);
     } else {
-      res.status(500).json({
-        success: false,
-        message: result.message
-      });
+      this.respondError(res, result.message, 500);
     }
-  } catch (error: any) {
-    console.error("Error rolling over season:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to rollover season"
-    });
-  }
-}
+  });
 
-/**
- * Get season history for a league
- * GET /api/v1/leagues/:leagueId/season/history
- */
-export async function getSeasonHistoryHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Get season history for a league
+   * GET /api/v1/leagues/:leagueId/season/history
+   */
+  getSeasonHistory = this.asyncHandler(async (req: Request, res: Response) => {
     const { leagueId } = req.params;
 
     const query = `
@@ -94,41 +72,24 @@ export async function getSeasonHistoryHandler(
 
     const result = await pool.query(query, [parseInt(leagueId)]);
 
-    res.status(200).json({
-      success: true,
-      data: result.rows
-    });
-  } catch (error: any) {
-    console.error("Error getting season history:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to get season history"
-    });
-  }
-}
+    this.respondSuccess(res, result.rows);
+  });
 
-/**
- * Get dynasty league status (current season, keeper deadline, etc.)
- * GET /api/v1/leagues/:leagueId/dynasty/status
- */
-export async function getDynastyStatusHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Get dynasty league status (current season, keeper deadline, etc.)
+   * GET /api/v1/leagues/:leagueId/dynasty/status
+   */
+  getDynastyStatus = this.asyncHandler(async (req: Request, res: Response) => {
     const { leagueId } = req.params;
 
     const league = await getLeagueById(parseInt(leagueId));
     if (!league) {
-      res.status(404).json({ success: false, message: "League not found" });
+      this.respondNotFound(res, "League not found");
       return;
     }
 
     if (league.league_type !== 'dynasty') {
-      res.status(400).json({
-        success: false,
-        message: "This is not a dynasty league"
-      });
+      this.respondBadRequest(res, "This is not a dynasty league");
       return;
     }
 
@@ -154,24 +115,23 @@ export async function getDynastyStatusHandler(
 
     const totalSeasons = parseInt(seasonCountQuery.rows[0].total_seasons) + 1; // +1 for current season
 
-    res.status(200).json({
-      success: true,
-      data: {
-        league_type: league.league_type,
-        current_season: currentSeason,
-        total_seasons: totalSeasons,
-        keeper_stats: {
-          total_keepers: parseInt(keeperStats.total_keepers),
-          finalized_keepers: parseInt(keeperStats.finalized_keepers)
-        },
-        status: league.status
-      }
-    });
-  } catch (error: any) {
-    console.error("Error getting dynasty status:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to get dynasty status"
-    });
-  }
+    const data = {
+      league_type: league.league_type,
+      current_season: currentSeason,
+      total_seasons: totalSeasons,
+      keeper_stats: {
+        total_keepers: parseInt(keeperStats.total_keepers),
+        finalized_keepers: parseInt(keeperStats.finalized_keepers)
+      },
+      status: league.status
+    };
+
+    this.respondSuccess(res, data);
+  });
 }
+
+const controller = new DynastyController();
+
+export const rolloverSeasonHandler = controller.rolloverSeason;
+export const getSeasonHistoryHandler = controller.getSeasonHistory;
+export const getDynastyStatusHandler = controller.getDynastyStatus;

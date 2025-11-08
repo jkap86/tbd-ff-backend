@@ -16,6 +16,7 @@ import {
   isUserDraftParticipant,
   doesUserOwnRoster,
 } from "../utils/draftAuthorization";
+import { logger } from "../config/logger";
 
 // Track active nomination timers (for when bids close)
 const nominationTimers = new Map<number, NodeJS.Timeout>();
@@ -40,12 +41,12 @@ export function setupAuctionSocket(io: Server) {
   io.on("connection", (socket: Socket) => {
     const user = socket.data.user;
     if (!user) {
-      console.error(`[AuctionSocket] Socket connected without user data: ${socket.id}`);
+      logger.error('Socket connected without user data', { socketId: socket.id, context: 'AuctionSocket' });
       socket.disconnect();
       return;
     }
 
-    console.log(`[AuctionSocket] Socket connected: ${socket.id} - User: ${user.username} (${user.userId})`);
+    logger.info('Socket connected', { socketId: socket.id, username: user.username, userId: user.userId, context: 'AuctionSocket' });
 
     // Join auction room
     socket.on("join_auction", async (data: { draftId: number; rosterId?: number }) => {
@@ -55,7 +56,12 @@ export function setupAuctionSocket(io: Server) {
         // Verify user is a participant in this draft
         const isParticipant = await isUserDraftParticipant(user.userId, data.draftId);
         if (!isParticipant) {
-          console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied access to auction ${data.draftId} - not a participant`);
+          logger.warn('User denied access to auction - not a participant', {
+            username: user.username,
+            userId: user.userId,
+            draftId: data.draftId,
+            context: 'AuctionSocket'
+          });
           socket.emit("error", { message: "Access denied: You are not a participant in this draft" });
           return;
         }
@@ -64,7 +70,12 @@ export function setupAuctionSocket(io: Server) {
         if (data.rosterId) {
           const ownsRoster = await doesUserOwnRoster(user.userId, data.rosterId, data.draftId);
           if (!ownsRoster) {
-            console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied access to roster ${data.rosterId}`);
+            logger.warn('User denied access to roster', {
+              username: user.username,
+              userId: user.userId,
+              rosterId: data.rosterId,
+              context: 'AuctionSocket'
+            });
             socket.emit("error", { message: "Access denied: You do not own this roster" });
             return;
           }
@@ -82,7 +93,7 @@ export function setupAuctionSocket(io: Server) {
         const nominations = await getActiveNominations(data.draftId);
         socket.emit("active_nominations", nominations);
       } catch (error: any) {
-        console.error("Error joining auction:", error);
+        logger.error('Error joining auction', { error, context: 'AuctionSocket' });
         socket.emit("error", { message: error.message });
       }
     });

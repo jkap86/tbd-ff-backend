@@ -56,6 +56,45 @@ import { logger } from "./config/logger";
 // Load environment variables
 dotenv.config();
 
+// Validate critical environment variables
+const requiredEnvVars = [
+  'DATABASE_URL',
+  'JWT_SECRET',
+];
+
+const requiredProductionEnvVars = [
+  'SMTP_HOST',
+  'SMTP_USER',
+  'SMTP_PASS',
+  'FRONTEND_URL',
+  'ALLOWED_ORIGINS'
+];
+
+// Check required vars for all environments
+const missingRequired = requiredEnvVars.filter(v => !process.env[v]);
+if (missingRequired.length > 0) {
+  throw new Error(`Missing required environment variables: ${missingRequired.join(', ')}`);
+}
+
+// Check production-only vars
+if (process.env.NODE_ENV === 'production') {
+  const missingProduction = requiredProductionEnvVars.filter(v => !process.env[v]);
+  if (missingProduction.length > 0) {
+    throw new Error(`Missing required production environment variables: ${missingProduction.join(', ')}`);
+  }
+}
+
+// Validate JWT_SECRET length (critical for security)
+if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
+  throw new Error('JWT_SECRET must be at least 32 characters long');
+}
+
+logger.info('Environment validation passed', {
+  env: process.env.NODE_ENV,
+  requiredVarsPresent: requiredEnvVars.length,
+  productionVarsPresent: process.env.NODE_ENV === 'production' ? requiredProductionEnvVars.length : 'N/A'
+});
+
 // Parse and validate allowed origins
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",").map(origin => origin.trim());
 

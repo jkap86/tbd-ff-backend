@@ -1,6 +1,7 @@
 /**
  * Secure logging utility that redacts sensitive information
  */
+import { logger as winstonLogger } from "../config/logger";
 
 const SENSITIVE_KEYS = [
   "password",
@@ -51,26 +52,18 @@ function redactSensitiveData(data: any): any {
  */
 export const logger = {
   info: (message: string, data?: any) => {
-    console.log(`[INFO] ${message}`, data ? redactSensitiveData(data) : "");
+    winstonLogger.info(message, data ? redactSensitiveData(data) : undefined);
   },
 
   error: (message: string, error?: any) => {
-    console.error(
-      `[ERROR] ${message}`,
-      error ? redactSensitiveData(error) : ""
-    );
+    winstonLogger.error(message, error ? redactSensitiveData(error) : undefined);
   },
 
   warn: (message: string, data?: any) => {
-    console.warn(`[WARN] ${message}`, data ? redactSensitiveData(data) : "");
+    winstonLogger.warn(message, data ? redactSensitiveData(data) : undefined);
   },
 
   debug: (message: string, data?: any) => {
-    if (process.env.NODE_ENV !== "production") {
-      console.debug(
-        `[DEBUG] ${message}`,
-        data ? redactSensitiveData(data) : ""
-      );
-    }
+    winstonLogger.debug(message, data ? redactSensitiveData(data) : undefined);
   },
 };

@@ -229,10 +229,10 @@ export async function resetPassword(
     // Send confirmation email (non-blocking, log errors)
     if (user) {
       sendPasswordChangedEmail(user.email, user.username).catch((error) => {
-        console.error("Failed to send password changed confirmation email:", error);
+        logger.error("Failed to send password changed confirmation email", { error });
       });
     } else {
-      console.error("User not found after password reset, cannot send confirmation email");
+      logger.error("User not found after password reset, cannot send confirmation email");
     }
 
     res.status(200).json({

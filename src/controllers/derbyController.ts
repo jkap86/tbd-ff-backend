@@ -64,7 +64,7 @@ export async function startDerby(req: Request, res: Response): Promise<void> {
     let derby = await getDraftDerbyByDraftId(parseInt(draftId));
 
     if (!derby) {
-      // Create new derby with randomized selection order
+      // Create new derby with draft order (not randomized)
       derby = await createDraftDerby(parseInt(draftId), rosterIds);
     }
 
@@ -236,7 +236,7 @@ export async function createDerby(req: Request, res: Response): Promise<void> {
     const rosters = await getRostersByLeagueId(draft.league_id);
     const rosterIds = rosters.map(r => r.id);
 
-    // Create new derby with randomized selection order
+    // Create new derby with draft order (not randomized)
     const derby = await createDraftDerby(parseInt(draftId), rosterIds);
 
     res.status(201).json({

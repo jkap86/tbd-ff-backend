@@ -440,17 +440,7 @@ export async function updateDraftSettingsHandler(
       try {
         let message: string;
         if (newDraftTime) {
-          // Format the date/time for display
-          const dateStr = newDraftTime.toLocaleString('en-US', {
-            weekday: 'short',
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: 'numeric',
-            minute: '2-digit',
-            timeZoneName: 'short'
-          });
-          message = `Draft scheduled for ${dateStr}`;
+          message = 'Draft time has been set';
         } else {
           message = 'Draft time has been cleared';
         }

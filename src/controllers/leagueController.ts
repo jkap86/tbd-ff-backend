@@ -1189,6 +1189,40 @@ export async function resetLeagueHandler(
 
     await client.query('COMMIT');
 
+    // Send league chat notification about league reset
+    try {
+      const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
+      const { emitLeagueChat } = await import("../socket/leagueSocket");
+      const { io } = await import("../index");
+
+      const message = 'Commissioner has reset the league to pre-draft status';
+
+      const chatMessage = await createLeagueChatMessage({
+        league_id: parseInt(leagueId),
+        user_id: null, // System message
+        message,
+        message_type: "system",
+        metadata: {
+          type: 'league_reset',
+          details: {
+            description: 'All rosters, matchups, weekly lineups, and draft data have been cleared. The league is ready for a new draft.',
+          }
+        },
+      });
+
+      const messageToEmit = {
+        ...chatMessage,
+        username: null,
+        team_name: null,
+      };
+
+      // Emit to league chat via socket
+      emitLeagueChat(io, parseInt(leagueId), messageToEmit);
+    } catch (notificationError) {
+      console.error("Error sending league reset notification:", notificationError);
+      // Don't fail the request if notification fails
+    }
+
     // Emit socket event to notify clients that league was reset
     const { io } = await import("../index");
     io.to(`league_${leagueId}`).emit("league_reset", {

@@ -1,6 +1,6 @@
-- flutter front end should always be committed and pushed to dev then merged with main
-- frontend should always be committed and pushed to dev branch and merged to main
 - THERE is no git repo in root
+- Git repos exist in `backend/` and `flutter_app/` directories only
+- Use feature branches for development, merge directly to main (no dev branch)
 
 ## Required Reading
 - **ALWAYS read `docs/TRUTHS.md` before making ANY changes to the codebase**

@@ -11,6 +11,7 @@ export interface AuctionNomination {
   winning_bid: number | null;
   status: "active" | "completed" | "passed";
   deadline: Date | null;
+  bid_deadline: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -42,6 +43,7 @@ export async function createNomination(data: {
   player_id: string;
   nominating_roster_id: number;
   deadline?: Date | null;
+  bid_deadline?: Date | null;
 }): Promise<AuctionNomination> {
   // Get draft to check min_bid
   const { getDraftById } = await import("./Draft");
@@ -50,10 +52,10 @@ export async function createNomination(data: {
 
   const result = await pool.query(
     `INSERT INTO auction_nominations
-      (draft_id, player_id, nominating_roster_id, deadline)
-    VALUES ($1, $2, $3, $4)
+      (draft_id, player_id, nominating_roster_id, deadline, bid_deadline)
+    VALUES ($1, $2, $3, $4, $5)
     RETURNING *`,
-    [data.draft_id, data.player_id, data.nominating_roster_id, data.deadline]
+    [data.draft_id, data.player_id, data.nominating_roster_id, data.deadline, data.bid_deadline]
   );
 
   const nominationId = result.rows[0].id;

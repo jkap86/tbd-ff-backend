@@ -29,6 +29,7 @@ export interface Draft {
   bid_increment: number;
   nominations_per_manager: number;
   nomination_timer_hours: number | null;
+  bid_timer_seconds: number;
   reserve_budget_per_slot: boolean;
   started_at: Date | null;
   completed_at: Date | null;
@@ -57,6 +58,7 @@ export async function createDraft(draftData: {
   bid_increment?: number;
   nominations_per_manager?: number;
   nomination_timer_hours?: number;
+  bid_timer_seconds?: number;
   reserve_budget_per_slot?: boolean;
   // Derby-specific settings
   derby_enabled?: boolean;
@@ -82,12 +84,12 @@ export async function createDraft(draftData: {
         rounds, timer_mode, team_time_budget_seconds,
         scheduled_start_time, auto_start,
         starting_budget, min_bid, bid_increment, nominations_per_manager,
-        nomination_timer_hours, reserve_budget_per_slot,
+        nomination_timer_hours, bid_timer_seconds, reserve_budget_per_slot,
         derby_enabled, derby_time_limit_seconds, derby_timeout_behavior,
         derby_skipped_user_time_limit_seconds,
         settings
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
       RETURNING *
     `;
 
@@ -106,6 +108,7 @@ export async function createDraft(draftData: {
       draftData.bid_increment || 1,
       draftData.nominations_per_manager || 3,
       draftData.nomination_timer_hours || null,
+      draftData.bid_timer_seconds || 30,
       draftData.reserve_budget_per_slot || false,
       draftData.derby_enabled || false,
       draftData.derby_time_limit_seconds || null,

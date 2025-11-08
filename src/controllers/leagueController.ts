@@ -1046,6 +1046,11 @@ export async function resetLeagueHandler(
       const { stopTimerBroadcast } = await import("../socket/draftSocket");
       stopTimerBroadcast(draft.id);
 
+      // Cancel derby timer if it exists
+      const { cancelDerbyTimer } = await import("../socket/derbySocket");
+      cancelDerbyTimer(draft.id);
+
+      // Delete draft (CASCADE will delete draft_derby and draft_derby_selections)
       await deleteDraft(draft.id);
     }
 

@@ -89,6 +89,28 @@ export async function startDerby(req: Request, res: Response): Promise<void> {
       turnDeadline: turnDeadline.toISOString(),
       message: 'Derby has started - teams will now select their draft positions',
     });
+    // Create system chat message for derby started
+    try {
+      const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
+      const { emitLeagueChat } = await import("../socket/leagueSocket");
+
+      const chatMessage = await createLeagueChatMessage({
+        league_id: draft.league_id,
+        user_id: null, // System message
+        message: "Derby has started - teams will now select their draft positions",
+        message_type: "system",
+        metadata: {
+          type: "derby_started",
+          draft_id: parseInt(draftId),
+        },
+      });
+
+      // Emit chat message to all league members
+      emitLeagueChat(io, draft.league_id, chatMessage);
+    } catch (chatError) {
+      console.error("Error sending derby started chat message:", chatError);
+      // Don't fail the request if chat message fails
+    }
 
     res.status(200).json({
       success: true,
@@ -238,6 +260,28 @@ export async function createDerby(req: Request, res: Response): Promise<void> {
 
     // Create new derby with draft order (not randomized)
     const derby = await createDraftDerby(parseInt(draftId), rosterIds);
+    // Create system chat message for derby created
+    try {
+      const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
+      const { emitLeagueChat } = await import("../socket/leagueSocket");
+
+      const chatMessage = await createLeagueChatMessage({
+        league_id: draft.league_id,
+        user_id: null, // System message
+        message: "Derby has been created",
+        message_type: "system",
+        metadata: {
+          type: "derby_created",
+          draft_id: parseInt(draftId),
+        },
+      });
+
+      // Emit chat message to all league members
+      emitLeagueChat(io, draft.league_id, chatMessage);
+    } catch (chatError) {
+      console.error("Error sending derby created chat message:", chatError);
+      // Don't fail the request if chat message fails
+    }
 
     res.status(201).json({
       success: true,
@@ -368,6 +412,31 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
         draftId: parseInt(draftId),
         message: 'Derby completed - all positions selected',
       });
+      // Create system chat message for derby completed
+      if (draft) {
+        try {
+          const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
+          const { emitLeagueChat } = await import("../socket/leagueSocket");
+
+          const chatMessage = await createLeagueChatMessage({
+            league_id: draft.league_id,
+            user_id: null, // System message
+            message: "Derby completed - all positions selected",
+            message_type: "system",
+            metadata: {
+              type: "derby_completed",
+              draft_id: parseInt(draftId),
+            },
+          });
+
+          // Emit chat message to all league members
+          emitLeagueChat(io, draft.league_id, chatMessage);
+        } catch (chatError) {
+          console.error("Error sending derby completed chat message:", chatError);
+          // Don't fail the request if chat message fails
+        }
+      }
+
     }
 
     res.status(200).json({
@@ -562,6 +631,32 @@ export async function randomizeDerby(req: Request, res: Response): Promise<void>
     // Randomize order using model function
     const updatedDerby = await randomizeDerbyOrder(parseInt(draftId));
 
+    // Get roster details for chat message
+    const rostersResult = await pool.query(
+      `SELECT r.id as roster_id, r.user_id, r.settings, u.username
+       FROM rosters r
+       LEFT JOIN users u ON u.id = r.user_id
+       WHERE r.league_id = $1`,
+      [draft.league_id]
+    );
+
+    // Create roster lookup map
+    const rosterMap = new Map(
+      rostersResult.rows.map((r: any) => [r.roster_id, r])
+    );
+
+    // Map selection order to include roster details
+    const derbyOrderList = updatedDerby.selection_order.map((rosterId: number, index: number) => {
+      const roster = rosterMap.get(rosterId);
+      const teamName = roster?.settings?.team_name || roster?.username || `Team ${rosterId}`;
+      return {
+        position: index + 1,
+        roster_id: rosterId,
+        team_name: teamName,
+        username: roster?.username,
+      };
+    });
+
     // Emit socket event to notify all clients
     io.to(`draft_${draftId}`).emit('derby:update', {
       draftId: parseInt(draftId),
@@ -569,6 +664,33 @@ export async function randomizeDerby(req: Request, res: Response): Promise<void>
       selectionOrder: updatedDerby.selection_order,
       message: 'Derby selection order has been randomized',
     });
+
+    // Create system chat message with collapsible derby order
+    try {
+      const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
+      const { emitLeagueChat } = await import("../socket/leagueSocket");
+
+      const chatMessage = await createLeagueChatMessage({
+        league_id: draft.league_id,
+        user_id: null, // System message
+        message: "Derby selection order has been randomized",
+        message_type: "system",
+        metadata: {
+          type: "derby_order_randomized",
+          draft_id: parseInt(draftId),
+          collapsible: true,
+          details: {
+            derby_order: derbyOrderList,
+          },
+        },
+      });
+
+      // Emit chat message to all league members
+      emitLeagueChat(io, draft.league_id, chatMessage);
+    } catch (chatError) {
+      console.error("Error sending derby order randomized chat message:", chatError);
+      // Don't fail the request if chat message fails
+    }
 
     res.status(200).json({
       success: true,

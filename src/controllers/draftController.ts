@@ -440,16 +440,17 @@ export async function updateDraftSettingsHandler(
       try {
         let message: string;
         if (newDraftTime) {
-          // Format the date/time for display
+          // Format the date/time for display in EST/EDT timezone (no timezone abbreviation)
           const dateStr = newDraftTime.toLocaleString('en-US', {
-            weekday: 'short',
             year: 'numeric',
             month: 'short',
             day: 'numeric',
             hour: 'numeric',
             minute: '2-digit',
-            timeZoneName: 'short'
+            hour12: true,
+            timeZone: 'America/New_York'
           });
+
           message = `Draft scheduled for ${dateStr}`;
         } else {
           message = 'Draft time has been cleared';
@@ -1057,6 +1058,7 @@ export async function makeDraftPickHandler(
     }
 
     // Lock the draft row to prevent concurrent picks
+    console.log(`[MakePick] Locking draft ${draftId} for update...`);
     const draftResult = await client.query(
       'SELECT * FROM drafts WHERE id = $1 FOR UPDATE',
       [draftId]
@@ -1064,6 +1066,7 @@ export async function makeDraftPickHandler(
 
     if (draftResult.rows.length === 0) {
       await client.query('ROLLBACK');
+      console.log(`[MakePick] Draft ${draftId} not found`);
       res.status(404).json({
         success: false,
         message: "Draft not found",
@@ -1072,13 +1075,15 @@ export async function makeDraftPickHandler(
     }
 
     const draft = draftResult.rows[0];
+    console.log(`[MakePick] Draft ${draftId} locked - status: ${draft.status}`);
 
     // Check if draft is in progress or paused (picks allowed when paused)
     if (draft.status !== "in_progress" && draft.status !== "paused") {
       await client.query('ROLLBACK');
+      console.log(`[MakePick] Draft ${draftId} pick rejected - status: ${draft.status}, expected: in_progress or paused`);
       res.status(400).json({
         success: false,
-        message: "Draft is not in progress",
+        message: `Draft is not in progress (current status: ${draft.status})`,
       });
       return;
     }

@@ -14,6 +14,9 @@ import {
   getNextRosterId,
 } from "../models/Roster";
 import { leagueBusinessService } from "../services/leagueBusinessService";
+import { ApiResponse } from "../utils/ApiResponse";
+import { asyncHandler } from "../utils/asyncHandler";
+import { validateId, validateSeason } from "../utils/validators";
 
 /**
  * Create a new league with all settings
@@ -180,161 +183,97 @@ export async function createLeagueHandler(
  * Get all leagues for a user
  * GET /api/leagues/user/:userId
  */
-export async function getUserLeaguesHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    console.log('[getUserLeagues] Request for userId:', req.params.userId);
-    const userId = parseInt(req.params.userId);
+export const getUserLeaguesHandler = asyncHandler(async (req: Request, res: Response) => {
+  console.log('[getUserLeagues] Request for userId:', req.params.userId);
+  const userId = validateId(req.params.userId, "User ID");
 
-    if (isNaN(userId)) {
-      console.log('[getUserLeagues] Invalid user ID');
-      res.status(400).json({
-        success: false,
-        message: "Invalid user ID",
-      });
-      return;
-    }
+  const leagues = await getLeaguesForUser(userId);
+  console.log('[getUserLeagues] Found', leagues.length, 'leagues');
 
-    const leagues = await getLeaguesForUser(userId);
-    console.log('[getUserLeagues] Found', leagues.length, 'leagues');
-
-    res.status(200).json({
-      success: true,
-      data: leagues,
-    });
-  } catch (error: any) {
-    console.error("Get user leagues error:", error);
-    console.error("Error stack:", error.stack);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error getting user leagues",
-    });
-  }
-}
+  ApiResponse.success(res, leagues);
+});
 
 /**
  * Get all public leagues
  * GET /api/leagues/public
  */
-export async function getPublicLeaguesHandler(
-  _req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    // Get public leagues from database
-    const { getPublicLeagues } = await import("../models/League");
-    const leagues = await getPublicLeagues();
+export const getPublicLeaguesHandler = asyncHandler(async (_req: Request, res: Response) => {
+  // Get public leagues from database
+  const { getPublicLeagues } = await import("../models/League");
+  const leagues = await getPublicLeagues();
 
-    res.status(200).json({
-      success: true,
-      data: leagues,
-    });
-  } catch (error: any) {
-    console.error("Get public leagues error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error getting public leagues",
-    });
-  }
-}
+  ApiResponse.success(res, leagues);
+});
 
 /**
  * Get specific league with all rosters
  * GET /api/leagues/:leagueId
  */
-export async function getLeagueDetailsHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const leagueId = parseInt(req.params.leagueId);
+export const getLeagueDetailsHandler = asyncHandler(async (req: Request, res: Response) => {
+  const leagueId = validateId(req.params.leagueId, "League ID");
 
-    if (isNaN(leagueId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid league ID",
-      });
-      return;
-    }
+  // Optimized query: Use a single query with JOINs to fetch league and all rosters
+  // This eliminates the N+1 query problem
+  const result = await pool.query(`
+    SELECT
+      l.*,
+      json_agg(
+        json_build_object(
+          'id', r.id,
+          'league_id', r.league_id,
+          'user_id', r.user_id,
+          'roster_id', r.roster_id,
+          'settings', r.settings,
+          'starters', r.starters,
+          'bench', r.bench,
+          'taxi', r.taxi,
+          'ir', r.ir,
+          'wins', r.wins,
+          'losses', r.losses,
+          'ties', r.ties,
+          'points_for', r.points_for,
+          'points_against', r.points_against,
+          'faab_budget', r.faab_budget,
+          'waiver_position', r.waiver_position,
+          'created_at', r.created_at,
+          'updated_at', r.updated_at,
+          'username', u.username,
+          'email', u.email
+        ) ORDER BY r.roster_id ASC
+      ) FILTER (WHERE r.id IS NOT NULL) as rosters
+    FROM leagues l
+    LEFT JOIN rosters r ON r.league_id = l.id
+    LEFT JOIN users u ON u.id = r.user_id
+    WHERE l.id = $1
+    GROUP BY l.id
+  `, [leagueId]);
 
-    // Optimized query: Use a single query with JOINs to fetch league and all rosters
-    // This eliminates the N+1 query problem
-    const result = await pool.query(`
-      SELECT
-        l.*,
-        json_agg(
-          json_build_object(
-            'id', r.id,
-            'league_id', r.league_id,
-            'user_id', r.user_id,
-            'roster_id', r.roster_id,
-            'settings', r.settings,
-            'starters', r.starters,
-            'bench', r.bench,
-            'taxi', r.taxi,
-            'ir', r.ir,
-            'wins', r.wins,
-            'losses', r.losses,
-            'ties', r.ties,
-            'points_for', r.points_for,
-            'points_against', r.points_against,
-            'faab_budget', r.faab_budget,
-            'waiver_position', r.waiver_position,
-            'created_at', r.created_at,
-            'updated_at', r.updated_at,
-            'username', u.username,
-            'email', u.email
-          ) ORDER BY r.roster_id ASC
-        ) FILTER (WHERE r.id IS NOT NULL) as rosters
-      FROM leagues l
-      LEFT JOIN rosters r ON r.league_id = l.id
-      LEFT JOIN users u ON u.id = r.user_id
-      WHERE l.id = $1
-      GROUP BY l.id
-    `, [leagueId]);
-
-    if (result.rows.length === 0) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
-      return;
-    }
-
-    const row = result.rows[0];
-
-    // Extract league data (all columns except rosters)
-    const { rosters, ...leagueData } = row;
-
-    // Extract commissioner ID from settings and add it to league object at top level
-    const commissionerId =
-      leagueData.settings && leagueData.settings.commissioner_id
-        ? leagueData.settings.commissioner_id
-        : null;
-
-    // Add commissioner_id to league object so Flutter can parse it
-    const leagueWithCommissioner = {
-      ...leagueData,
-      commissioner_id: commissionerId,
-    };
-
-    res.status(200).json({
-      success: true,
-      data: {
-        league: leagueWithCommissioner,
-        rosters: rosters || [],
-      },
-    });
-  } catch (error: any) {
-    console.error("Get league details error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error getting league details",
-    });
+  if (result.rows.length === 0) {
+    return ApiResponse.notFound(res, "League not found");
   }
-}
+
+  const row = result.rows[0];
+
+  // Extract league data (all columns except rosters)
+  const { rosters, ...leagueData } = row;
+
+  // Extract commissioner ID from settings and add it to league object at top level
+  const commissionerId =
+    leagueData.settings && leagueData.settings.commissioner_id
+      ? leagueData.settings.commissioner_id
+      : null;
+
+  // Add commissioner_id to league object so Flutter can parse it
+  const leagueWithCommissioner = {
+    ...leagueData,
+    commissioner_id: commissionerId,
+  };
+
+  ApiResponse.success(res, {
+    league: leagueWithCommissioner,
+    rosters: rosters || [],
+  });
+});
 
 /**
  * Join a league
@@ -886,60 +825,30 @@ export async function transferCommissionerHandler(
  * Check if user is commissioner of a league
  * GET /api/leagues/:leagueId/is-commissioner
  */
-export async function isCommissionerHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const leagueId = parseInt(req.params.leagueId);
+export const isCommissionerHandler = asyncHandler(async (req: Request, res: Response) => {
+  const leagueId = validateId(req.params.leagueId, "League ID");
 
-    if (isNaN(leagueId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid league ID",
-      });
-      return;
-    }
+  const userId = req.user?.userId;
 
-    const userId = req.user?.userId;
-
-    if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "User not authenticated",
-      });
-      return;
-    }
-
-    const league = await getLeagueById(leagueId);
-
-    if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
-      return;
-    }
-
-    const { getCommissionerIdFromLeague } = await import("../models/League");
-    const commissionerId = getCommissionerIdFromLeague(league);
-    const isCommissioner = commissionerId === userId;
-
-    res.status(200).json({
-      success: true,
-      data: {
-        isCommissioner,
-        commissionerId,
-      },
-    });
-  } catch (error: any) {
-    console.error("Is commissioner check error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error checking commissioner status",
-    });
+  if (!userId) {
+    return ApiResponse.unauthorized(res, "User not authenticated");
   }
-}
+
+  const league = await getLeagueById(leagueId);
+
+  if (!league) {
+    return ApiResponse.notFound(res, "League not found");
+  }
+
+  const { getCommissionerIdFromLeague } = await import("../models/League");
+  const commissionerId = getCommissionerIdFromLeague(league);
+  const isCommissioner = commissionerId === userId;
+
+  ApiResponse.success(res, {
+    isCommissioner,
+    commissionerId,
+  });
+});
 
 /**
  * Remove a user from a league
@@ -1032,65 +941,39 @@ export async function removeLeagueMemberHandler(
  * Get league statistics
  * GET /api/leagues/:leagueId/stats
  */
-export async function getLeagueStatsHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const leagueId = parseInt(req.params.leagueId);
+export const getLeagueStatsHandler = asyncHandler(async (req: Request, res: Response) => {
+  const leagueId = validateId(req.params.leagueId, "League ID");
 
-    if (isNaN(leagueId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid league ID",
-      });
-      return;
-    }
+  // Get league
+  const league = await getLeagueById(leagueId);
 
-    // Get league
-    const league = await getLeagueById(leagueId);
-
-    if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
-      return;
-    }
-
-    // Get rosters
-    const rosters = await getRostersByLeagueId(leagueId);
-
-    const { getCommissionerIdFromLeague } = await import("../models/League");
-    const commissionerId = getCommissionerIdFromLeague(league);
-
-    const stats = {
-      league_id: league.id,
-      league_name: league.name,
-      total_rosters: league.total_rosters,
-      filled_rosters: rosters.length,
-      available_spots: league.total_rosters - rosters.length,
-      commissioner_id: commissionerId,
-      season: league.season,
-      status: league.status,
-      created_at: league.created_at,
-      settings: league.settings,
-      scoring_settings: league.scoring_settings,
-      roster_positions: league.roster_positions,
-    };
-
-    res.status(200).json({
-      success: true,
-      data: stats,
-    });
-  } catch (error: any) {
-    console.error("Get league stats error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error getting league stats",
-    });
+  if (!league) {
+    return ApiResponse.notFound(res, "League not found");
   }
-}
+
+  // Get rosters
+  const rosters = await getRostersByLeagueId(leagueId);
+
+  const { getCommissionerIdFromLeague } = await import("../models/League");
+  const commissionerId = getCommissionerIdFromLeague(league);
+
+  const stats = {
+    league_id: league.id,
+    league_name: league.name,
+    total_rosters: league.total_rosters,
+    filled_rosters: rosters.length,
+    available_spots: league.total_rosters - rosters.length,
+    commissioner_id: commissionerId,
+    season: league.season,
+    status: league.status,
+    created_at: league.created_at,
+    settings: league.settings,
+    scoring_settings: league.scoring_settings,
+    roster_positions: league.roster_positions,
+  };
+
+  ApiResponse.success(res, stats);
+});
 
 /**
  * Reset league to pre-draft status
@@ -1347,138 +1230,78 @@ export async function deleteLeagueHandler(
  *   }
  * }
  */
-export async function generateInviteLinkHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const leagueId = parseInt(req.params.leagueId);
+export const generateInviteLinkHandler = asyncHandler(async (req: Request, res: Response) => {
+  const leagueId = validateId(req.params.leagueId, "League ID");
 
-    if (isNaN(leagueId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid league ID",
-      });
-      return;
-    }
+  const userId = req.user?.userId;
 
-    const userId = req.user?.userId;
-
-    if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "User not authenticated",
-      });
-      return;
-    }
-
-    // Get league and verify it exists
-    const league = await getLeagueById(leagueId);
-
-    if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
-      return;
-    }
-
-    // Verify user is commissioner
-    const { getCommissionerIdFromLeague } = await import("../models/League");
-    const commissionerId = getCommissionerIdFromLeague(league);
-
-    if (commissionerId !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "Only the commissioner can generate invitation links",
-      });
-      return;
-    }
-
-    // Generate invitation links
-    const webLink = `https://hypetrain.netlify.app/invite.html?leagueId=${leagueId}`;
-    const appLink = `tbdff://league/invite?leagueId=${leagueId}`;
-
-    res.status(200).json({
-      success: true,
-      data: {
-        leagueId,
-        webLink,
-        appLink,
-      },
-    });
-  } catch (error: any) {
-    console.error("Generate invite link error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error generating invitation link",
-    });
+  if (!userId) {
+    return ApiResponse.unauthorized(res, "User not authenticated");
   }
-}
+
+  // Get league and verify it exists
+  const league = await getLeagueById(leagueId);
+
+  if (!league) {
+    return ApiResponse.notFound(res, "League not found");
+  }
+
+  // Verify user is commissioner
+  const { getCommissionerIdFromLeague } = await import("../models/League");
+  const commissionerId = getCommissionerIdFromLeague(league);
+
+  if (commissionerId !== userId) {
+    return ApiResponse.forbidden(res, "Only the commissioner can generate invitation links");
+  }
+
+  // Generate invitation links
+  const webLink = `https://hypetrain.netlify.app/invite.html?leagueId=${leagueId}`;
+  const appLink = `tbdff://league/invite?leagueId=${leagueId}`;
+
+  ApiResponse.success(res, {
+    leagueId,
+    webLink,
+    appLink,
+  });
+});
 
 /**
  * Get public league info for invite page
  * GET /api/leagues/:leagueId/public-info
  * No authentication required - returns full league details for preview
  */
-export async function getPublicLeagueInfoHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const leagueId = parseInt(req.params.leagueId);
+export const getPublicLeagueInfoHandler = asyncHandler(async (req: Request, res: Response) => {
+  const leagueId = validateId(req.params.leagueId, "League ID");
 
-    if (isNaN(leagueId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid league ID",
-      });
-      return;
-    }
+  // Get league and verify it exists
+  const league = await getLeagueById(leagueId);
 
-    // Get league and verify it exists
-    const league = await getLeagueById(leagueId);
-
-    if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
-      return;
-    }
-
-    // Get all rosters for the league
-    const rosters = await getRostersByLeagueId(leagueId);
-
-    res.status(200).json({
-      success: true,
-      data: {
-        league: {
-          id: league.id,
-          name: league.name,
-          season: league.season,
-          league_type: league.league_type,
-          total_rosters: league.total_rosters,
-          start_week: league.settings?.start_week,
-          end_week: league.settings?.end_week,
-          settings: league.settings,
-          scoring_settings: league.scoring_settings,
-          roster_positions: league.roster_positions,
-        },
-        rosters: rosters.map((roster: any) => ({
-          roster_id: roster.roster_id,
-          owner_id: roster.owner_id,
-          owner_name: roster.owner_name,
-          players: roster.players,
-          settings: roster.settings,
-        })),
-      },
-    });
-  } catch (error: any) {
-    console.error("Get public league info error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error fetching league info",
-    });
+  if (!league) {
+    return ApiResponse.notFound(res, "League not found");
   }
-}
+
+  // Get all rosters for the league
+  const rosters = await getRostersByLeagueId(leagueId);
+
+  ApiResponse.success(res, {
+    league: {
+      id: league.id,
+      name: league.name,
+      season: league.season,
+      league_type: league.league_type,
+      total_rosters: league.total_rosters,
+      start_week: league.settings?.start_week,
+      end_week: league.settings?.end_week,
+      settings: league.settings,
+      scoring_settings: league.scoring_settings,
+      roster_positions: league.roster_positions,
+    },
+    rosters: rosters.map((roster: any) => ({
+      roster_id: roster.roster_id,
+      owner_id: roster.owner_id,
+      owner_name: roster.owner_name,
+      players: roster.players,
+      settings: roster.settings,
+    })),
+  });
+});

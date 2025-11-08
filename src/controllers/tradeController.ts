@@ -19,8 +19,10 @@ import {
 } from "../models/Trade";
 import { createLeagueChatMessage } from "../models/LeagueChatMessage";
 import { getLeagueById } from "../models/League";
-import { validateId } from "../utils/validation";
+import { validateId } from "../utils/validators";
 import { logger } from "../utils/logger";
+import { ApiResponse } from "../utils/ApiResponse";
+import { asyncHandler } from "../utils/asyncHandler";
 
 /**
  * Propose a new trade
@@ -163,241 +165,157 @@ export async function proposeTradeController(req: Request, res: Response) {
  * Accept a trade
  * POST /api/trades/:id/accept
  */
-export async function acceptTradeController(req: Request, res: Response) {
-  try {
-    // Validate trade ID
-    const tradeId = validateId(req.params.id, "Trade ID");
-    const acceptorRosterId = req.body.roster_id;
+export const acceptTradeController = asyncHandler(async (req: Request, res: Response) => {
+  // Validate trade ID
+  const tradeId = validateId(req.params.id, "Trade ID");
+  const acceptorRosterId = req.body.roster_id;
 
-    if (!acceptorRosterId) {
-      return res.status(400).json({ error: "Roster ID required" });
-    }
-
-    const trade = await acceptTrade(tradeId, acceptorRosterId);
-
-    // Get full trade details
-    const tradeWithDetails = await getTradeWithDetails(trade.id);
-
-    // Emit socket event
-    if (tradeWithDetails) {
-      emitTradeProcessed(io, tradeWithDetails.league_id, tradeWithDetails);
-
-      // Post trade completion to league chat with details
-      const proposerTeamName = tradeWithDetails.proposer_team_name || `Team ${tradeWithDetails.proposer_roster_id}`;
-      const receiverTeamName = tradeWithDetails.receiver_team_name || `Team ${tradeWithDetails.receiver_roster_id}`;
-
-      const chatMessageText = `Trade completed between ${proposerTeamName} and ${receiverTeamName}`;
-      const metadata = {
-        trade_id: tradeWithDetails.id,
-        show_details: true,
-        trade_details: {
-          proposer_team: proposerTeamName,
-          receiver_team: receiverTeamName,
-          proposer_roster_id: tradeWithDetails.proposer_roster_id,
-          receiver_roster_id: tradeWithDetails.receiver_roster_id,
-          items: tradeWithDetails.items || [],
-        },
-      };
-
-      const chatMessage = await createLeagueChatMessage({
-        league_id: tradeWithDetails.league_id,
-        user_id: null as any, // System message
-        message: chatMessageText,
-        message_type: "system",
-        metadata,
-      });
-
-      // Broadcast to league room
-      const roomName = `league_${tradeWithDetails.league_id}`;
-      io.to(roomName).emit("league_chat_message", {
-        ...chatMessage,
-        username: "System",
-        // Parse metadata if it's a string (from DB)
-        metadata: typeof chatMessage.metadata === 'string'
-          ? JSON.parse(chatMessage.metadata)
-          : chatMessage.metadata,
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      data: tradeWithDetails,
-    });
-  } catch (error: any) {
-    logger.error("Accept trade error:", error);
-
-    // Return 400 for validation errors
-    if (error.message && (error.message.includes('Trade ID') || error.message.includes('must be'))) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    return res.status(400).json({ error: error.message });
+  if (!acceptorRosterId) {
+    return ApiResponse.badRequest(res, "Roster ID required");
   }
-}
+
+  const trade = await acceptTrade(tradeId, acceptorRosterId);
+
+  // Get full trade details
+  const tradeWithDetails = await getTradeWithDetails(trade.id);
+
+  // Emit socket event
+  if (tradeWithDetails) {
+    emitTradeProcessed(io, tradeWithDetails.league_id, tradeWithDetails);
+
+    // Post trade completion to league chat with details
+    const proposerTeamName = tradeWithDetails.proposer_team_name || `Team ${tradeWithDetails.proposer_roster_id}`;
+    const receiverTeamName = tradeWithDetails.receiver_team_name || `Team ${tradeWithDetails.receiver_roster_id}`;
+
+    const chatMessageText = `Trade completed between ${proposerTeamName} and ${receiverTeamName}`;
+    const metadata = {
+      trade_id: tradeWithDetails.id,
+      show_details: true,
+      trade_details: {
+        proposer_team: proposerTeamName,
+        receiver_team: receiverTeamName,
+        proposer_roster_id: tradeWithDetails.proposer_roster_id,
+        receiver_roster_id: tradeWithDetails.receiver_roster_id,
+        items: tradeWithDetails.items || [],
+      },
+    };
+
+    const chatMessage = await createLeagueChatMessage({
+      league_id: tradeWithDetails.league_id,
+      user_id: null as any, // System message
+      message: chatMessageText,
+      message_type: "system",
+      metadata,
+    });
+
+    // Broadcast to league room
+    const roomName = `league_${tradeWithDetails.league_id}`;
+    io.to(roomName).emit("league_chat_message", {
+      ...chatMessage,
+      username: "System",
+      // Parse metadata if it's a string (from DB)
+      metadata: typeof chatMessage.metadata === 'string'
+        ? JSON.parse(chatMessage.metadata)
+        : chatMessage.metadata,
+    });
+  }
+
+  ApiResponse.success(res, tradeWithDetails);
+});
 
 /**
  * Reject a trade
  * POST /api/trades/:id/reject
  */
-export async function rejectTradeController(req: Request, res: Response) {
-  try {
-    // Validate trade ID
-    const tradeId = validateId(req.params.id, "Trade ID");
-    const rejecterId = req.body.roster_id;
-    const reason = req.body.reason;
+export const rejectTradeController = asyncHandler(async (req: Request, res: Response) => {
+  // Validate trade ID
+  const tradeId = validateId(req.params.id, "Trade ID");
+  const rejecterId = req.body.roster_id;
+  const reason = req.body.reason;
 
-    if (!rejecterId) {
-      return res.status(400).json({ error: "Roster ID required" });
-    }
-
-    const trade = await rejectTrade(tradeId, rejecterId, reason);
-
-    // Get full trade details
-    const tradeWithDetails = await getTradeWithDetails(trade.id);
-
-    // Emit socket event
-    if (tradeWithDetails) {
-      emitTradeRejected(io, tradeWithDetails.league_id, tradeWithDetails);
-    }
-
-    return res.status(200).json({
-      success: true,
-      data: tradeWithDetails,
-    });
-  } catch (error: any) {
-    logger.error("Reject trade error:", error);
-
-    // Return 400 for validation errors
-    if (error.message && (error.message.includes('Trade ID') || error.message.includes('must be'))) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    return res.status(400).json({ error: error.message });
+  if (!rejecterId) {
+    return ApiResponse.badRequest(res, "Roster ID required");
   }
-}
+
+  const trade = await rejectTrade(tradeId, rejecterId, reason);
+
+  // Get full trade details
+  const tradeWithDetails = await getTradeWithDetails(trade.id);
+
+  // Emit socket event
+  if (tradeWithDetails) {
+    emitTradeRejected(io, tradeWithDetails.league_id, tradeWithDetails);
+  }
+
+  ApiResponse.success(res, tradeWithDetails);
+});
 
 /**
  * Cancel a trade
  * POST /api/trades/:id/cancel
  */
-export async function cancelTradeController(req: Request, res: Response) {
-  try {
-    // Validate trade ID
-    const tradeId = validateId(req.params.id, "Trade ID");
-    const proposerId = req.body.roster_id;
+export const cancelTradeController = asyncHandler(async (req: Request, res: Response) => {
+  // Validate trade ID
+  const tradeId = validateId(req.params.id, "Trade ID");
+  const proposerId = req.body.roster_id;
 
-    if (!proposerId) {
-      return res.status(400).json({ error: "Roster ID required" });
-    }
-
-    const trade = await cancelTrade(tradeId, proposerId);
-
-    // Get full trade details
-    const tradeWithDetails = await getTradeWithDetails(trade.id);
-
-    // Emit socket event
-    if (tradeWithDetails) {
-      emitTradeCancelled(io, tradeWithDetails.league_id, tradeWithDetails);
-    }
-
-    return res.status(200).json({
-      success: true,
-      data: tradeWithDetails,
-    });
-  } catch (error: any) {
-    logger.error("Cancel trade error:", error);
-
-    // Return 400 for validation errors
-    if (error.message && (error.message.includes('Trade ID') || error.message.includes('must be'))) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    return res.status(400).json({ error: error.message });
+  if (!proposerId) {
+    return ApiResponse.badRequest(res, "Roster ID required");
   }
-}
+
+  const trade = await cancelTrade(tradeId, proposerId);
+
+  // Get full trade details
+  const tradeWithDetails = await getTradeWithDetails(trade.id);
+
+  // Emit socket event
+  if (tradeWithDetails) {
+    emitTradeCancelled(io, tradeWithDetails.league_id, tradeWithDetails);
+  }
+
+  ApiResponse.success(res, tradeWithDetails);
+});
 
 /**
  * Get a single trade
  * GET /api/trades/:id
  */
-export async function getTradeController(req: Request, res: Response) {
-  try {
-    // Validate trade ID
-    const tradeId = validateId(req.params.id, "Trade ID");
+export const getTradeController = asyncHandler(async (req: Request, res: Response) => {
+  // Validate trade ID
+  const tradeId = validateId(req.params.id, "Trade ID");
 
-    const trade = await getTradeWithDetails(tradeId);
+  const trade = await getTradeWithDetails(tradeId);
 
-    if (!trade) {
-      return res.status(404).json({ error: "Trade not found" });
-    }
-
-    return res.status(200).json({
-      success: true,
-      data: trade,
-    });
-  } catch (error: any) {
-    logger.error("Get trade error:", error);
-
-    // Return 400 for validation errors
-    if (error.message && (error.message.includes('Trade ID') || error.message.includes('must be'))) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    return res.status(500).json({ error: error.message });
+  if (!trade) {
+    return ApiResponse.notFound(res, "Trade not found");
   }
-}
+
+  ApiResponse.success(res, trade);
+});
 
 /**
  * Get all trades for a league
  * GET /api/leagues/:id/trades
  */
-export async function getLeagueTradesController(req: Request, res: Response) {
-  try {
-    // Validate league ID
-    const leagueId = validateId(req.params.id, "League ID");
-    const status = req.query.status as string | undefined;
+export const getLeagueTradesController = asyncHandler(async (req: Request, res: Response) => {
+  // Validate league ID
+  const leagueId = validateId(req.params.id, "League ID");
+  const status = req.query.status as string | undefined;
 
-    const trades = await getLeagueTrades(leagueId, status);
+  const trades = await getLeagueTrades(leagueId, status);
 
-    return res.status(200).json({
-      success: true,
-      data: trades,
-    });
-  } catch (error: any) {
-    logger.error("Get league trades error:", error);
-
-    // Return 400 for validation errors
-    if (error.message && (error.message.includes('League ID') || error.message.includes('must be'))) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    return res.status(500).json({ error: error.message });
-  }
-}
+  ApiResponse.success(res, trades);
+});
 
 /**
  * Get all trades for a roster
  * GET /api/rosters/:id/trades
  */
-export async function getRosterTradesController(req: Request, res: Response) {
-  try {
-    // Validate roster ID
-    const rosterId = validateId(req.params.id, "Roster ID");
+export const getRosterTradesController = asyncHandler(async (req: Request, res: Response) => {
+  // Validate roster ID
+  const rosterId = validateId(req.params.id, "Roster ID");
 
-    const trades = await getRosterTrades(rosterId);
+  const trades = await getRosterTrades(rosterId);
 
-    return res.status(200).json({
-      success: true,
-      data: trades,
-    });
-  } catch (error: any) {
-    logger.error("Get roster trades error:", error);
-
-    // Return 400 for validation errors
-    if (error.message && (error.message.includes('Roster ID') || error.message.includes('must be'))) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    return res.status(500).json({ error: error.message });
-  }
-}
+  ApiResponse.success(res, trades);
+});

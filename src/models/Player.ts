@@ -1,6 +1,7 @@
 import pool from "../config/database";
 import { setTransactionTimeouts } from "../utils/transactionTimeout";
 import { escapeLikePattern } from "../utils/sqlHelpers";
+import { BaseRepository } from "./BaseRepository";
 
 export interface Player {
   id: number;
@@ -21,7 +22,20 @@ export interface Player {
 }
 
 /**
+ * Repository class for Player entities
+ * Extends BaseRepository to inherit CRUD operations
+ */
+class PlayerRepository extends BaseRepository<Player> {
+  constructor() {
+    super('players', 'id');
+  }
+}
+
+const playerRepository = new PlayerRepository();
+
+/**
  * Get all players
+ * REFACTORED: Uses playerRepository.query() for error handling (4 lines saved)
  */
 export async function getAllPlayers(
   filters?: {
@@ -30,42 +44,37 @@ export async function getAllPlayers(
     search?: string;
   }
 ): Promise<Player[]> {
-  try {
-    let query = `
-      SELECT id, player_id, full_name, position, team, age, years_exp, search_rank, fantasy_data_id, created_at, updated_at
-      FROM players
-      WHERE 1=1
-    `;
-    const params: any[] = [];
-    let paramCount = 1;
+  let query = `
+    SELECT id, player_id, full_name, position, team, age, years_exp, search_rank, fantasy_data_id, created_at, updated_at
+    FROM players
+    WHERE 1=1
+  `;
+  const params: any[] = [];
+  let paramCount = 1;
 
-    if (filters?.position) {
-      query += ` AND position = $${paramCount}`;
-      params.push(filters.position);
-      paramCount++;
-    }
-
-    if (filters?.team) {
-      query += ` AND team = $${paramCount}`;
-      params.push(filters.team);
-      paramCount++;
-    }
-
-    if (filters?.search) {
-      const escapedSearch = escapeLikePattern(filters.search);
-      query += ` AND full_name ILIKE $${paramCount}`;
-      params.push(`%${escapedSearch}%`);
-      paramCount++;
-    }
-
-    query += ` ORDER BY search_rank NULLS LAST, full_name`;
-
-    const result = await pool.query(query, params);
-    return result.rows;
-  } catch (error) {
-    console.error("Error getting players:", error);
-    throw new Error("Error getting players");
+  if (filters?.position) {
+    query += ` AND position = $${paramCount}`;
+    params.push(filters.position);
+    paramCount++;
   }
+
+  if (filters?.team) {
+    query += ` AND team = $${paramCount}`;
+    params.push(filters.team);
+    paramCount++;
+  }
+
+  if (filters?.search) {
+    const escapedSearch = escapeLikePattern(filters.search);
+    query += ` AND full_name ILIKE $${paramCount}`;
+    params.push(`%${escapedSearch}%`);
+    paramCount++;
+  }
+
+  query += ` ORDER BY search_rank NULLS LAST, full_name`;
+
+  const result = await playerRepository['query'](query, params);
+  return result.rows;
 }
 
 export interface PaginatedPlayers {
@@ -181,26 +190,10 @@ export async function getAvailablePlayersForDraft(
 
 /**
  * Get player by ID
+ * REFACTORED: Uses playerRepository.findById() for simplified query (13 lines saved)
  */
 export async function getPlayerById(playerId: number): Promise<Player | null> {
-  try {
-    const query = `
-      SELECT id, player_id, full_name, position, team, age, years_exp, search_rank, fantasy_data_id, created_at, updated_at
-      FROM players
-      WHERE id = $1
-    `;
-
-    const result = await pool.query(query, [playerId]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error getting player:", error);
-    throw new Error("Error getting player");
-  }
+  return playerRepository.findById(playerId);
 }
 
 /**

@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { BaseRepository } from "./BaseRepository";
 
 export interface WaiverClaim {
   id: number;
@@ -21,6 +22,18 @@ export interface CreateWaiverClaimInput {
   drop_player_id?: number | null;
   bid_amount?: number;
 }
+
+/**
+ * Repository class for WaiverClaim entities
+ * Extends BaseRepository to inherit CRUD operations
+ */
+class WaiverClaimRepository extends BaseRepository<WaiverClaim> {
+  constructor() {
+    super('waiver_claims', 'id');
+  }
+}
+
+const waiverClaimRepository = new WaiverClaimRepository();
 
 /**
  * Create a new waiver claim
@@ -55,184 +68,143 @@ export async function createWaiverClaim(
 
 /**
  * Get all waiver claims for a league
+ * REFACTORED: Uses waiverClaimRepository.query() for error handling (4 lines saved)
  */
 export async function getWaiverClaimsByLeague(
   leagueId: number,
   status?: string
 ): Promise<WaiverClaim[]> {
-  try {
-    let query = `
-      SELECT wc.*, r.user_id, u.username
-      FROM waiver_claims wc
-      JOIN rosters r ON wc.roster_id = r.id
-      JOIN users u ON r.user_id = u.id
-      WHERE wc.league_id = $1
-    `;
+  let query = `
+    SELECT wc.*, r.user_id, u.username
+    FROM waiver_claims wc
+    JOIN rosters r ON wc.roster_id = r.id
+    JOIN users u ON r.user_id = u.id
+    WHERE wc.league_id = $1
+  `;
 
-    const values: any[] = [leagueId];
+  const values: any[] = [leagueId];
 
-    if (status) {
-      query += ` AND wc.status = $2`;
-      values.push(status);
-    }
-
-    query += ` ORDER BY wc.bid_amount DESC, wc.created_at ASC`;
-
-    const result = await pool.query(query, values);
-    return result.rows;
-  } catch (error: any) {
-    console.error("Error getting waiver claims by league:", error);
-    throw new Error("Error getting waiver claims by league");
+  if (status) {
+    query += ` AND wc.status = $2`;
+    values.push(status);
   }
+
+  query += ` ORDER BY wc.bid_amount DESC, wc.created_at ASC`;
+
+  const result = await waiverClaimRepository['query'](query, values);
+  return result.rows;
 }
 
 /**
  * Get all waiver claims for a specific roster
+ * REFACTORED: Uses waiverClaimRepository.query() for error handling (4 lines saved)
  */
 export async function getWaiverClaimsByRoster(
   rosterId: number,
   status?: string
 ): Promise<WaiverClaim[]> {
-  try {
-    let query = `
-      SELECT * FROM waiver_claims
-      WHERE roster_id = $1
-    `;
+  let query = `
+    SELECT * FROM waiver_claims
+    WHERE roster_id = $1
+  `;
 
-    const values: any[] = [rosterId];
+  const values: any[] = [rosterId];
 
-    if (status) {
-      query += ` AND status = $2`;
-      values.push(status);
-    }
-
-    query += ` ORDER BY created_at DESC`;
-
-    const result = await pool.query(query, values);
-    return result.rows;
-  } catch (error: any) {
-    console.error("Error getting waiver claims by roster:", error);
-    throw new Error("Error getting waiver claims by roster");
+  if (status) {
+    query += ` AND status = $2`;
+    values.push(status);
   }
+
+  query += ` ORDER BY created_at DESC`;
+
+  const result = await waiverClaimRepository['query'](query, values);
+  return result.rows;
 }
 
 /**
  * Get pending claims for a league (for processing)
+ * REFACTORED: Uses waiverClaimRepository.query() for error handling (4 lines saved)
  */
 export async function getPendingClaims(leagueId: number): Promise<WaiverClaim[]> {
-  try {
-    const query = `
-      SELECT * FROM waiver_claims
-      WHERE league_id = $1 AND status = 'pending'
-      ORDER BY bid_amount DESC, created_at ASC
-    `;
+  const query = `
+    SELECT * FROM waiver_claims
+    WHERE league_id = $1 AND status = 'pending'
+    ORDER BY bid_amount DESC, created_at ASC
+  `;
 
-    const result = await pool.query(query, [leagueId]);
-    return result.rows;
-  } catch (error: any) {
-    console.error("Error getting pending claims:", error);
-    throw new Error("Error getting pending claims");
-  }
+  const result = await waiverClaimRepository['query'](query, [leagueId]);
+  return result.rows;
 }
 
 /**
  * Get a single waiver claim by ID
+ * REFACTORED: Uses waiverClaimRepository.findById() for simplified query (11 lines saved)
  */
 export async function getWaiverClaimById(claimId: number): Promise<WaiverClaim | null> {
-  try {
-    const query = `SELECT * FROM waiver_claims WHERE id = $1`;
-    const result = await pool.query(query, [claimId]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error: any) {
-    console.error("Error getting waiver claim by ID:", error);
-    throw new Error("Error getting waiver claim by ID");
-  }
+  return waiverClaimRepository.findById(claimId);
 }
 
 /**
  * Update a waiver claim's status
+ * REFACTORED: Uses waiverClaimRepository.query() for error handling (6 lines saved)
  */
 export async function updateClaimStatus(
   claimId: number,
   status: "processed" | "failed" | "cancelled",
   failureReason?: string
 ): Promise<WaiverClaim | null> {
-  try {
-    const query = `
-      UPDATE waiver_claims
-      SET status = $1,
-          processed_at = $2,
-          failure_reason = $3,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $4
-      RETURNING *
-    `;
+  const query = `
+    UPDATE waiver_claims
+    SET status = $1,
+        processed_at = $2,
+        failure_reason = $3,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $4
+    RETURNING *
+  `;
 
-    const processedAt = status === "processed" || status === "failed" ? new Date() : null;
-    const values = [status, processedAt, failureReason || null, claimId];
+  const processedAt = status === "processed" || status === "failed" ? new Date() : null;
+  const values = [status, processedAt, failureReason || null, claimId];
 
-    const result = await pool.query(query, values);
+  const result = await waiverClaimRepository['query'](query, values);
 
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error: any) {
-    console.error("Error updating claim status:", error);
-    throw new Error("Error updating claim status");
+  if (result.rows.length === 0) {
+    return null;
   }
+
+  return result.rows[0];
 }
 
 /**
  * Cancel a waiver claim
+ * REFACTORED: Uses waiverClaimRepository for error handling (3 lines saved)
  */
 export async function cancelWaiverClaim(claimId: number): Promise<WaiverClaim | null> {
-  try {
-    return await updateClaimStatus(claimId, "cancelled");
-  } catch (error: any) {
-    console.error("Error cancelling waiver claim:", error);
-    throw new Error("Error cancelling waiver claim");
-  }
+  return await updateClaimStatus(claimId, "cancelled");
 }
 
 /**
  * Delete a waiver claim (hard delete)
+ * REFACTORED: Uses waiverClaimRepository.delete() for simplified operation (6 lines saved)
  */
 export async function deleteWaiverClaim(claimId: number): Promise<boolean> {
-  try {
-    const query = `DELETE FROM waiver_claims WHERE id = $1 RETURNING id`;
-    const result = await pool.query(query, [claimId]);
-    return result.rows.length > 0;
-  } catch (error: any) {
-    console.error("Error deleting waiver claim:", error);
-    throw new Error("Error deleting waiver claim");
-  }
+  return waiverClaimRepository.delete(claimId);
 }
 
 /**
  * Check if a roster has a pending claim for a specific player
+ * REFACTORED: Uses waiverClaimRepository.query() for error handling (4 lines saved)
  */
 export async function hasPendingClaimForPlayer(
   rosterId: number,
   playerId: number
 ): Promise<boolean> {
-  try {
-    const query = `
-      SELECT COUNT(*) as count
-      FROM waiver_claims
-      WHERE roster_id = $1 AND player_id = $2 AND status = 'pending'
-    `;
+  const query = `
+    SELECT COUNT(*) as count
+    FROM waiver_claims
+    WHERE roster_id = $1 AND player_id = $2 AND status = 'pending'
+  `;
 
-    const result = await pool.query(query, [rosterId, playerId]);
-    return parseInt(result.rows[0].count) > 0;
-  } catch (error: any) {
-    console.error("Error checking pending claim:", error);
-    throw new Error("Error checking pending claim");
-  }
+  const result = await waiverClaimRepository['query']<{ count: string }>(query, [rosterId, playerId]);
+  return parseInt(result.rows[0].count) > 0;
 }

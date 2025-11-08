@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { BaseRepository } from "./BaseRepository";
 
 export type PlayoffRound =
   | "wildcard"
@@ -61,6 +62,18 @@ export interface MedianMatchup extends Matchup {
   roster2_id: null; // Median matchups have no opponent
   median_score: number;
 }
+
+/**
+ * Repository class for Matchup entities
+ * Extends BaseRepository to inherit CRUD operations
+ */
+class MatchupRepository extends BaseRepository<Matchup> {
+  constructor() {
+    super('matchups', 'id');
+  }
+}
+
+const matchupRepository = new MatchupRepository();
 
 /**
  * Create a matchup
@@ -179,32 +192,28 @@ export async function getMatchupsByLeague(
 
 /**
  * Get matchup by ID
+ * REFACTORED: Uses matchupRepository.query() for error handling (4 lines saved)
  */
 export async function getMatchupById(
   matchupId: number
 ): Promise<MatchupWithRosters | null> {
-  try {
-    const query = `
-      SELECT
-        m.*,
-        r1.settings->>'team_name' as roster1_team_name,
-        u1.username as roster1_username,
-        r2.settings->>'team_name' as roster2_team_name,
-        u2.username as roster2_username
-      FROM matchups m
-      LEFT JOIN rosters r1 ON m.roster1_id = r1.id
-      LEFT JOIN users u1 ON r1.user_id = u1.id
-      LEFT JOIN rosters r2 ON m.roster2_id = r2.id
-      LEFT JOIN users u2 ON r2.user_id = u2.id
-      WHERE m.id = $1
-    `;
+  const query = `
+    SELECT
+      m.*,
+      r1.settings->>'team_name' as roster1_team_name,
+      u1.username as roster1_username,
+      r2.settings->>'team_name' as roster2_team_name,
+      u2.username as roster2_username
+    FROM matchups m
+    LEFT JOIN rosters r1 ON m.roster1_id = r1.id
+    LEFT JOIN users u1 ON r1.user_id = u1.id
+    LEFT JOIN rosters r2 ON m.roster2_id = r2.id
+    LEFT JOIN users u2 ON r2.user_id = u2.id
+    WHERE m.id = $1
+  `;
 
-    const result = await pool.query(query, [matchupId]);
-    return result.rows.length > 0 ? result.rows[0] : null;
-  } catch (error) {
-    console.error("Error getting matchup:", error);
-    throw new Error("Error getting matchup");
-  }
+  const result = await matchupRepository['query'](query, [matchupId]);
+  return result.rows.length > 0 ? result.rows[0] : null;
 }
 
 /**
@@ -475,66 +484,58 @@ export async function getMatchupDetailsWithScores(
 
 /**
  * Update matchup scores
+ * REFACTORED: Uses matchupRepository.query() for error handling (6 lines saved)
  */
 export async function updateMatchupScores(
   matchupId: number,
   roster1Score: number,
   roster2Score: number
 ): Promise<Matchup> {
-  try {
-    const query = `
-      UPDATE matchups
-      SET roster1_score = $1,
-          roster2_score = $2,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $3
-      RETURNING *
-    `;
+  const query = `
+    UPDATE matchups
+    SET roster1_score = $1,
+        roster2_score = $2,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $3
+    RETURNING *
+  `;
 
-    const result = await pool.query(query, [
-      roster1Score,
-      roster2Score,
-      matchupId,
-    ]);
+  const result = await matchupRepository['query'](query, [
+    roster1Score,
+    roster2Score,
+    matchupId,
+  ]);
 
-    if (result.rows.length === 0) {
-      throw new Error("Matchup not found");
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error updating matchup scores:", error);
-    throw new Error("Error updating matchup scores");
+  if (result.rows.length === 0) {
+    throw new Error("Matchup not found");
   }
+
+  return result.rows[0];
 }
 
 /**
  * Update matchup status
+ * REFACTORED: Uses matchupRepository.query() for error handling (6 lines saved)
  */
 export async function updateMatchupStatus(
   matchupId: number,
   status: "scheduled" | "in_progress" | "completed"
 ): Promise<Matchup> {
-  try {
-    const query = `
-      UPDATE matchups
-      SET status = $1,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
-      RETURNING *
-    `;
+  const query = `
+    UPDATE matchups
+    SET status = $1,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $2
+    RETURNING *
+  `;
 
-    const result = await pool.query(query, [status, matchupId]);
+  const result = await matchupRepository['query'](query, [status, matchupId]);
 
-    if (result.rows.length === 0) {
-      throw new Error("Matchup not found");
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error updating matchup status:", error);
-    throw new Error("Error updating matchup status");
+  if (result.rows.length === 0) {
+    throw new Error("Matchup not found");
   }
+
+  return result.rows[0];
 }
 
 /**
@@ -620,38 +621,30 @@ export async function generateMatchupsForWeek(
 
 /**
  * Delete all matchups for a league week
+ * REFACTORED: Uses matchupRepository.query() for error handling (4 lines saved)
  */
 export async function deleteMatchupsForWeek(
   leagueId: number,
   week: number
 ): Promise<void> {
-  try {
-    const query = `
-      DELETE FROM matchups
-      WHERE league_id = $1 AND week = $2
-    `;
+  const query = `
+    DELETE FROM matchups
+    WHERE league_id = $1 AND week = $2
+  `;
 
-    await pool.query(query, [leagueId, week]);
-  } catch (error) {
-    console.error("Error deleting matchups:", error);
-    throw new Error("Error deleting matchups");
-  }
+  await matchupRepository['query'](query, [leagueId, week]);
 }
 
 /**
  * Delete all matchups for a league
+ * REFACTORED: Uses matchupRepository.query() for error handling (4 lines saved)
  */
 export async function deleteMatchupsForLeague(leagueId: number): Promise<void> {
-  try {
-    const query = `
-      DELETE FROM matchups
-      WHERE league_id = $1
-    `;
+  const query = `
+    DELETE FROM matchups
+    WHERE league_id = $1
+  `;
 
-    await pool.query(query, [leagueId]);
-    console.log(`[Matchup] Deleted all matchups for league ${leagueId}`);
-  } catch (error) {
-    console.error("Error deleting matchups for league:", error);
-    throw new Error("Error deleting matchups for league");
-  }
+  await matchupRepository['query'](query, [leagueId]);
+  console.log(`[Matchup] Deleted all matchups for league ${leagueId}`);
 }

@@ -462,8 +462,11 @@ export async function updateDraftSettingsHandler(
           message_type: 'system',
           metadata: {
             type: 'draft_time_update',
-            draft_id: draft.id,
-            scheduled_start_time: newDraftTime,
+            collapsible: true,
+            details: {
+              draft_id: draft.id,
+              scheduled_start_time: newDraftTime,
+            },
           },
         });
 

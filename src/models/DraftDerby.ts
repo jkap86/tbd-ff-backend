@@ -9,6 +9,7 @@ export interface DraftDerby {
   current_turn_started_at: Date | null;
   selection_order: number[]; // Array of roster IDs
   skipped_roster_ids: number[]; // Array of roster IDs that were skipped
+  is_randomized: boolean; // Whether selection order has been randomized
   created_at: Date;
   updated_at: Date;
 }
@@ -41,8 +42,8 @@ export async function createDraftDerby(
     const selectionOrder = [...rosterIds];
 
     const query = `
-      INSERT INTO draft_derby (draft_id, selection_order, status)
-      VALUES ($1, $2, 'pending')
+      INSERT INTO draft_derby (draft_id, selection_order, status, is_randomized)
+      VALUES ($1, $2, 'pending', FALSE)
       RETURNING *
     `;
 
@@ -116,6 +117,7 @@ export async function randomizeDerbyOrder(draftId: number): Promise<DraftDerby> 
     const query = `
       UPDATE draft_derby
       SET selection_order = $1,
+          is_randomized = TRUE,
           updated_at = CURRENT_TIMESTAMP
       WHERE draft_id = $2
       RETURNING *
@@ -696,22 +698,21 @@ export async function resetDraftDerby(draftId: number): Promise<DraftDerby | nul
       derby.id,
     ]);
 
-    // Reset derby to pending, re-randomize selection order
-    const shuffled = [...derby.selection_order].sort(() => Math.random() - 0.5);
-
+    // Reset derby to pending, keep selection order but mark as not randomized
+    // This allows commissioner to randomize again if desired
     const query = `
       UPDATE draft_derby
       SET status = 'pending',
           current_turn_roster_id = NULL,
           current_turn_started_at = NULL,
-          selection_order = $1,
+          is_randomized = FALSE,
           skipped_roster_ids = '[]',
           updated_at = CURRENT_TIMESTAMP
-      WHERE draft_id = $2
+      WHERE draft_id = $1
       RETURNING *
     `;
 
-    const result = await client.query(query, [JSON.stringify(shuffled), draftId]);
+    const result = await client.query(query, [draftId]);
 
     await client.query("COMMIT");
 

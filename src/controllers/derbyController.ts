@@ -584,3 +584,171 @@ export async function randomizeDerby(req: Request, res: Response): Promise<void>
     });
   }
 }
+
+/**
+ * Pause derby timer
+ * POST /api/drafts/:draftId/derby/pause
+ */
+export async function pauseDerby(req: Request, res: Response): Promise<void> {
+  try {
+    const { draftId } = req.params;
+    const userId = req.user?.userId;
+
+    console.log('[Derby] Pausing derby for draft', draftId);
+
+    // Get the draft
+    const draft = await getDraftById(parseInt(draftId));
+    if (!draft) {
+      res.status(404).json({
+        success: false,
+        message: "Draft not found",
+      });
+      return;
+    }
+
+    // Check if user is commissioner
+    const { getLeagueById } = await import("../models/League");
+    const league = await getLeagueById(draft.league_id);
+    const commissionerId = league?.settings?.commissioner_id;
+
+    if (!commissionerId || commissionerId !== userId) {
+      res.status(403).json({
+        success: false,
+        message: "Only commissioner can pause derby",
+      });
+      return;
+    }
+
+    // Get derby
+    const { getDraftDerbyByDraftId } = await import('../models/DraftDerby');
+    const derby = await getDraftDerbyByDraftId(parseInt(draftId));
+
+    if (!derby) {
+      res.status(404).json({
+        success: false,
+        message: "Derby not found",
+      });
+      return;
+    }
+
+    if (derby.status !== 'in_progress') {
+      res.status(400).json({
+        success: false,
+        message: "Derby is not in progress",
+      });
+      return;
+    }
+
+    // Cancel the timer
+    cancelDerbyTimer(parseInt(draftId));
+
+    // Emit socket event
+    io.to(`draft_${draftId}`).emit('derby:paused', {
+      draftId: parseInt(draftId),
+      message: 'Derby has been paused',
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Derby paused successfully",
+    });
+
+  } catch (error: any) {
+    console.error('[Derby] Error pausing:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error pausing derby",
+    });
+  }
+}
+
+/**
+ * Resume derby timer
+ * POST /api/drafts/:draftId/derby/resume
+ */
+export async function resumeDerby(req: Request, res: Response): Promise<void> {
+  try {
+    const { draftId } = req.params;
+    const userId = req.user?.userId;
+
+    console.log('[Derby] Resuming derby for draft', draftId);
+
+    // Get the draft
+    const draft = await getDraftById(parseInt(draftId));
+    if (!draft) {
+      res.status(404).json({
+        success: false,
+        message: "Draft not found",
+      });
+      return;
+    }
+
+    // Check if user is commissioner
+    const { getLeagueById } = await import("../models/League");
+    const league = await getLeagueById(draft.league_id);
+    const commissionerId = league?.settings?.commissioner_id;
+
+    if (!commissionerId || commissionerId !== userId) {
+      res.status(403).json({
+        success: false,
+        message: "Only commissioner can resume derby",
+      });
+      return;
+    }
+
+    // Get derby
+    const { getDraftDerbyByDraftId } = await import('../models/DraftDerby');
+    const derby = await getDraftDerbyByDraftId(parseInt(draftId));
+
+    if (!derby) {
+      res.status(404).json({
+        success: false,
+        message: "Derby not found",
+      });
+      return;
+    }
+
+    if (derby.status !== 'in_progress') {
+      res.status(400).json({
+        success: false,
+        message: "Derby is not in progress",
+      });
+      return;
+    }
+
+    // Restart the timer for current turn
+    if (derby.current_turn_roster_id) {
+      // Get the time remaining from the request body
+      const { timeRemainingSeconds } = req.body;
+
+      if (timeRemainingSeconds && timeRemainingSeconds > 0) {
+        // Resume with remaining time
+        const turnDeadline = new Date(Date.now() + timeRemainingSeconds * 1000);
+        scheduleDerbyTimeout(parseInt(draftId), turnDeadline);
+      } else {
+        // Fallback: use full time limit
+        const derbyTimeLimit = draft.derby_time_limit_seconds || 60;
+        const turnDeadline = new Date(Date.now() + derbyTimeLimit * 1000);
+        scheduleDerbyTimeout(parseInt(draftId), turnDeadline);
+      }
+    }
+
+    // Emit socket event (no deadline needed - frontend keeps its existing deadline)
+    io.to(`draft_${draftId}`).emit('derby:resumed', {
+      draftId: parseInt(draftId),
+      message: 'Derby has been resumed',
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Derby resumed successfully",
+    });
+
+  } catch (error: any) {
+    console.error('[Derby] Error resuming:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error resuming derby",
+    });
+  }
+}

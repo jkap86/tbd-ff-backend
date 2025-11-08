@@ -26,6 +26,8 @@ import {
   selectDerbyPosition,
   skipDerbyTurn,
   randomizeDerby,
+  pauseDerby,
+  resumeDerby,
 } from "../controllers/derbyController";
 import { authenticate } from "../middleware/authMiddleware";
 
@@ -97,6 +99,12 @@ router.post("/:draftId/derby/select", authenticate, selectDerbyPosition);
 
 // POST /api/drafts/:draftId/derby/skip - Skip current turn (protected, commissioner only)
 router.post("/:draftId/derby/skip", authenticate, skipDerbyTurn);
+
+// POST /api/drafts/:draftId/derby/pause - Pause derby timer (protected, commissioner only)
+router.post("/:draftId/derby/pause", authenticate, pauseDerby);
+
+// POST /api/drafts/:draftId/derby/resume - Resume derby timer (protected, commissioner only)
+router.post("/:draftId/derby/resume", authenticate, resumeDerby);
 
 // GET /api/drafts/:draftId/derby - Get derby status (protected)
 // This MUST come after all specific /derby/* routes to avoid matching them

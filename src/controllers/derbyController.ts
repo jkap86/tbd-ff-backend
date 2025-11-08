@@ -513,3 +513,74 @@ export async function skipDerbyTurn(req: Request, res: Response): Promise<void> 
     });
   }
 }
+
+/**
+ * Randomize derby selection order (commissioner only, before derby starts)
+ * POST /api/drafts/:draftId/derby/randomize
+ */
+export async function randomizeDerby(req: Request, res: Response): Promise<void> {
+  try {
+    const { draftId } = req.params;
+    const userId = req.user?.userId;
+
+    console.log('[Derby] Randomize order attempt:', { draftId, userId });
+
+    // Get draft and league for commissioner check
+    const draft = await getDraftById(parseInt(draftId));
+    if (!draft) {
+      res.status(404).json({
+        success: false,
+        message: "Draft not found",
+      });
+      return;
+    }
+
+    const { getLeagueById } = await import("../models/League");
+    const league = await getLeagueById(draft.league_id);
+
+    if (!league) {
+      res.status(404).json({
+        success: false,
+        message: "League not found",
+      });
+      return;
+    }
+
+    // Check if user is commissioner
+    const commissionerId = league.settings?.commissioner_id;
+    if (!commissionerId || commissionerId !== userId) {
+      res.status(403).json({
+        success: false,
+        message: "Only commissioner can randomize derby order",
+      });
+      return;
+    }
+
+    // Import DraftDerby model functions
+    const { randomizeDerbyOrder } = await import('../models/DraftDerby');
+
+    // Randomize order using model function
+    const updatedDerby = await randomizeDerbyOrder(parseInt(draftId));
+
+    // Emit socket event to notify all clients
+    io.to(`draft_${draftId}`).emit('derby:update', {
+      draftId: parseInt(draftId),
+      derby: updatedDerby,
+      selectionOrder: updatedDerby.selection_order,
+      message: 'Derby selection order has been randomized',
+    });
+
+    res.status(200).json({
+      success: true,
+      data: updatedDerby,
+      message: "Derby order randomized successfully",
+    });
+
+  } catch (error: any) {
+    console.error('[Derby] Error randomizing order:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error randomizing derby order",
+    });
+  }
+}

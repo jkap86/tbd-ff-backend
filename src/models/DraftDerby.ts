@@ -28,14 +28,17 @@ export interface DerbyWithDetails extends DraftDerby {
 
 /**
  * Create a new draft derby
+ * NOTE: Selection order is set to draft order initially (NOT randomized)
+ * Commissioner must manually randomize order using randomizeDerbyOrder()
  */
 export async function createDraftDerby(
   draftId: number,
   rosterIds: number[]
 ): Promise<DraftDerby> {
   try {
-    // Shuffle roster IDs to create random selection order
-    const shuffled = [...rosterIds].sort(() => Math.random() - 0.5);
+    // Use draft order as initial selection order (NOT randomized)
+    // Commissioner can randomize later using randomizeDerbyOrder()
+    const selectionOrder = [...rosterIds];
 
     const query = `
       INSERT INTO draft_derby (draft_id, selection_order, status)
@@ -43,7 +46,7 @@ export async function createDraftDerby(
       RETURNING *
     `;
 
-    const result = await pool.query(query, [draftId, JSON.stringify(shuffled)]);
+    const result = await pool.query(query, [draftId, JSON.stringify(selectionOrder)]);
 
     const derby = result.rows[0];
     return {
@@ -89,6 +92,46 @@ export async function getDraftDerbyByDraftId(
   } catch (error) {
     console.error("Error getting draft derby:", error);
     throw new Error("Error getting draft derby");
+  }
+}
+
+/**
+ * Randomize derby selection order (commissioner only, before derby starts)
+ */
+export async function randomizeDerbyOrder(draftId: number): Promise<DraftDerby> {
+  try {
+    const derby = await getDraftDerbyByDraftId(draftId);
+
+    if (!derby) {
+      throw new Error("Derby not found");
+    }
+
+    if (derby.status !== "pending") {
+      throw new Error("Cannot randomize order - derby has already started");
+    }
+
+    // Shuffle the selection order
+    const shuffled = [...derby.selection_order].sort(() => Math.random() - 0.5);
+
+    const query = `
+      UPDATE draft_derby
+      SET selection_order = $1,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE draft_id = $2
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [JSON.stringify(shuffled), draftId]);
+
+    const updatedDerby = result.rows[0];
+    return {
+      ...updatedDerby,
+      selection_order: updatedDerby.selection_order,
+      skipped_roster_ids: updatedDerby.skipped_roster_ids || [],
+    };
+  } catch (error: any) {
+    console.error("Error randomizing derby order:", error);
+    throw error;
   }
 }
 

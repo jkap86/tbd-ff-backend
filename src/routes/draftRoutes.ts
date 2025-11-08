@@ -25,6 +25,7 @@ import {
   createDerby,
   selectDerbyPosition,
   skipDerbyTurn,
+  randomizeDerby,
 } from "../controllers/derbyController";
 import { authenticate } from "../middleware/authMiddleware";
 
@@ -93,5 +94,8 @@ router.post("/:draftId/derby/select", authenticate, selectDerbyPosition);
 
 // POST /api/drafts/:draftId/derby/skip - Skip current turn (protected, commissioner only)
 router.post("/:draftId/derby/skip", authenticate, skipDerbyTurn);
+
+// POST /api/drafts/:draftId/derby/randomize - Randomize derby order (protected, commissioner only)
+router.post("/:draftId/derby/randomize", authenticate, randomizeDerby);
 
 export default router;

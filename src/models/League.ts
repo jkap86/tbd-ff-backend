@@ -178,6 +178,7 @@ export async function getLeaguesForUser(userId: number): Promise<League[]> {
   try {
     const query = `
       SELECT DISTINCT l.*,
+        (SELECT COUNT(*)::int FROM rosters WHERE league_id = l.id AND user_id IS NOT NULL) as user_count,
         (SELECT COUNT(*)::int FROM rosters WHERE league_id = l.id) as current_rosters
       FROM leagues l
       INNER JOIN rosters r ON l.id = r.league_id
@@ -302,7 +303,8 @@ function generateInviteCode(): string {
 export async function getPublicLeagues(limit: number = 20): Promise<any[]> {
   try {
     const query = `
-      SELECT l.*, 
+      SELECT l.*,
+        (SELECT COUNT(*) FROM rosters WHERE league_id = l.id AND user_id IS NOT NULL) as user_count,
         (SELECT COUNT(*) FROM rosters WHERE league_id = l.id) as current_rosters
       FROM leagues l
       WHERE l.settings->>'is_public' = 'true'

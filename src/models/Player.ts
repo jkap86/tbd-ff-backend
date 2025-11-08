@@ -68,8 +68,20 @@ export async function getAllPlayers(
   }
 }
 
+export interface PaginatedPlayers {
+  data: Player[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrevious: boolean;
+  };
+}
+
 /**
- * Get available players for a draft (not yet drafted)
+ * Get available players for a draft (not yet drafted) with pagination
  */
 export async function getAvailablePlayersForDraft(
   draftId: number,
@@ -77,15 +89,21 @@ export async function getAvailablePlayersForDraft(
     position?: string;
     team?: string;
     search?: string;
+    page?: number;
+    limit?: number;
   }
-): Promise<Player[]> {
+): Promise<PaginatedPlayers> {
   try {
-    // DEBUG: Log what we're querying
-    console.log(`[getAvailablePlayersForDraft] Querying for draft_id=${draftId}, filters:`, filters);
+    // Pagination parameters with defaults
+    const page = Math.max(1, filters?.page || 1);
+    const limit = Math.min(100, Math.max(1, filters?.limit || 50)); // Default 50, max 100
+    const offset = (page - 1) * limit;
 
-    let query = `
-      SELECT p.id, p.player_id, p.full_name, p.position, p.team, p.age, p.years_exp, p.search_rank, p.fantasy_data_id, p.created_at, p.updated_at
-      FROM players p
+    // DEBUG: Log what we're querying
+    console.log(`[getAvailablePlayersForDraft] Querying for draft_id=${draftId}, filters:`, filters, `page=${page}, limit=${limit}, offset=${offset}`);
+
+    // Build the WHERE clause for filtering
+    let whereClause = `
       WHERE NOT EXISTS (
         SELECT 1
         FROM draft_picks dp
@@ -98,43 +116,63 @@ export async function getAvailablePlayersForDraft(
     let paramCount = 2;
 
     if (filters?.position) {
-      query += ` AND p.position = $${paramCount}`;
+      whereClause += ` AND p.position = $${paramCount}`;
       params.push(filters.position);
       paramCount++;
     }
 
     if (filters?.team) {
-      query += ` AND p.team = $${paramCount}`;
+      whereClause += ` AND p.team = $${paramCount}`;
       params.push(filters.team);
       paramCount++;
     }
 
     if (filters?.search) {
       const escapedSearch = escapeLikePattern(filters.search);
-      query += ` AND p.full_name ILIKE $${paramCount}`;
+      whereClause += ` AND p.full_name ILIKE $${paramCount}`;
       params.push(`%${escapedSearch}%`);
       paramCount++;
     }
 
-    query += ` ORDER BY p.search_rank NULLS LAST, p.full_name`;
+    // Get total count for pagination metadata
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM players p
+      ${whereClause}
+    `;
+    const countResult = await pool.query(countQuery, params);
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limit);
+
+    // Get paginated data
+    const dataQuery = `
+      SELECT p.id, p.player_id, p.full_name, p.position, p.team, p.age, p.years_exp, p.search_rank, p.fantasy_data_id, p.created_at, p.updated_at
+      FROM players p
+      ${whereClause}
+      ORDER BY p.search_rank NULLS LAST, p.full_name
+      LIMIT $${paramCount} OFFSET $${paramCount + 1}
+    `;
+    params.push(limit, offset);
 
     // DEBUG: Log the final query
-    console.log(`[getAvailablePlayersForDraft] Query:`, query);
+    console.log(`[getAvailablePlayersForDraft] Query:`, dataQuery);
     console.log(`[getAvailablePlayersForDraft] Params:`, params);
 
-    const result = await pool.query(query, params);
+    const result = await pool.query(dataQuery, params);
 
-    console.log(`[getAvailablePlayersForDraft] Returned ${result.rows.length} players`);
-    if (result.rows.length === 0) {
-      // Check how many picks exist for this draft
-      const pickCheck = await pool.query(
-        'SELECT COUNT(*) as count, COUNT(DISTINCT player_id) as distinct_players FROM draft_picks WHERE draft_id = $1',
-        [draftId]
-      );
-      console.log(`[getAvailablePlayersForDraft] Draft has ${pickCheck.rows[0].count} picks, ${pickCheck.rows[0].distinct_players} distinct player_ids`);
-    }
+    console.log(`[getAvailablePlayersForDraft] Returned ${result.rows.length} players (page ${page}/${totalPages}, total: ${total})`);
 
-    return result.rows;
+    return {
+      data: result.rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrevious: page > 1,
+      },
+    };
   } catch (error) {
     console.error("Error getting available players:", error);
     throw new Error("Error getting available players");

@@ -118,6 +118,20 @@ export async function processWaivers(leagueId: number): Promise<void> {
     // Track processed players in this batch to prevent duplicates
     const claimedPlayerIds = new Set<string>();
 
+    // OPTIMIZATION: Batch fetch all roster FAAB budgets in a single query
+    // This prevents N+1 query problem (was: 1 query per claim)
+    const uniqueRosterIds = [...new Set(pendingClaims.map((c: any) => c.roster_id))];
+    const faabBudgetsResult = await client.query(
+      `SELECT id, faab_budget FROM rosters WHERE id = ANY($1::int[])`,
+      [uniqueRosterIds]
+    );
+
+    // Create Map for O(1) lookup during claim processing
+    const faabBudgetMap = new Map<number, number>();
+    faabBudgetsResult.rows.forEach((row: any) => {
+      faabBudgetMap.set(row.id, row.faab_budget);
+    });
+
     console.log(`Processing ${pendingClaims.length} waiver claims for league ${leagueId}`);
 
     for (const claim of pendingClaims) {
@@ -158,13 +172,10 @@ export async function processWaivers(leagueId: number): Promise<void> {
           continue;
         }
 
-        // Get roster FAAB budget
-        const rosterResult = await client.query(
-          "SELECT faab_budget FROM rosters WHERE id = $1",
-          [claim.roster_id]
-        );
+        // Get roster FAAB budget from pre-fetched Map (O(1) lookup)
+        const faabBudget = faabBudgetMap.get(claim.roster_id);
 
-        if (rosterResult.rows.length === 0) {
+        if (faabBudget === undefined) {
           await client.query(
             "UPDATE waiver_claims SET status = $1, processed_at = NOW(), failure_reason = $2 WHERE id = $3",
             ["failed", "Roster not found", claim.id]
@@ -172,8 +183,6 @@ export async function processWaivers(leagueId: number): Promise<void> {
           console.log(`Claim ${claim.id} failed: Roster not found`);
           continue;
         }
-
-        const faabBudget = rosterResult.rows[0].faab_budget;
 
         if (claim.bid_amount > faabBudget) {
           // Insufficient FAAB - mark as failed

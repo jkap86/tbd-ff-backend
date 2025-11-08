@@ -1586,8 +1586,9 @@ export async function getDraftPicksHandler(
 }
 
 /**
- * Get available players for a draft
+ * Get available players for a draft with pagination
  * GET /api/drafts/:draftId/players/available
+ * Query params: position, team, search, page (default 1), limit (default 50, max 100)
  */
 export async function getAvailablePlayersHandler(
   req: Request,
@@ -1595,17 +1596,41 @@ export async function getAvailablePlayersHandler(
 ): Promise<void> {
   try {
     const { draftId } = req.params;
-    const { position, team, search } = req.query;
+    const { position, team, search, page, limit } = req.query;
 
-    const players = await getAvailablePlayersForDraft(parseInt(draftId), {
+    // Parse pagination parameters
+    const pageNum = page ? parseInt(page as string, 10) : undefined;
+    const limitNum = limit ? parseInt(limit as string, 10) : undefined;
+
+    // Validate pagination parameters
+    if (pageNum !== undefined && (isNaN(pageNum) || pageNum < 1)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid page parameter. Must be a positive integer.",
+      });
+      return;
+    }
+
+    if (limitNum !== undefined && (isNaN(limitNum) || limitNum < 1 || limitNum > 100)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid limit parameter. Must be between 1 and 100.",
+      });
+      return;
+    }
+
+    const result = await getAvailablePlayersForDraft(parseInt(draftId), {
       position: position as string,
       team: team as string,
       search: search as string,
+      page: pageNum,
+      limit: limitNum,
     });
 
     res.status(200).json({
       success: true,
-      data: players,
+      data: result.data,
+      pagination: result.pagination,
     });
   } catch (error: any) {
     console.error("Error getting available players:", error);

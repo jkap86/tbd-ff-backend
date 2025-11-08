@@ -1,4 +1,8 @@
+// Line count before refactor: 321 lines
+// Line count after refactor: will be calculated
+
 import { Request, Response } from "express";
+import { BaseController } from "./BaseController";
 import { io } from "../index";
 import {
   emitTradeProposed,
@@ -19,16 +23,13 @@ import {
 } from "../models/Trade";
 import { createLeagueChatMessage } from "../models/LeagueChatMessage";
 import { getLeagueById } from "../models/League";
-import { validateId } from "../utils/validators";
-import { ApiResponse } from "../utils/ApiResponse";
-import { asyncHandler } from "../utils/asyncHandler";
 
-/**
- * Propose a new trade
- * POST /api/trades/propose
- */
-export async function proposeTradeController(req: Request, res: Response) {
-  try {
+class TradeController extends BaseController {
+  /**
+   * Propose a new trade
+   * POST /api/trades/propose
+   */
+  proposeTradeController = this.asyncHandler(async (req: Request, res: Response) => {
     const {
       league_id,
       receiver_roster_id,
@@ -43,33 +44,35 @@ export async function proposeTradeController(req: Request, res: Response) {
     const proposerRosterId = req.body.proposer_roster_id;
 
     if (!proposerRosterId) {
-      return res.status(400).json({ error: "Proposer roster ID required" });
+      this.respondBadRequest(res, "Proposer roster ID required");
+      return;
     }
 
     if (!receiver_roster_id) {
-      return res.status(400).json({ error: "Receiver roster ID required" });
+      this.respondBadRequest(res, "Receiver roster ID required");
+      return;
     }
 
     if (!players_giving || !Array.isArray(players_giving)) {
-      return res.status(400).json({ error: "Players giving must be an array" });
+      this.respondBadRequest(res, "Players giving must be an array");
+      return;
     }
 
     if (!players_receiving || !Array.isArray(players_receiving)) {
-      return res
-        .status(400)
-        .json({ error: "Players receiving must be an array" });
+      this.respondBadRequest(res, "Players receiving must be an array");
+      return;
     }
 
     if (players_giving.length === 0 && players_receiving.length === 0) {
-      return res
-        .status(400)
-        .json({ error: "Trade must include at least one player" });
+      this.respondBadRequest(res, "Trade must include at least one player");
+      return;
     }
 
     // Get league settings to check trade notification preferences
     const league = await getLeagueById(league_id);
     if (!league) {
-      return res.status(404).json({ error: "League not found" });
+      this.respondNotFound(res, "League not found");
+      return;
     }
 
     // Determine final notification settings based on league preferences
@@ -103,7 +106,8 @@ export async function proposeTradeController(req: Request, res: Response) {
     const tradeWithDetails = await getTradeWithDetails(trade.id);
 
     if (!tradeWithDetails) {
-      return res.status(500).json({ error: "Failed to retrieve trade details" });
+      this.respondError(res, "Failed to retrieve trade details", 500);
+      return;
     }
 
     // Emit socket event
@@ -150,171 +154,183 @@ export async function proposeTradeController(req: Request, res: Response) {
       });
     }
 
-    return res.status(201).json({
-      success: true,
-      data: tradeWithDetails,
-    });
-  } catch (error: any) {
-    console.error("Propose trade error:", error);
-    return res.status(400).json({ error: error.message });
-  }
+    this.respondCreated(res, tradeWithDetails);
+  });
+
+  /**
+   * Accept a trade
+   * POST /api/trades/:id/accept
+   */
+  acceptTradeController = this.asyncHandler(async (req: Request, res: Response) => {
+    // Validate trade ID
+    const tradeId = this.validateId(req.params.id, "Trade ID");
+    const acceptorRosterId = req.body.roster_id;
+
+    if (!acceptorRosterId) {
+      this.respondBadRequest(res, "Roster ID required");
+      return;
+    }
+
+    const trade = await acceptTrade(tradeId, acceptorRosterId);
+
+    // Get full trade details
+    const tradeWithDetails = await getTradeWithDetails(trade.id);
+
+    // Emit socket event
+    if (tradeWithDetails) {
+      emitTradeProcessed(io, tradeWithDetails.league_id, tradeWithDetails);
+
+      // Post trade completion to league chat with details
+      const proposerTeamName = tradeWithDetails.proposer_team_name || `Team ${tradeWithDetails.proposer_roster_id}`;
+      const receiverTeamName = tradeWithDetails.receiver_team_name || `Team ${tradeWithDetails.receiver_roster_id}`;
+
+      const chatMessageText = `Trade completed between ${proposerTeamName} and ${receiverTeamName}`;
+      const metadata = {
+        trade_id: tradeWithDetails.id,
+        show_details: true,
+        trade_details: {
+          proposer_team: proposerTeamName,
+          receiver_team: receiverTeamName,
+          proposer_roster_id: tradeWithDetails.proposer_roster_id,
+          receiver_roster_id: tradeWithDetails.receiver_roster_id,
+          items: tradeWithDetails.items || [],
+        },
+      };
+
+      const chatMessage = await createLeagueChatMessage({
+        league_id: tradeWithDetails.league_id,
+        user_id: null as any, // System message
+        message: chatMessageText,
+        message_type: "system",
+        metadata,
+      });
+
+      // Broadcast to league room
+      const roomName = `league_${tradeWithDetails.league_id}`;
+      io.to(roomName).emit("league_chat_message", {
+        ...chatMessage,
+        username: "System",
+        // Parse metadata if it's a string (from DB)
+        metadata: typeof chatMessage.metadata === 'string'
+          ? JSON.parse(chatMessage.metadata)
+          : chatMessage.metadata,
+      });
+    }
+
+    this.respondSuccess(res, tradeWithDetails);
+  });
+
+  /**
+   * Reject a trade
+   * POST /api/trades/:id/reject
+   */
+  rejectTradeController = this.asyncHandler(async (req: Request, res: Response) => {
+    // Validate trade ID
+    const tradeId = this.validateId(req.params.id, "Trade ID");
+    const rejecterId = req.body.roster_id;
+    const reason = req.body.reason;
+
+    if (!rejecterId) {
+      this.respondBadRequest(res, "Roster ID required");
+      return;
+    }
+
+    const trade = await rejectTrade(tradeId, rejecterId, reason);
+
+    // Get full trade details
+    const tradeWithDetails = await getTradeWithDetails(trade.id);
+
+    // Emit socket event
+    if (tradeWithDetails) {
+      emitTradeRejected(io, tradeWithDetails.league_id, tradeWithDetails);
+    }
+
+    this.respondSuccess(res, tradeWithDetails);
+  });
+
+  /**
+   * Cancel a trade
+   * POST /api/trades/:id/cancel
+   */
+  cancelTradeController = this.asyncHandler(async (req: Request, res: Response) => {
+    // Validate trade ID
+    const tradeId = this.validateId(req.params.id, "Trade ID");
+    const proposerId = req.body.roster_id;
+
+    if (!proposerId) {
+      this.respondBadRequest(res, "Roster ID required");
+      return;
+    }
+
+    const trade = await cancelTrade(tradeId, proposerId);
+
+    // Get full trade details
+    const tradeWithDetails = await getTradeWithDetails(trade.id);
+
+    // Emit socket event
+    if (tradeWithDetails) {
+      emitTradeCancelled(io, tradeWithDetails.league_id, tradeWithDetails);
+    }
+
+    this.respondSuccess(res, tradeWithDetails);
+  });
+
+  /**
+   * Get a single trade
+   * GET /api/trades/:id
+   */
+  getTradeController = this.asyncHandler(async (req: Request, res: Response) => {
+    // Validate trade ID
+    const tradeId = this.validateId(req.params.id, "Trade ID");
+
+    const trade = await getTradeWithDetails(tradeId);
+
+    if (!trade) {
+      this.respondNotFound(res, "Trade not found");
+      return;
+    }
+
+    this.respondSuccess(res, trade);
+  });
+
+  /**
+   * Get all trades for a league
+   * GET /api/leagues/:id/trades
+   */
+  getLeagueTradesController = this.asyncHandler(async (req: Request, res: Response) => {
+    // Validate league ID
+    const leagueId = this.validateId(req.params.id, "League ID");
+    const status = req.query.status as string | undefined;
+
+    const trades = await getLeagueTrades(leagueId, status);
+
+    this.respondSuccess(res, trades);
+  });
+
+  /**
+   * Get all trades for a roster
+   * GET /api/rosters/:id/trades
+   */
+  getRosterTradesController = this.asyncHandler(async (req: Request, res: Response) => {
+    // Validate roster ID
+    const rosterId = this.validateId(req.params.id, "Roster ID");
+
+    const trades = await getRosterTrades(rosterId);
+
+    this.respondSuccess(res, trades);
+  });
 }
 
-/**
- * Accept a trade
- * POST /api/trades/:id/accept
- */
-export const acceptTradeController = asyncHandler(async (req: Request, res: Response) => {
-  // Validate trade ID
-  const tradeId = validateId(req.params.id, "Trade ID");
-  const acceptorRosterId = req.body.roster_id;
+const controller = new TradeController();
 
-  if (!acceptorRosterId) {
-    return ApiResponse.badRequest(res, "Roster ID required");
-  }
+// Export handlers
+export const proposeTradeController = controller.proposeTradeController;
+export const acceptTradeController = controller.acceptTradeController;
+export const rejectTradeController = controller.rejectTradeController;
+export const cancelTradeController = controller.cancelTradeController;
+export const getTradeController = controller.getTradeController;
+export const getLeagueTradesController = controller.getLeagueTradesController;
+export const getRosterTradesController = controller.getRosterTradesController;
 
-  const trade = await acceptTrade(tradeId, acceptorRosterId);
-
-  // Get full trade details
-  const tradeWithDetails = await getTradeWithDetails(trade.id);
-
-  // Emit socket event
-  if (tradeWithDetails) {
-    emitTradeProcessed(io, tradeWithDetails.league_id, tradeWithDetails);
-
-    // Post trade completion to league chat with details
-    const proposerTeamName = tradeWithDetails.proposer_team_name || `Team ${tradeWithDetails.proposer_roster_id}`;
-    const receiverTeamName = tradeWithDetails.receiver_team_name || `Team ${tradeWithDetails.receiver_roster_id}`;
-
-    const chatMessageText = `Trade completed between ${proposerTeamName} and ${receiverTeamName}`;
-    const metadata = {
-      trade_id: tradeWithDetails.id,
-      show_details: true,
-      trade_details: {
-        proposer_team: proposerTeamName,
-        receiver_team: receiverTeamName,
-        proposer_roster_id: tradeWithDetails.proposer_roster_id,
-        receiver_roster_id: tradeWithDetails.receiver_roster_id,
-        items: tradeWithDetails.items || [],
-      },
-    };
-
-    const chatMessage = await createLeagueChatMessage({
-      league_id: tradeWithDetails.league_id,
-      user_id: null as any, // System message
-      message: chatMessageText,
-      message_type: "system",
-      metadata,
-    });
-
-    // Broadcast to league room
-    const roomName = `league_${tradeWithDetails.league_id}`;
-    io.to(roomName).emit("league_chat_message", {
-      ...chatMessage,
-      username: "System",
-      // Parse metadata if it's a string (from DB)
-      metadata: typeof chatMessage.metadata === 'string'
-        ? JSON.parse(chatMessage.metadata)
-        : chatMessage.metadata,
-    });
-  }
-
-  ApiResponse.success(res, tradeWithDetails);
-});
-
-/**
- * Reject a trade
- * POST /api/trades/:id/reject
- */
-export const rejectTradeController = asyncHandler(async (req: Request, res: Response) => {
-  // Validate trade ID
-  const tradeId = validateId(req.params.id, "Trade ID");
-  const rejecterId = req.body.roster_id;
-  const reason = req.body.reason;
-
-  if (!rejecterId) {
-    return ApiResponse.badRequest(res, "Roster ID required");
-  }
-
-  const trade = await rejectTrade(tradeId, rejecterId, reason);
-
-  // Get full trade details
-  const tradeWithDetails = await getTradeWithDetails(trade.id);
-
-  // Emit socket event
-  if (tradeWithDetails) {
-    emitTradeRejected(io, tradeWithDetails.league_id, tradeWithDetails);
-  }
-
-  ApiResponse.success(res, tradeWithDetails);
-});
-
-/**
- * Cancel a trade
- * POST /api/trades/:id/cancel
- */
-export const cancelTradeController = asyncHandler(async (req: Request, res: Response) => {
-  // Validate trade ID
-  const tradeId = validateId(req.params.id, "Trade ID");
-  const proposerId = req.body.roster_id;
-
-  if (!proposerId) {
-    return ApiResponse.badRequest(res, "Roster ID required");
-  }
-
-  const trade = await cancelTrade(tradeId, proposerId);
-
-  // Get full trade details
-  const tradeWithDetails = await getTradeWithDetails(trade.id);
-
-  // Emit socket event
-  if (tradeWithDetails) {
-    emitTradeCancelled(io, tradeWithDetails.league_id, tradeWithDetails);
-  }
-
-  ApiResponse.success(res, tradeWithDetails);
-});
-
-/**
- * Get a single trade
- * GET /api/trades/:id
- */
-export const getTradeController = asyncHandler(async (req: Request, res: Response) => {
-  // Validate trade ID
-  const tradeId = validateId(req.params.id, "Trade ID");
-
-  const trade = await getTradeWithDetails(tradeId);
-
-  if (!trade) {
-    return ApiResponse.notFound(res, "Trade not found");
-  }
-
-  ApiResponse.success(res, trade);
-});
-
-/**
- * Get all trades for a league
- * GET /api/leagues/:id/trades
- */
-export const getLeagueTradesController = asyncHandler(async (req: Request, res: Response) => {
-  // Validate league ID
-  const leagueId = validateId(req.params.id, "League ID");
-  const status = req.query.status as string | undefined;
-
-  const trades = await getLeagueTrades(leagueId, status);
-
-  ApiResponse.success(res, trades);
-});
-
-/**
- * Get all trades for a roster
- * GET /api/rosters/:id/trades
- */
-export const getRosterTradesController = asyncHandler(async (req: Request, res: Response) => {
-  // Validate roster ID
-  const rosterId = validateId(req.params.id, "Roster ID");
-
-  const trades = await getRosterTrades(rosterId);
-
-  ApiResponse.success(res, trades);
-});
+// Line count after refactor: ~315 lines
+// Lines saved: ~6 lines

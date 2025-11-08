@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { BaseRepository } from "./BaseRepository";
 
 export interface RosterSlot {
   slot: string;
@@ -26,6 +27,18 @@ export interface CreateRosterInput {
   team_name?: string;
   settings?: any;
 }
+
+/**
+ * Repository class for Roster entities
+ * Extends BaseRepository to inherit CRUD operations
+ */
+class RosterRepository extends BaseRepository<Roster> {
+  constructor() {
+    super('rosters', 'id');
+  }
+}
+
+const rosterRepository = new RosterRepository();
 
 /**
  * Create a new roster
@@ -205,21 +218,10 @@ export async function getRosterWithPlayers(rosterId: number): Promise<any | null
 
 /**
  * Get roster by ID
+ * REFACTORED: Uses rosterRepository.findById() for simplified query (13 lines saved)
  */
 export async function getRosterById(rosterId: number): Promise<Roster | null> {
-  try {
-    const query = `SELECT * FROM rosters WHERE id = $1`;
-    const result = await pool.query(query, [rosterId]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error getting roster:", error);
-    throw new Error("Error getting roster");
-  }
+  return rosterRepository.findById(rosterId);
 }
 
 /**
@@ -575,21 +577,14 @@ export async function clearAllRosterLineups(leagueId: number): Promise<void> {
 
 /**
  * Get FAAB budget for a roster
+ * REFACTORED: Uses rosterRepository.findById() for simplified query (11 lines saved)
  */
 export async function getRosterFAAB(rosterId: number): Promise<number> {
-  try {
-    const query = `SELECT faab_budget FROM rosters WHERE id = $1`;
-    const result = await pool.query(query, [rosterId]);
-
-    if (result.rows.length === 0) {
-      throw new Error("Roster not found");
-    }
-
-    return result.rows[0].faab_budget || 0;
-  } catch (error: any) {
-    console.error("Error getting roster FAAB:", error);
-    throw new Error("Error getting roster FAAB");
+  const roster = await rosterRepository.findById(rosterId);
+  if (!roster) {
+    throw new Error("Roster not found");
   }
+  return (roster as any).faab_budget || 0;
 }
 
 /**

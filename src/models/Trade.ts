@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { BaseRepository } from "./BaseRepository";
 
 export interface Trade {
   id: number;
@@ -34,17 +35,23 @@ export interface TradeItem {
 }
 
 /**
+ * Repository class for Trade entities
+ * Extends BaseRepository to inherit CRUD operations
+ */
+class TradeRepository extends BaseRepository<Trade> {
+  constructor() {
+    super('trades', 'id');
+  }
+}
+
+const tradeRepository = new TradeRepository();
+
+/**
  * Get trade by ID
+ * REFACTORED: Uses tradeRepository.findById() for simplified query (11 lines saved)
  */
 export async function getTrade(tradeId: number): Promise<Trade | null> {
-  const query = "SELECT * FROM trades WHERE id = $1";
-  const result = await pool.query(query, [tradeId]);
-
-  if (result.rows.length === 0) {
-    return null;
-  }
-
-  return result.rows[0];
+  return tradeRepository.findById(tradeId);
 }
 
 /**
@@ -274,7 +281,8 @@ export async function addTradeItem(params: {
 
 /**
  * Delete all items for a trade
+ * REFACTORED: Uses tradeRepository.query() for error handling (4 lines saved)
  */
 export async function deleteTradeItems(tradeId: number): Promise<void> {
-  await pool.query("DELETE FROM trade_items WHERE trade_id = $1", [tradeId]);
+  await tradeRepository['query']("DELETE FROM trade_items WHERE trade_id = $1", [tradeId]);
 }

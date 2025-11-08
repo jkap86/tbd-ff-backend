@@ -1,5 +1,6 @@
 import pool from "../config/database";
 import { setTransactionTimeouts } from "../utils/transactionTimeout";
+import { BaseRepository } from "./BaseRepository";
 
 export interface Draft {
   id: number;
@@ -37,6 +38,18 @@ export interface Draft {
   created_at: Date;
   updated_at: Date;
 }
+
+/**
+ * Repository class for Draft entities
+ * Extends BaseRepository to inherit CRUD operations
+ */
+class DraftRepository extends BaseRepository<Draft> {
+  constructor() {
+    super('drafts', 'id');
+  }
+}
+
+const draftRepository = new DraftRepository();
 
 /**
  * Create a new draft
@@ -137,42 +150,21 @@ export async function createDraft(draftData: {
 
 /**
  * Get draft by ID
+ * REFACTORED: Uses draftRepository.findById() for simplified query (13 lines saved)
  */
 export async function getDraftById(draftId: number): Promise<Draft | null> {
-  try {
-    const query = `SELECT * FROM drafts WHERE id = $1`;
-    const result = await pool.query(query, [draftId]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error getting draft:", error);
-    throw new Error("Error getting draft");
-  }
+  return draftRepository.findById(draftId);
 }
 
 /**
  * Get draft by league ID
+ * REFACTORED: Uses draftRepository.findBy() for simplified query (13 lines saved)
  */
 export async function getDraftByLeagueId(
   leagueId: number
 ): Promise<Draft | null> {
-  try {
-    const query = `SELECT * FROM drafts WHERE league_id = $1`;
-    const result = await pool.query(query, [leagueId]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error getting draft by league:", error);
-    throw new Error("Error getting draft by league");
-  }
+  const results = await draftRepository.findBy('league_id', leagueId);
+  return results.length > 0 ? results[0] : null;
 }
 
 /**
@@ -651,13 +643,8 @@ export async function resetDraft(draftId: number): Promise<Draft> {
 
 /**
  * Delete draft
+ * REFACTORED: Uses draftRepository.delete() for simplified query (8 lines saved)
  */
 export async function deleteDraft(draftId: number): Promise<void> {
-  try {
-    const query = `DELETE FROM drafts WHERE id = $1`;
-    await pool.query(query, [draftId]);
-  } catch (error) {
-    console.error("Error deleting draft:", error);
-    throw new Error("Error deleting draft");
-  }
+  await draftRepository.delete(draftId);
 }

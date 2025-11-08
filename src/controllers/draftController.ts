@@ -1679,15 +1679,25 @@ export async function pauseDraftHandler(
       return;
     }
 
+    // Calculate remaining time from pick_deadline
+    let pausedTimeRemaining = null;
+    if (draft.pick_deadline) {
+      const now = new Date();
+      const deadline = new Date(draft.pick_deadline);
+      const remainingMs = deadline.getTime() - now.getTime();
+      pausedTimeRemaining = Math.max(0, Math.ceil(remainingMs / 1000)); // Convert to seconds, round up
+    }
+
     // Pause the draft using transaction client
     const updateDraftResult = await client.query(
       `UPDATE drafts
        SET status = 'paused',
            pick_deadline = NULL,
+           paused_time_remaining_seconds = $2,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $1
        RETURNING *`,
-      [draftId]
+      [draftId, pausedTimeRemaining]
     );
     const updatedDraft = updateDraftResult.rows[0];
 
@@ -1802,24 +1812,18 @@ export async function resumeDraftHandler(
       return;
     }
 
-    // Calculate new deadline based on remaining time if possible
+    // Calculate new deadline based on remaining time saved when paused
     let newDeadline: Date;
 
-    // Query the current pick's expiration using transaction client
-    const currentTurn = await client.query(
-      `SELECT pick_expiration FROM draft_order
-       WHERE draft_id = $1 AND pick_number = $2`,
-      [draftId, draft.current_pick]
-    );
-
-    if (currentTurn.rows.length > 0 && currentTurn.rows[0].pick_expiration) {
-      const previousDeadline = new Date(currentTurn.rows[0].pick_expiration);
-      const pausedAt = new Date(draft.updated_at);
-      const remainingMs = previousDeadline.getTime() - pausedAt.getTime();
-      // Minimum 10 seconds
-      newDeadline = new Date(Date.now() + Math.max(remainingMs, 10000));
+    if (draft.paused_time_remaining_seconds != null && draft.paused_time_remaining_seconds > 0) {
+      // Resume from saved remaining time (minimum 10 seconds)
+      const resumeSeconds = Math.max(draft.paused_time_remaining_seconds, 10);
+      newDeadline = new Date(Date.now() + resumeSeconds * 1000);
+      console.log(`[Resume] Restoring timer from paused state: ${resumeSeconds} seconds remaining`);
     } else {
+      // No saved time, use full pick time
       newDeadline = new Date(Date.now() + draft.pick_time_seconds * 1000);
+      console.log(`[Resume] No paused time found, using full pick time: ${draft.pick_time_seconds} seconds`);
     }
 
     // Update draft_order with new deadline using transaction client
@@ -1830,11 +1834,12 @@ export async function resumeDraftHandler(
       [newDeadline, draftId, draft.current_pick]
     );
 
-    // Resume the draft using transaction client
+    // Resume the draft using transaction client (clear paused time)
     const updateDraftResult = await client.query(
       `UPDATE drafts
        SET status = 'in_progress',
            pick_deadline = $1,
+           paused_time_remaining_seconds = NULL,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $2
        RETURNING *`,

@@ -57,7 +57,7 @@ export async function nominatePlayerHandler(req: Request, res: Response) {
         .json({ error: "Draft is not an auction draft type" });
     }
 
-    if (draft.status !== "in_progress") {
+    if (draft.status !== "in_progress" && draft.status !== "paused") {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: "Draft is not in progress" });
     }
@@ -760,7 +760,7 @@ export async function completeAuctionHandler(req: Request, res: Response) {
         .json({ error: "Draft is not an auction draft type" });
     }
 
-    if (draft.status !== "in_progress") {
+    if (draft.status !== "in_progress" && draft.status !== "paused") {
       return res.status(400).json({ error: "Draft is not in progress" });
     }
 

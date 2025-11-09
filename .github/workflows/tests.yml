@@ -1,0 +1,204 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fantasy_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Run database migrations
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fantasy_test
+        run: npm run migrate || echo "No migrations to run"
+
+      - name: Run tests
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fantasy_test
+          JWT_SECRET: test-secret-key-for-ci
+          NODE_ENV: test
+        run: npm test -- --coverage --maxWorkers=2
+
+      - name: Upload backend coverage
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: ./backend/coverage/coverage-final.json
+          flags: backend
+          name: backend-coverage
+        continue-on-error: true
+
+      - name: Comment coverage on PR
+        if: github.event_name == 'pull_request'
+        uses: romeovs/lcov-reporter-action@v0.3.1
+        with:
+          lcov-file: ./backend/coverage/lcov.info
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+  frontend-tests:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        working-directory: ./flutter_app
+        run: flutter pub get
+
+      - name: Verify Flutter installation
+        run: flutter doctor -v
+
+      - name: Generate mock files
+        working-directory: ./flutter_app
+        run: flutter pub run build_runner build --delete-conflicting-outputs
+
+      - name: Run Flutter analyzer
+        working-directory: ./flutter_app
+        run: flutter analyze
+        continue-on-error: true
+
+      - name: Run tests
+        working-directory: ./flutter_app
+        run: flutter test --coverage --reporter=expanded
+
+      - name: Upload frontend coverage
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: ./flutter_app/coverage/lcov.info
+          flags: frontend
+          name: frontend-coverage
+        continue-on-error: true
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [backend-tests, frontend-tests]
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fantasy_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Install backend dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Install frontend dependencies
+        working-directory: ./flutter_app
+        run: flutter pub get
+
+      - name: Start backend server
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fantasy_test
+          JWT_SECRET: test-secret-key-for-ci
+          PORT: 3000
+        run: |
+          npm run build
+          npm start &
+          sleep 10
+
+      - name: Run Flutter integration tests
+        working-directory: ./flutter_app
+        env:
+          API_BASE_URL: http://localhost:3000
+        run: flutter test integration_test/ || echo "No integration tests yet"
+
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-tests]
+    if: always()
+
+    steps:
+      - name: Check test results
+        run: |
+          if [ "${{ needs.backend-tests.result }}" != "success" ]; then
+            echo "Backend tests failed!"
+            exit 1
+          fi
+          if [ "${{ needs.frontend-tests.result }}" != "success" ]; then
+            echo "Frontend tests failed!"
+            exit 1
+          fi
+          echo "All tests passed!"

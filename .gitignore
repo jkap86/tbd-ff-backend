@@ -1,5 +1,33 @@
-node_modules/
-dist/
+# Environment files
 .env
+*.env
+
+# Token files - SECURITY: Never commit these
+*.txt
+token.json
+auth_token.txt
+
+# Node modules
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Logs
 *.log
-firebase-service-account.json.json
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Worktrees
+worktrees/

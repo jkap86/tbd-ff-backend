@@ -389,13 +389,21 @@ class DerbyController extends BaseController {
           const chatMessage = await createLeagueChatMessage({
             league_id: draft.league_id,
             user_id: null, // System message
-            message: "Derby completed - draft order has been determined",
+            message: "Derby has completed. Draft order set.",
             message_type: "system",
             metadata: metadata,
           });
 
+          // Parse metadata before emitting (it's stored as JSON string in DB)
+          const messageToEmit = {
+            ...chatMessage,
+            metadata: typeof chatMessage.metadata === 'string'
+              ? JSON.parse(chatMessage.metadata)
+              : chatMessage.metadata
+          };
+
           // Emit chat message to all league members
-          emitLeagueChat(io, draft.league_id, chatMessage);
+          emitLeagueChat(io, draft.league_id, messageToEmit);
         } catch (chatError) {
           console.error("Error sending derby completed chat message:", chatError);
           // Don't fail the request if chat message fails
@@ -542,13 +550,21 @@ class DerbyController extends BaseController {
         const chatMessage = await createLeagueChatMessage({
           league_id: draft.league_id,
           user_id: null, // System message
-          message: "Derby completed - draft order has been determined",
+          message: "Derby has completed. Draft order set.",
           message_type: "system",
           metadata: metadata,
         });
 
+        // Parse metadata before emitting (it's stored as JSON string in DB)
+        const messageToEmit = {
+          ...chatMessage,
+          metadata: typeof chatMessage.metadata === 'string'
+            ? JSON.parse(chatMessage.metadata)
+            : chatMessage.metadata
+        };
+
         // Emit chat message to all league members
-        emitLeagueChat(io, draft.league_id, chatMessage);
+        emitLeagueChat(io, draft.league_id, messageToEmit);
       } catch (chatError) {
         console.error("Error sending derby completed chat message:", chatError);
         // Don't fail the request if chat message fails

@@ -97,6 +97,7 @@ class DerbyController extends BaseController {
         metadata: {
           type: "derby_started",
           draft_id: parseInt(draftId),
+          collapsible: false,
         },
       });
 

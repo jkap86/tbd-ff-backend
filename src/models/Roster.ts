@@ -441,6 +441,7 @@ export async function validateSlotAssignment(
 export async function updateRoster(
   rosterId: number,
   updates: {
+    user_id?: number | null;
     settings?: any;
     starters?: any[];
     bench?: any[];
@@ -452,6 +453,12 @@ export async function updateRoster(
     const fields = [];
     const values = [];
     let paramCount = 1;
+
+    if (updates.user_id !== undefined) {
+      fields.push(`user_id = $${paramCount}`);
+      values.push(updates.user_id);
+      paramCount++;
+    }
 
     if (updates.settings !== undefined) {
       fields.push(`settings = $${paramCount}`);

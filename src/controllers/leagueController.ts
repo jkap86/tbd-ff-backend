@@ -249,23 +249,50 @@ class LeagueController extends BaseController {
       return this.respondError(res, "User already has a roster in this league", 409);
     }
 
-    // Check if league is full
+    // Check for empty roster slots (user_id is null)
     const rosters = await getRostersByLeagueId(leagueId);
+    const emptyRoster = rosters.find((r: any) => r.user_id === null);
 
-    if (rosters.length >= league.total_rosters) {
-      return this.respondBadRequest(res, "League is full");
+    let roster;
+
+    if (emptyRoster) {
+      // Assign user to existing empty roster slot
+      const { updateRoster } = await import("../models/Roster");
+      const teamName = team_name || emptyRoster.settings?.team_name || `Team ${emptyRoster.roster_id}`;
+
+      roster = await updateRoster(emptyRoster.id, {
+        user_id: userId,
+        settings: {
+          ...emptyRoster.settings,
+          team_name: teamName,
+        },
+      });
+
+      console.log(`[LeagueController] Assigned user ${userId} to existing roster ${emptyRoster.roster_id} in league ${leagueId}`);
+    } else {
+      // No empty slots, check if league is full
+      if (rosters.length >= league.total_rosters) {
+        return this.respondBadRequest(res, `League is full (${rosters.length}/${league.total_rosters} teams)`);
+      }
+
+      // Get next available roster_id
+      const nextRosterId = await getNextRosterId(leagueId);
+
+      // Create roster for user
+      roster = await createRoster({
+        league_id: leagueId,
+        user_id: userId,
+        roster_id: nextRosterId,
+        team_name: team_name || `Team ${nextRosterId}`,
+      });
+
+      console.log(`[LeagueController] Created new roster ${nextRosterId} for user ${userId} in league ${leagueId}`);
     }
 
-    // Get next available roster_id
-    const nextRosterId = await getNextRosterId(leagueId);
-
-    // Create roster for user
-    const roster = await createRoster({
-      league_id: leagueId,
-      user_id: userId,
-      roster_id: nextRosterId,
-      team_name: team_name || `Team ${nextRosterId}`,
-    });
+    // Ensure roster was created/updated successfully
+    if (!roster) {
+      return this.respondError(res, "Failed to create or update roster", 500);
+    }
 
     // Get user info for chat message
     const { getUserById } = await import("../models/User");
@@ -274,7 +301,7 @@ class LeagueController extends BaseController {
     // Create system notification in league chat
     try {
       const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
-      const teamName = team_name || `Team ${nextRosterId}`;
+      const teamName = roster.settings?.team_name || team_name || `Team ${roster.roster_id}`;
       const username = user?.username || `User ${userId}`;
 
       await createLeagueChatMessage({
@@ -390,6 +417,22 @@ class LeagueController extends BaseController {
     const newTotalRosters = total_rosters ?? oldTotalRosters;
     const rosterCountChanged = oldTotalRosters !== newTotalRosters;
 
+    // Validate that we're not reducing total_rosters below occupied roster count
+    if (total_rosters !== undefined && total_rosters < oldTotalRosters) {
+      const { getRostersByLeagueId } = await import("../models/Roster");
+      const currentRosters = await getRostersByLeagueId(leagueId);
+
+      // Only count rosters that have users assigned (not empty slots)
+      const occupiedRosters = currentRosters.filter((r: any) => r.user_id !== null);
+
+      if (occupiedRosters.length > total_rosters) {
+        return this.respondBadRequest(
+          res,
+          `Cannot reduce team limit to ${total_rosters}. League currently has ${occupiedRosters.length} teams with users. Remove teams first or set limit to at least ${occupiedRosters.length}.`
+        );
+      }
+    }
+
     // Import the update function
     const { updateLeagueSettings } = await import("../models/League");
 
@@ -408,6 +451,25 @@ class LeagueController extends BaseController {
 
     if (!updatedLeague) {
       return this.respondNotFound(res, "League not found");
+    }
+
+    // Clean up empty rosters if we reduced the limit
+    if (total_rosters !== undefined && total_rosters < oldTotalRosters) {
+      const { getRostersByLeagueId } = await import("../models/Roster");
+      const currentRosters = await getRostersByLeagueId(leagueId);
+
+      // Delete empty rosters (user_id = null) beyond the new limit
+      const rostersToDelete = currentRosters.filter(
+        (r: any) => r.user_id === null && r.roster_id > total_rosters
+      );
+
+      if (rostersToDelete.length > 0) {
+        console.log(`[LeagueController] Deleting ${rostersToDelete.length} empty rosters beyond new limit of ${total_rosters}`);
+
+        for (const roster of rostersToDelete) {
+          await pool.query('DELETE FROM rosters WHERE id = $1', [roster.id]);
+        }
+      }
     }
 
     // Handle draft order reset if roster count changed

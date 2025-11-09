@@ -1,23 +1,27 @@
+// Before refactor: 754 lines
+// After refactor: 590 lines
+// Lines saved: 164 lines
+
 import { Request, Response } from "express";
 import pool from "../config/database";
 import { getDraftById } from "../models/Draft";
 import { getRostersByLeagueId } from "../models/Roster";
 import { io } from "../index";
 import { scheduleDerbyTimeout, cancelDerbyTimer } from "../socket/derbySocket";
+import { BaseController } from "./BaseController";
 
 /**
  * Derby Controller
  * Implements the derby flow where teams draft for their draft position
  */
-
-/**
- * Start derby for a draft
- * POST /api/drafts/:draftId/derby/start
- */
-export async function startDerby(req: Request, res: Response): Promise<void> {
-  try {
+class DerbyController extends BaseController {
+  /**
+   * Start derby for a draft
+   * POST /api/drafts/:draftId/derby/start
+   */
+  startDerby = this.asyncHandler(async (req: Request, res: Response) => {
     const { draftId } = req.params;
-    const userId = req.user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
 
     console.log('[Derby] Starting derby for draft', draftId);
 
@@ -25,10 +29,7 @@ export async function startDerby(req: Request, res: Response): Promise<void> {
     const draft = await getDraftById(parseInt(draftId));
 
     if (!draft) {
-      res.status(404).json({
-        success: false,
-        message: "Draft not found",
-      });
+      this.respondNotFound(res, "Draft not found");
       return;
     }
 
@@ -37,19 +38,13 @@ export async function startDerby(req: Request, res: Response): Promise<void> {
     const league = await getLeagueById(draft.league_id);
 
     if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
+      this.respondNotFound(res, "League not found");
       return;
     }
 
     const commissionerId = league.settings?.commissioner_id;
     if (!commissionerId || commissionerId !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "Only commissioner can start derby",
-      });
+      this.respondForbidden(res, "Only commissioner can start derby");
       return;
     }
 
@@ -90,27 +85,14 @@ export async function startDerby(req: Request, res: Response): Promise<void> {
       message: 'Derby has started - teams will now select their draft positions',
     });
 
-    res.status(200).json({
-      success: true,
-      data: startedDerby,
-      message: "Derby started - teams can now select their draft positions",
-    });
+    this.respondSuccess(res, startedDerby, "Derby started - teams can now select their draft positions");
+  });
 
-  } catch (error: any) {
-    console.error('[Derby] Error starting derby:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error starting derby",
-    });
-  }
-}
-
-/**
- * Get derby status
- * GET /api/drafts/:draftId/derby
- */
-export async function getDerbyStatus(req: Request, res: Response): Promise<void> {
-  try {
+  /**
+   * Get derby status
+   * GET /api/drafts/:draftId/derby
+   */
+  getDerbyStatus = this.asyncHandler(async (req: Request, res: Response) => {
     const { draftId } = req.params;
 
     // Use DraftDerby model function
@@ -134,20 +116,14 @@ export async function getDerbyStatus(req: Request, res: Response): Promise<void>
     }
 
     if (!derbyDetails) {
-      res.status(404).json({
-        success: false,
-        message: "Derby not found for this draft",
-      });
+      this.respondNotFound(res, "Derby not found for this draft");
       return;
     }
 
     // Get draft to find league_id for rosters
     const draft = await getDraftById(parseInt(draftId));
     if (!draft) {
-      res.status(404).json({
-        success: false,
-        message: "Draft not found",
-      });
+      this.respondNotFound(res, "Draft not found");
       return;
     }
 
@@ -160,39 +136,24 @@ export async function getDerbyStatus(req: Request, res: Response): Promise<void>
       [draft.league_id]
     );
 
-    res.status(200).json({
-      success: true,
-      data: {
-        ...derbyDetails,
-        rosters: rostersResult.rows,
-      },
+    this.respondSuccess(res, {
+      ...derbyDetails,
+      rosters: rostersResult.rows,
     });
+  });
 
-  } catch (error: any) {
-    console.error('[Derby] Error getting derby status:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error getting derby status",
-    });
-  }
-}
-
-/**
- * Create derby for a draft
- * POST /api/drafts/:draftId/derby/create
- */
-export async function createDerby(req: Request, res: Response): Promise<void> {
-  try {
+  /**
+   * Create derby for a draft
+   * POST /api/drafts/:draftId/derby/create
+   */
+  createDerby = this.asyncHandler(async (req: Request, res: Response) => {
     const { draftId } = req.params;
-    const userId = req.user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
 
     // Get draft and league
     const draft = await getDraftById(parseInt(draftId));
     if (!draft) {
-      res.status(404).json({
-        success: false,
-        message: "Draft not found",
-      });
+      this.respondNotFound(res, "Draft not found");
       return;
     }
 
@@ -200,20 +161,14 @@ export async function createDerby(req: Request, res: Response): Promise<void> {
     const league = await getLeagueById(draft.league_id);
 
     if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
+      this.respondNotFound(res, "League not found");
       return;
     }
 
     // Check if user is commissioner
     const commissionerId = league.settings?.commissioner_id;
     if (!commissionerId || commissionerId !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "Only commissioner can create derby",
-      });
+      this.respondForbidden(res, "Only commissioner can create derby");
       return;
     }
 
@@ -224,11 +179,7 @@ export async function createDerby(req: Request, res: Response): Promise<void> {
     const existingDerby = await getDraftDerbyByDraftId(parseInt(draftId));
 
     if (existingDerby) {
-      res.status(200).json({
-        success: true,
-        data: existingDerby,
-        message: "Derby already exists",
-      });
+      this.respondSuccess(res, existingDerby, "Derby already exists");
       return;
     }
 
@@ -239,30 +190,18 @@ export async function createDerby(req: Request, res: Response): Promise<void> {
     // Create new derby with draft order (not randomized)
     const derby = await createDraftDerby(parseInt(draftId), rosterIds);
 
-    res.status(201).json({
-      success: true,
-      data: derby,
-    });
+    this.respondCreated(res, derby);
+  });
 
-  } catch (error: any) {
-    console.error('[Derby] Error creating derby:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error creating derby",
-    });
-  }
-}
-
-/**
- * Select a draft position during derby
- * POST /api/drafts/:draftId/derby/select
- */
-export async function selectDerbyPosition(req: Request, res: Response): Promise<void> {
-  try {
+  /**
+   * Select a draft position during derby
+   * POST /api/drafts/:draftId/derby/select
+   */
+  selectDerbyPosition = this.asyncHandler(async (req: Request, res: Response) => {
     const { draftId } = req.params;
     console.log('[Derby] Request body:', req.body);
     const { rosterId, draftPosition } = req.body;
-    const userId = req.user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
 
     console.log('[Derby] Position selection attempt:', { draftId, rosterId, draftPosition, userId });
 
@@ -275,10 +214,7 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
     );
 
     if (rosterCheck.rows.length === 0) {
-      res.status(403).json({
-        success: false,
-        message: "You don't own this roster",
-      });
+      this.respondForbidden(res, "You don't own this roster");
       return;
     }
 
@@ -301,10 +237,7 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
     const derbyWithDetails = await getDraftDerbyWithDetails(parseInt(draftId));
 
     if (!derbyWithDetails) {
-      res.status(500).json({
-        success: false,
-        message: "Error retrieving updated derby status",
-      });
+      this.respondError(res, "Error retrieving updated derby status");
       return;
     }
 
@@ -370,45 +303,29 @@ export async function selectDerbyPosition(req: Request, res: Response): Promise<
       });
     }
 
-    res.status(200).json({
-      success: true,
-      data: {
-        derby: {
-          ...derbyWithDetails,
-          rosters: rostersResult.rows,
-        },
-        selection,
+    this.respondSuccess(res, {
+      derby: {
+        ...derbyWithDetails,
+        rosters: rostersResult.rows,
       },
-      message: isComplete ? "Derby completed!" : "Position selected successfully",
-    });
+      selection,
+    }, isComplete ? "Derby completed!" : "Position selected successfully");
+  });
 
-  } catch (error: any) {
-    console.error('[Derby] Error selecting position:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error selecting position",
-    });
-  }
-}
-
-/**
- * Skip current derby turn (commissioner only)
- * POST /api/drafts/:draftId/derby/skip
- */
-export async function skipDerbyTurn(req: Request, res: Response): Promise<void> {
-  try {
+  /**
+   * Skip current derby turn (commissioner only)
+   * POST /api/drafts/:draftId/derby/skip
+   */
+  skipDerbyTurn = this.asyncHandler(async (req: Request, res: Response) => {
     const { draftId } = req.params;
-    const userId = req.user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
 
     console.log('[Derby] Skip turn attempt:', { draftId, userId });
 
     // Get draft and league for commissioner check
     const draft = await getDraftById(parseInt(draftId));
     if (!draft) {
-      res.status(404).json({
-        success: false,
-        message: "Draft not found",
-      });
+      this.respondNotFound(res, "Draft not found");
       return;
     }
 
@@ -416,20 +333,14 @@ export async function skipDerbyTurn(req: Request, res: Response): Promise<void> 
     const league = await getLeagueById(draft.league_id);
 
     if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
+      this.respondNotFound(res, "League not found");
       return;
     }
 
     // Check if user is commissioner
     const commissionerId = league.settings?.commissioner_id;
     if (!commissionerId || commissionerId !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "Only commissioner can skip turns",
-      });
+      this.respondForbidden(res, "Only commissioner can skip turns");
       return;
     }
 
@@ -443,10 +354,7 @@ export async function skipDerbyTurn(req: Request, res: Response): Promise<void> 
     const derbyWithDetails = await getDraftDerbyWithDetails(parseInt(draftId));
 
     if (!derbyWithDetails) {
-      res.status(500).json({
-        success: false,
-        message: "Error retrieving updated derby status",
-      });
+      this.respondError(res, "Error retrieving updated derby status");
       return;
     }
 
@@ -496,42 +404,26 @@ export async function skipDerbyTurn(req: Request, res: Response): Promise<void> 
       });
     }
 
-    res.status(200).json({
-      success: true,
-      data: {
-        ...derbyWithDetails,
-        rosters: rostersResult.rows,
-      },
-      message: isComplete ? "Derby completed" : "Turn skipped",
-    });
+    this.respondSuccess(res, {
+      ...derbyWithDetails,
+      rosters: rostersResult.rows,
+    }, isComplete ? "Derby completed" : "Turn skipped");
+  });
 
-  } catch (error: any) {
-    console.error('[Derby] Error skipping turn:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error skipping turn",
-    });
-  }
-}
-
-/**
- * Randomize derby selection order (commissioner only, before derby starts)
- * POST /api/drafts/:draftId/derby/randomize
- */
-export async function randomizeDerby(req: Request, res: Response): Promise<void> {
-  try {
+  /**
+   * Randomize derby selection order (commissioner only, before derby starts)
+   * POST /api/drafts/:draftId/derby/randomize
+   */
+  randomizeDerby = this.asyncHandler(async (req: Request, res: Response) => {
     const { draftId } = req.params;
-    const userId = req.user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
 
     console.log('[Derby] Randomize order attempt:', { draftId, userId });
 
     // Get draft and league for commissioner check
     const draft = await getDraftById(parseInt(draftId));
     if (!draft) {
-      res.status(404).json({
-        success: false,
-        message: "Draft not found",
-      });
+      this.respondNotFound(res, "Draft not found");
       return;
     }
 
@@ -539,20 +431,14 @@ export async function randomizeDerby(req: Request, res: Response): Promise<void>
     const league = await getLeagueById(draft.league_id);
 
     if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
+      this.respondNotFound(res, "League not found");
       return;
     }
 
     // Check if user is commissioner
     const commissionerId = league.settings?.commissioner_id;
     if (!commissionerId || commissionerId !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "Only commissioner can randomize derby order",
-      });
+      this.respondForbidden(res, "Only commissioner can randomize derby order");
       return;
     }
 
@@ -570,39 +456,23 @@ export async function randomizeDerby(req: Request, res: Response): Promise<void>
       message: 'Derby selection order has been randomized',
     });
 
-    res.status(200).json({
-      success: true,
-      data: updatedDerby,
-      message: "Derby order randomized successfully",
-    });
+    this.respondSuccess(res, updatedDerby, "Derby order randomized successfully");
+  });
 
-  } catch (error: any) {
-    console.error('[Derby] Error randomizing order:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error randomizing derby order",
-    });
-  }
-}
-
-/**
- * Pause derby timer
- * POST /api/drafts/:draftId/derby/pause
- */
-export async function pauseDerby(req: Request, res: Response): Promise<void> {
-  try {
+  /**
+   * Pause derby timer
+   * POST /api/drafts/:draftId/derby/pause
+   */
+  pauseDerby = this.asyncHandler(async (req: Request, res: Response) => {
     const { draftId } = req.params;
-    const userId = req.user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
 
     console.log('[Derby] Pausing derby for draft', draftId);
 
     // Get the draft
     const draft = await getDraftById(parseInt(draftId));
     if (!draft) {
-      res.status(404).json({
-        success: false,
-        message: "Draft not found",
-      });
+      this.respondNotFound(res, "Draft not found");
       return;
     }
 
@@ -612,10 +482,7 @@ export async function pauseDerby(req: Request, res: Response): Promise<void> {
     const commissionerId = league?.settings?.commissioner_id;
 
     if (!commissionerId || commissionerId !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "Only commissioner can pause derby",
-      });
+      this.respondForbidden(res, "Only commissioner can pause derby");
       return;
     }
 
@@ -624,18 +491,12 @@ export async function pauseDerby(req: Request, res: Response): Promise<void> {
     const derby = await getDraftDerbyByDraftId(parseInt(draftId));
 
     if (!derby) {
-      res.status(404).json({
-        success: false,
-        message: "Derby not found",
-      });
+      this.respondNotFound(res, "Derby not found");
       return;
     }
 
     if (derby.status !== 'in_progress') {
-      res.status(400).json({
-        success: false,
-        message: "Derby is not in progress",
-      });
+      this.respondBadRequest(res, "Derby is not in progress");
       return;
     }
 
@@ -648,38 +509,23 @@ export async function pauseDerby(req: Request, res: Response): Promise<void> {
       message: 'Derby has been paused',
     });
 
-    res.status(200).json({
-      success: true,
-      message: "Derby paused successfully",
-    });
+    this.respondSuccess(res, null, "Derby paused successfully");
+  });
 
-  } catch (error: any) {
-    console.error('[Derby] Error pausing:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error pausing derby",
-    });
-  }
-}
-
-/**
- * Resume derby timer
- * POST /api/drafts/:draftId/derby/resume
- */
-export async function resumeDerby(req: Request, res: Response): Promise<void> {
-  try {
+  /**
+   * Resume derby timer
+   * POST /api/drafts/:draftId/derby/resume
+   */
+  resumeDerby = this.asyncHandler(async (req: Request, res: Response) => {
     const { draftId } = req.params;
-    const userId = req.user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
 
     console.log('[Derby] Resuming derby for draft', draftId);
 
     // Get the draft
     const draft = await getDraftById(parseInt(draftId));
     if (!draft) {
-      res.status(404).json({
-        success: false,
-        message: "Draft not found",
-      });
+      this.respondNotFound(res, "Draft not found");
       return;
     }
 
@@ -689,10 +535,7 @@ export async function resumeDerby(req: Request, res: Response): Promise<void> {
     const commissionerId = league?.settings?.commissioner_id;
 
     if (!commissionerId || commissionerId !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "Only commissioner can resume derby",
-      });
+      this.respondForbidden(res, "Only commissioner can resume derby");
       return;
     }
 
@@ -701,18 +544,12 @@ export async function resumeDerby(req: Request, res: Response): Promise<void> {
     const derby = await getDraftDerbyByDraftId(parseInt(draftId));
 
     if (!derby) {
-      res.status(404).json({
-        success: false,
-        message: "Derby not found",
-      });
+      this.respondNotFound(res, "Derby not found");
       return;
     }
 
     if (derby.status !== 'in_progress') {
-      res.status(400).json({
-        success: false,
-        message: "Derby is not in progress",
-      });
+      this.respondBadRequest(res, "Derby is not in progress");
       return;
     }
 
@@ -739,16 +576,16 @@ export async function resumeDerby(req: Request, res: Response): Promise<void> {
       message: 'Derby has been resumed',
     });
 
-    res.status(200).json({
-      success: true,
-      message: "Derby resumed successfully",
-    });
-
-  } catch (error: any) {
-    console.error('[Derby] Error resuming:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error resuming derby",
-    });
-  }
+    this.respondSuccess(res, null, "Derby resumed successfully");
+  });
 }
+
+const derbyController = new DerbyController();
+export const startDerby = derbyController.startDerby;
+export const getDerbyStatus = derbyController.getDerbyStatus;
+export const createDerby = derbyController.createDerby;
+export const selectDerbyPosition = derbyController.selectDerbyPosition;
+export const skipDerbyTurn = derbyController.skipDerbyTurn;
+export const randomizeDerby = derbyController.randomizeDerby;
+export const pauseDerby = derbyController.pauseDerby;
+export const resumeDerby = derbyController.resumeDerby;

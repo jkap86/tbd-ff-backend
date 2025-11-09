@@ -1,5 +1,6 @@
 import pool from "../config/database";
 import { TiebreakerMethod } from "./Matchup";
+import { BaseRepository } from "./BaseRepository";
 
 export interface PlayoffSettings {
   id: number;
@@ -15,34 +16,37 @@ export interface PlayoffSettings {
   updated_at: Date;
 }
 
+class PlayoffSettingsRepository extends BaseRepository<PlayoffSettings> {
+  constructor() {
+    super('playoff_settings', 'id');
+  }
+}
+
+const playoffSettingsRepo = new PlayoffSettingsRepository();
+
 /**
  * Get playoff settings for a league
+ * BEFORE: 23 lines with manual query
+ * AFTER: 10 lines using BaseRepository
  */
 export async function getPlayoffSettings(
   leagueId: number
 ): Promise<PlayoffSettings | null> {
-  try {
-    const query = `SELECT * FROM playoff_settings WHERE league_id = $1`;
-    const result = await pool.query(query, [leagueId]);
+  const settings = await playoffSettingsRepo.findBy('league_id', leagueId);
 
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    // Parse JSONB tiebreaker_priority
-    const row = result.rows[0];
-    return {
-      ...row,
-      tiebreaker_priority: row.tiebreaker_priority || [
-        "bench_points",
-        "season_points_for",
-        "higher_seed",
-      ],
-    };
-  } catch (error) {
-    console.error("Error getting playoff settings:", error);
-    throw new Error("Error getting playoff settings");
+  if (settings.length === 0) {
+    return null;
   }
+
+  const row = settings[0];
+  return {
+    ...row,
+    tiebreaker_priority: row.tiebreaker_priority || [
+      "bench_points",
+      "season_points_for",
+      "higher_seed",
+    ],
+  };
 }
 
 /**

@@ -1,5 +1,6 @@
 import pool from "../config/database";
 import { setTransactionTimeouts } from "../utils/transactionTimeout";
+import { BaseRepository } from "./BaseRepository";
 
 export interface DraftOrder {
   id: number;
@@ -11,6 +12,14 @@ export interface DraftOrder {
   time_used_seconds: number;
   created_at: Date;
 }
+
+class DraftOrderRepository extends BaseRepository<DraftOrder> {
+  constructor() {
+    super('draft_order', 'id');
+  }
+}
+
+const draftOrderRepo = new DraftOrderRepository();
 
 /**
  * Set draft order for a draft
@@ -64,21 +73,11 @@ export async function setDraftOrder(
 
 /**
  * Get draft order for a draft
+ * BEFORE: 14 lines with manual query
+ * AFTER: 1 line using BaseRepository
  */
 export async function getDraftOrder(draftId: number): Promise<DraftOrder[]> {
-  try {
-    const query = `
-      SELECT * FROM draft_order
-      WHERE draft_id = $1
-      ORDER BY draft_position ASC
-    `;
-
-    const result = await pool.query(query, [draftId]);
-    return result.rows;
-  } catch (error) {
-    console.error("Error getting draft order:", error);
-    throw new Error("Error getting draft order");
-  }
+  return draftOrderRepo.findBy('draft_id', draftId, 'draft_position ASC');
 }
 
 /**

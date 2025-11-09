@@ -1,18 +1,20 @@
+// Before refactor: 594 lines
+// After refactor: 459 lines
+// Lines saved: 135 lines
+
 import { Request, Response } from "express";
 import axios from "axios";
 import { statsCache, projectionsCache } from "../services/statsPreloader";
+import { BaseController } from "./BaseController";
 
 const SLEEPER_API_BASE = "https://api.sleeper.com";
 
-/**
- * Get player stats for a specific week
- * GET /api/player-stats/:season/:week
- */
-export async function getPlayerStats(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+class PlayerStatsController extends BaseController {
+  /**
+   * Get player stats for a specific week
+   * GET /api/player-stats/:season/:week
+   */
+  getPlayerStats = this.asyncHandler(async (req: Request, res: Response) => {
     const { season, week } = req.params;
     const { season_type = "regular" } = req.query;
 
@@ -20,28 +22,14 @@ export async function getPlayerStats(
       `${SLEEPER_API_BASE}/stats/nfl/${season}/${week}?season_type=${season_type}`
     );
 
-    res.status(200).json({
-      success: true,
-      data: response.data,
-    });
-  } catch (error: any) {
-    console.error("Error fetching player stats:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error fetching player stats",
-    });
-  }
-}
+    this.respondSuccess(res, response.data);
+  });
 
-/**
- * Get player projections for a specific week
- * GET /api/player-projections/:season/:week
- */
-export async function getPlayerProjections(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Get player projections for a specific week
+   * GET /api/player-projections/:season/:week
+   */
+  getPlayerProjections = this.asyncHandler(async (req: Request, res: Response) => {
     const { season, week } = req.params;
     const { season_type = "regular" } = req.query;
 
@@ -49,28 +37,14 @@ export async function getPlayerProjections(
       `${SLEEPER_API_BASE}/projections/nfl/${season}/${week}?season_type=${season_type}`
     );
 
-    res.status(200).json({
-      success: true,
-      data: response.data,
-    });
-  } catch (error: any) {
-    console.error("Error fetching player projections:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error fetching player projections",
-    });
-  }
-}
+    this.respondSuccess(res, response.data);
+  });
 
-/**
- * Get stats for a specific player
- * GET /api/player-stats/:season/:week/:playerId
- */
-export async function getPlayerStatsById(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Get stats for a specific player
+   * GET /api/player-stats/:season/:week/:playerId
+   */
+  getPlayerStatsById = this.asyncHandler(async (req: Request, res: Response) => {
     const { season, week, playerId } = req.params;
     const { season_type = "regular" } = req.query;
 
@@ -84,35 +58,18 @@ export async function getPlayerStatsById(
     );
 
     if (!playerStats) {
-      res.status(404).json({
-        success: false,
-        message: "Player stats not found",
-      });
+      this.respondNotFound(res, "Player stats not found");
       return;
     }
 
-    res.status(200).json({
-      success: true,
-      data: playerStats,
-    });
-  } catch (error: any) {
-    console.error("Error fetching player stats:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error fetching player stats",
-    });
-  }
-}
+    this.respondSuccess(res, playerStats);
+  });
 
-/**
- * Get full season stats for a specific player (no week = full season)
- * GET /api/player-stats/:season/:playerId
- */
-export async function getPlayerSeasonStats(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Get full season stats for a specific player (no week = full season)
+   * GET /api/player-stats/:season/:playerId
+   */
+  getPlayerSeasonStats = this.asyncHandler(async (req: Request, res: Response) => {
     const { season, playerId } = req.params;
     const { season_type = "regular" } = req.query;
 
@@ -127,35 +84,18 @@ export async function getPlayerSeasonStats(
     );
 
     if (!playerStats) {
-      res.status(404).json({
-        success: false,
-        message: "Player season stats not found",
-      });
+      this.respondNotFound(res, "Player season stats not found");
       return;
     }
 
-    res.status(200).json({
-      success: true,
-      data: playerStats,
-    });
-  } catch (error: any) {
-    console.error("Error fetching player season stats:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error fetching player season stats",
-    });
-  }
-}
+    this.respondSuccess(res, playerStats);
+  });
 
-/**
- * Get projections for a specific player
- * GET /api/player-projections/:season/:week/:playerId
- */
-export async function getPlayerProjectionsById(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Get projections for a specific player
+   * GET /api/player-projections/:season/:week/:playerId
+   */
+  getPlayerProjectionsById = this.asyncHandler(async (req: Request, res: Response) => {
     const { season, week, playerId } = req.params;
     const { season_type = "regular" } = req.query;
 
@@ -169,35 +109,18 @@ export async function getPlayerProjectionsById(
     );
 
     if (!playerProjections) {
-      res.status(404).json({
-        success: false,
-        message: "Player projections not found",
-      });
+      this.respondNotFound(res, "Player projections not found");
       return;
     }
 
-    res.status(200).json({
-      success: true,
-      data: playerProjections,
-    });
-  } catch (error: any) {
-    console.error("Error fetching player projections:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error fetching player projections",
-    });
-  }
-}
+    this.respondSuccess(res, playerProjections);
+  });
 
-/**
- * Get full season projections for a specific player (no week = full season)
- * GET /api/player-projections/:season/:playerId
- */
-export async function getPlayerSeasonProjections(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Get full season projections for a specific player (no week = full season)
+   * GET /api/player-projections/:season/:playerId
+   */
+  getPlayerSeasonProjections = this.asyncHandler(async (req: Request, res: Response) => {
     const { season, playerId } = req.params;
     const { season_type = "regular" } = req.query;
 
@@ -212,44 +135,24 @@ export async function getPlayerSeasonProjections(
     );
 
     if (!playerProjections) {
-      res.status(404).json({
-        success: false,
-        message: "Player season projections not found",
-      });
+      this.respondNotFound(res, "Player season projections not found");
       return;
     }
 
-    res.status(200).json({
-      success: true,
-      data: playerProjections,
-    });
-  } catch (error: any) {
-    console.error("Error fetching player season projections:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error fetching player season projections",
-    });
-  }
-}
+    this.respondSuccess(res, playerProjections);
+  });
 
-/**
- * Get bulk season stats for multiple players
- * POST /api/player-stats/bulk/:season
- * Body: { player_ids: string[], season_type?: string }
- */
-export async function getBulkPlayerSeasonStats(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Get bulk season stats for multiple players
+   * POST /api/player-stats/bulk/:season
+   * Body: { player_ids: string[], season_type?: string }
+   */
+  getBulkPlayerSeasonStats = this.asyncHandler(async (req: Request, res: Response) => {
     const { season } = req.params;
     const { player_ids, season_type = "regular" } = req.body;
 
     if (!player_ids || !Array.isArray(player_ids)) {
-      res.status(400).json({
-        success: false,
-        message: "player_ids array is required in request body",
-      });
+      this.respondBadRequest(res, "player_ids array is required in request body");
       return;
     }
 
@@ -305,38 +208,20 @@ export async function getBulkPlayerSeasonStats(
       }
     }
 
-    res.status(200).json({
-      success: true,
-      data: statsMap,
-      count: Object.keys(statsMap).length,
-    });
-  } catch (error: any) {
-    console.error("Error fetching bulk player season stats:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error fetching bulk player season stats",
-    });
-  }
-}
+    this.respondSuccess(res, statsMap, undefined);
+  });
 
-/**
- * Get bulk season projections for multiple players
- * POST /api/player-projections/bulk/:season
- * Body: { player_ids: string[], season_type?: string }
- */
-export async function getBulkPlayerSeasonProjections(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Get bulk season projections for multiple players
+   * POST /api/player-projections/bulk/:season
+   * Body: { player_ids: string[], season_type?: string }
+   */
+  getBulkPlayerSeasonProjections = this.asyncHandler(async (req: Request, res: Response) => {
     const { season } = req.params;
     const { player_ids, season_type = "regular" } = req.body;
 
     if (!player_ids || !Array.isArray(player_ids)) {
-      res.status(400).json({
-        success: false,
-        message: "player_ids array is required in request body",
-      });
+      this.respondBadRequest(res, "player_ids array is required in request body");
       return;
     }
 
@@ -392,54 +277,30 @@ export async function getBulkPlayerSeasonProjections(
       }
     }
 
-    res.status(200).json({
-      success: true,
-      data: projectionsMap,
-      count: Object.keys(projectionsMap).length,
-    });
-  } catch (error: any) {
-    console.error("Error fetching bulk player season projections:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error fetching bulk player season projections",
-    });
-  }
-}
+    this.respondSuccess(res, projectionsMap, undefined);
+  });
 
-/**
- * Get bulk projections for multiple players across a week range
- * POST /api/player-projections/bulk/:season/weeks
- * Body: { player_ids: string[], start_week: number, end_week: number, season_type?: string }
- */
-export async function getBulkPlayerWeekRangeProjections(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Get bulk projections for multiple players across a week range
+   * POST /api/player-projections/bulk/:season/weeks
+   * Body: { player_ids: string[], start_week: number, end_week: number, season_type?: string }
+   */
+  getBulkPlayerWeekRangeProjections = this.asyncHandler(async (req: Request, res: Response) => {
     const { season } = req.params;
     const { player_ids, start_week, end_week, season_type = "regular" } = req.body;
 
     if (!player_ids || !Array.isArray(player_ids)) {
-      res.status(400).json({
-        success: false,
-        message: "player_ids array is required in request body",
-      });
+      this.respondBadRequest(res, "player_ids array is required in request body");
       return;
     }
 
     if (!start_week || !end_week) {
-      res.status(400).json({
-        success: false,
-        message: "start_week and end_week are required in request body",
-      });
+      this.respondBadRequest(res, "start_week and end_week are required in request body");
       return;
     }
 
     if (start_week > end_week) {
-      res.status(400).json({
-        success: false,
-        message: "start_week cannot be greater than end_week",
-      });
+      this.respondBadRequest(res, "start_week cannot be greater than end_week");
       return;
     }
 
@@ -583,11 +444,16 @@ export async function getBulkPlayerWeekRangeProjections(
       count: Object.keys(projectionsMap).length,
       weeks_queried: end_week - start_week + 1,
     });
-  } catch (error: any) {
-    console.error("Error fetching bulk player week range projections:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error fetching bulk player week range projections",
-    });
-  }
+  });
 }
+
+const playerStatsController = new PlayerStatsController();
+export const getPlayerStats = playerStatsController.getPlayerStats;
+export const getPlayerProjections = playerStatsController.getPlayerProjections;
+export const getPlayerStatsById = playerStatsController.getPlayerStatsById;
+export const getPlayerSeasonStats = playerStatsController.getPlayerSeasonStats;
+export const getPlayerProjectionsById = playerStatsController.getPlayerProjectionsById;
+export const getPlayerSeasonProjections = playerStatsController.getPlayerSeasonProjections;
+export const getBulkPlayerSeasonStats = playerStatsController.getBulkPlayerSeasonStats;
+export const getBulkPlayerSeasonProjections = playerStatsController.getBulkPlayerSeasonProjections;
+export const getBulkPlayerWeekRangeProjections = playerStatsController.getBulkPlayerWeekRangeProjections;

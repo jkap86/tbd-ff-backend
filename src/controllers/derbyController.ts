@@ -350,11 +350,13 @@ class DerbyController extends BaseController {
         message: 'Derby completed - all positions selected',
       });
       // Create system chat message for derby completed with draft order
+      console.log('[Derby] Derby completed, sending chat message. Draft:', draft?.id, 'League:', draft?.league_id);
       if (draft) {
         try {
           const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
           const { emitLeagueChat } = await import("../socket/leagueSocket");
 
+          console.log('[Derby] Querying draft order for draftId:', draftId);
           // Get final draft order determined by derby
           const draftOrderResult = await pool.query(
             `SELECT do.draft_position as position, r.id as roster_id, r.settings, u.username
@@ -365,6 +367,8 @@ class DerbyController extends BaseController {
              ORDER BY do.draft_position ASC`,
             [draftId]
           );
+
+          console.log('[Derby] Draft order query returned', draftOrderResult.rows.length, 'rows');
 
           // Format draft order for chat message
           const draftOrderList = draftOrderResult.rows.map((row) => {
@@ -377,6 +381,8 @@ class DerbyController extends BaseController {
             };
           });
 
+          console.log('[Derby] Formatted draft order list:', JSON.stringify(draftOrderList, null, 2));
+
           const metadata = {
             type: "derby_completed",
             draft_id: parseInt(draftId),
@@ -386,6 +392,7 @@ class DerbyController extends BaseController {
             },
           };
 
+          console.log('[Derby] Creating chat message with metadata type:', metadata.type);
           const chatMessage = await createLeagueChatMessage({
             league_id: draft.league_id,
             user_id: null, // System message
@@ -393,6 +400,8 @@ class DerbyController extends BaseController {
             message_type: "system",
             metadata: metadata,
           });
+
+          console.log('[Derby] Chat message created, ID:', chatMessage.id);
 
           // Parse metadata before emitting (it's stored as JSON string in DB)
           const messageToEmit = {
@@ -402,12 +411,16 @@ class DerbyController extends BaseController {
               : chatMessage.metadata
           };
 
+          console.log('[Derby] Emitting chat message to league', draft.league_id);
           // Emit chat message to all league members
           emitLeagueChat(io, draft.league_id, messageToEmit);
+          console.log('[Derby] Derby completion message sent successfully');
         } catch (chatError) {
           console.error("Error sending derby completed chat message:", chatError);
           // Don't fail the request if chat message fails
         }
+      } else {
+        console.log('[Derby] No draft found, cannot send completion message');
       }
 
     }
@@ -512,10 +525,12 @@ class DerbyController extends BaseController {
         message: 'Derby completed',
       });
       // Create system chat message for derby completed with draft order
+      console.log('[Derby] Derby completed via skip, sending chat message. Draft:', draft.id, 'League:', draft.league_id);
       try {
         const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
         const { emitLeagueChat } = await import("../socket/leagueSocket");
 
+        console.log('[Derby] Querying draft order for draftId:', draftId);
         // Get final draft order determined by derby
         const draftOrderResult = await pool.query(
           `SELECT do.draft_position as position, r.id as roster_id, r.settings, u.username

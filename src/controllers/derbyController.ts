@@ -182,6 +182,10 @@ export async function getDerbyStatus(req: Request, res: Response): Promise<void>
       [draft.league_id]
     );
 
+    console.log('[Derby] getDerbyStatus response - is_randomized:', derbyDetails.is_randomized);
+    console.log('[Derby] getDerbyStatus response - selection_order length:', derbyDetails.selection_order?.length);
+    console.log('[Derby] getDerbyStatus response - status:', derbyDetails.status);
+
     res.status(200).json({
       success: true,
       data: {
@@ -657,6 +661,8 @@ export async function randomizeDerby(req: Request, res: Response): Promise<void>
       };
     });
 
+    console.log('[Derby] Derby order list for chat:', JSON.stringify(derbyOrderList, null, 2));
+
     // Emit socket event to notify all clients
     io.to(`draft_${draftId}`).emit('derby:update', {
       draftId: parseInt(draftId),
@@ -670,19 +676,23 @@ export async function randomizeDerby(req: Request, res: Response): Promise<void>
       const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
       const { emitLeagueChat } = await import("../socket/leagueSocket");
 
+      const metadata = {
+        type: "derby_order_randomized",
+        draft_id: parseInt(draftId),
+        collapsible: true,
+        details: {
+          derby_order: derbyOrderList,
+        },
+      };
+
+      console.log('[Derby] Chat message metadata:', JSON.stringify(metadata, null, 2));
+
       const chatMessage = await createLeagueChatMessage({
         league_id: draft.league_id,
         user_id: null, // System message
         message: "Derby selection order has been randomized",
         message_type: "system",
-        metadata: {
-          type: "derby_order_randomized",
-          draft_id: parseInt(draftId),
-          collapsible: true,
-          details: {
-            derby_order: derbyOrderList,
-          },
-        },
+        metadata: metadata,
       });
 
       // Emit chat message to all league members

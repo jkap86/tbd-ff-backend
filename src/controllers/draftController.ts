@@ -331,11 +331,48 @@ class DraftController extends BaseController {
     if (bid_timer_seconds !== undefined) updates.bid_timer_seconds = bid_timer_seconds;
     if (reserve_budget_per_slot !== undefined) updates.reserve_budget_per_slot = reserve_budget_per_slot;
 
-    // Derby
-    if (typeof derby_enabled === 'boolean') updates.derby_enabled = derby_enabled;
-    if (derby_time_limit_seconds !== undefined) updates.derby_time_limit_seconds = derby_time_limit_seconds;
-    if (derby_skipped_user_time_limit_seconds !== undefined) updates.derby_skipped_user_time_limit_seconds = derby_skipped_user_time_limit_seconds;
-    if (derby_timeout_behavior) updates.derby_timeout_behavior = derby_timeout_behavior;
+    // Derby - track changes for system message
+    const derbyChanges: Array<{ field: string; label: string; oldValue: any; newValue: any }> = [];
+
+    if (typeof derby_enabled === 'boolean' && derby_enabled !== draft.derby_enabled) {
+      derbyChanges.push({
+        field: 'derby_enabled',
+        label: 'Derby Enabled',
+        oldValue: draft.derby_enabled ? 'Yes' : 'No',
+        newValue: derby_enabled ? 'Yes' : 'No',
+      });
+      updates.derby_enabled = derby_enabled;
+    }
+
+    if (derby_time_limit_seconds !== undefined && derby_time_limit_seconds !== draft.derby_time_limit_seconds) {
+      derbyChanges.push({
+        field: 'derby_time_limit_seconds',
+        label: 'Derby Time Limit',
+        oldValue: `${draft.derby_time_limit_seconds || 120}s`,
+        newValue: `${derby_time_limit_seconds}s`,
+      });
+      updates.derby_time_limit_seconds = derby_time_limit_seconds;
+    }
+
+    if (derby_skipped_user_time_limit_seconds !== undefined && derby_skipped_user_time_limit_seconds !== draft.derby_skipped_user_time_limit_seconds) {
+      derbyChanges.push({
+        field: 'derby_skipped_user_time_limit_seconds',
+        label: 'Derby Skipped User Time Limit',
+        oldValue: `${draft.derby_skipped_user_time_limit_seconds || 60}s`,
+        newValue: `${derby_skipped_user_time_limit_seconds}s`,
+      });
+      updates.derby_skipped_user_time_limit_seconds = derby_skipped_user_time_limit_seconds;
+    }
+
+    if (derby_timeout_behavior && derby_timeout_behavior !== draft.derby_timeout_behavior) {
+      derbyChanges.push({
+        field: 'derby_timeout_behavior',
+        label: 'Derby Timeout Behavior',
+        oldValue: draft.derby_timeout_behavior || 'skip',
+        newValue: derby_timeout_behavior,
+      });
+      updates.derby_timeout_behavior = derby_timeout_behavior;
+    }
 
     const updatedDraft = await updateDraft(parsedDraftId, updates);
 
@@ -387,6 +424,39 @@ class DraftController extends BaseController {
         emitLeagueChat(io, draft.league_id, messageToEmit);
       } catch (chatError) {
         console.error('Error sending draft time system message to chat:', chatError);
+        // Don't fail the request if chat message fails
+      }
+    }
+
+    // Send system message to league chat if derby settings were changed
+    if (derbyChanges.length > 0) {
+      try {
+        const chatMessage = await createLeagueChatMessage({
+          league_id: draft.league_id,
+          user_id: null, // null indicates system message
+          message: 'Derby settings updated',
+          message_type: 'system',
+          metadata: {
+            type: 'derby_settings_update',
+            collapsible: true,
+            details: {
+              changes: derbyChanges,
+            },
+          },
+        });
+
+        // Parse metadata before emitting (it's stored as JSON string in DB)
+        const messageToEmit = {
+          ...chatMessage,
+          metadata: typeof chatMessage.metadata === 'string'
+            ? JSON.parse(chatMessage.metadata)
+            : chatMessage.metadata
+        };
+
+        // Emit to league chat via socket
+        emitLeagueChat(io, draft.league_id, messageToEmit);
+      } catch (chatError) {
+        console.error('Error sending derby settings system message to chat:', chatError);
         // Don't fail the request if chat message fails
       }
     }

@@ -813,16 +813,21 @@ if (!league) {
           message_type: "system",
           metadata: {
             type: 'league_reset',
+            collapsible: true,
             details: {
               description: 'All rosters, matchups, weekly lineups, and draft data have been cleared. The league is ready for a new draft.',
             }
           },
         });
 
+        // Parse metadata before emitting (it's stored as JSON string in DB)
         const messageToEmit = {
           ...chatMessage,
           username: null,
           team_name: null,
+          metadata: typeof chatMessage.metadata === 'string'
+            ? JSON.parse(chatMessage.metadata)
+            : chatMessage.metadata
         };
 
         // Emit to league chat via socket

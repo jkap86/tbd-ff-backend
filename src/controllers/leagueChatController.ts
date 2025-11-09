@@ -152,7 +152,15 @@ class LeagueChatController extends BaseController {
       );
     }
 
-    this.respondSuccess(res, messages);
+    // Parse metadata for all messages (it's stored as JSON string in DB)
+    const parsedMessages = messages.map(msg => ({
+      ...msg,
+      metadata: typeof msg.metadata === 'string'
+        ? JSON.parse(msg.metadata)
+        : msg.metadata
+    }));
+
+    this.respondSuccess(res, parsedMessages);
   });
 
   /**

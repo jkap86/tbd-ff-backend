@@ -349,21 +349,49 @@ class DerbyController extends BaseController {
         draftId: parseInt(draftId),
         message: 'Derby completed - all positions selected',
       });
-      // Create system chat message for derby completed
+      // Create system chat message for derby completed with draft order
       if (draft) {
         try {
           const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
           const { emitLeagueChat } = await import("../socket/leagueSocket");
 
+          // Get final draft order determined by derby
+          const draftOrderResult = await pool.query(
+            `SELECT do.draft_position as position, r.id as roster_id, r.settings, u.username
+             FROM draft_order do
+             JOIN rosters r ON r.id = do.roster_id
+             LEFT JOIN users u ON u.id = r.user_id
+             WHERE do.draft_id = $1
+             ORDER BY do.draft_position ASC`,
+            [draftId]
+          );
+
+          // Format draft order for chat message
+          const draftOrderList = draftOrderResult.rows.map((row) => {
+            const teamName = row.settings?.team_name;
+            return {
+              position: row.position,
+              roster_id: row.roster_id,
+              team_name: teamName || row.username || `Team ${row.roster_id}`,
+              username: row.username,
+            };
+          });
+
+          const metadata = {
+            type: "derby_completed",
+            draft_id: parseInt(draftId),
+            collapsible: true,
+            details: {
+              draft_order: draftOrderList,
+            },
+          };
+
           const chatMessage = await createLeagueChatMessage({
             league_id: draft.league_id,
             user_id: null, // System message
-            message: "Derby completed - all positions selected",
+            message: "Derby completed - draft order has been determined",
             message_type: "system",
-            metadata: {
-              type: "derby_completed",
-              draft_id: parseInt(draftId),
-            },
+            metadata: metadata,
           });
 
           // Emit chat message to all league members
@@ -475,6 +503,56 @@ class DerbyController extends BaseController {
         draftId: parseInt(draftId),
         message: 'Derby completed',
       });
+      // Create system chat message for derby completed with draft order
+      try {
+        const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
+        const { emitLeagueChat } = await import("../socket/leagueSocket");
+
+        // Get final draft order determined by derby
+        const draftOrderResult = await pool.query(
+          `SELECT do.draft_position as position, r.id as roster_id, r.settings, u.username
+           FROM draft_order do
+           JOIN rosters r ON r.id = do.roster_id
+           LEFT JOIN users u ON u.id = r.user_id
+           WHERE do.draft_id = $1
+           ORDER BY do.draft_position ASC`,
+          [draftId]
+        );
+
+        // Format draft order for chat message
+        const draftOrderList = draftOrderResult.rows.map((row) => {
+          const teamName = row.settings?.team_name;
+          return {
+            position: row.position,
+            roster_id: row.roster_id,
+            team_name: teamName || row.username || `Team ${row.roster_id}`,
+            username: row.username,
+          };
+        });
+
+        const metadata = {
+          type: "derby_completed",
+          draft_id: parseInt(draftId),
+          collapsible: true,
+          details: {
+            draft_order: draftOrderList,
+          },
+        };
+
+        const chatMessage = await createLeagueChatMessage({
+          league_id: draft.league_id,
+          user_id: null, // System message
+          message: "Derby completed - draft order has been determined",
+          message_type: "system",
+          metadata: metadata,
+        });
+
+        // Emit chat message to all league members
+        emitLeagueChat(io, draft.league_id, chatMessage);
+      } catch (chatError) {
+        console.error("Error sending derby completed chat message:", chatError);
+        // Don't fail the request if chat message fails
+      }
     }
 
     this.respondSuccess(res, {

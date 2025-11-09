@@ -346,6 +346,7 @@ class LeagueController extends BaseController {
       roster_positions,
       trade_notification_setting,
       trade_details_setting,
+      buy_in,
     } = req.body;
 
     // Get user ID from authenticated user
@@ -447,6 +448,7 @@ class LeagueController extends BaseController {
       roster_positions,
       trade_notification_setting,
       trade_details_setting,
+      buy_in,
     });
 
     if (!updatedLeague) {

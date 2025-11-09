@@ -364,6 +364,7 @@ export async function updateLeagueSettings(
     roster_positions?: RosterPosition[];
     trade_notification_setting?: string;
     trade_details_setting?: string;
+    buy_in?: number;
   }
 ): Promise<League | null> {
   try {
@@ -433,6 +434,12 @@ export async function updateLeagueSettings(
     if (updates.trade_details_setting !== undefined) {
       fields.push(`trade_details_setting = $${paramCount}`);
       values.push(updates.trade_details_setting);
+      paramCount++;
+    }
+
+    if (updates.buy_in !== undefined) {
+      fields.push(`buy_in = $${paramCount}`);
+      values.push(updates.buy_in);
       paramCount++;
     }
 

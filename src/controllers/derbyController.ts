@@ -359,12 +359,12 @@ class DerbyController extends BaseController {
           console.log('[Derby] Querying draft order for draftId:', draftId);
           // Get final draft order determined by derby
           const draftOrderResult = await pool.query(
-            `SELECT do.draft_position as position, r.id as roster_id, r.settings, u.username
-             FROM draft_order do
-             JOIN rosters r ON r.id = do.roster_id
+            `SELECT dord.draft_position as position, r.id as roster_id, r.settings, u.username
+             FROM draft_order dord
+             JOIN rosters r ON r.id = dord.roster_id
              LEFT JOIN users u ON u.id = r.user_id
-             WHERE do.draft_id = $1
-             ORDER BY do.draft_position ASC`,
+             WHERE dord.draft_id = $1
+             ORDER BY dord.draft_position ASC`,
             [draftId]
           );
 

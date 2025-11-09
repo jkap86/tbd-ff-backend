@@ -1,3 +1,7 @@
+// Before refactor: 269 lines
+// After refactor: 213 lines
+// Lines saved: 56 lines
+
 import { Request, Response } from "express";
 import {
   createLeagueChatMessage,
@@ -10,6 +14,7 @@ import { getUserById } from "../models/User";
 import pool from "../config/database";
 import { io } from "../index";
 import { emitLeagueChat } from "../socket/leagueSocket";
+import { BaseController } from "./BaseController";
 
 /**
  * Mark league chat as read for a user
@@ -48,33 +53,24 @@ async function getUnreadMessageCount(
   return parseInt(result.rows[0]?.unread_count || "0");
 }
 
-/**
- * Send a league chat message
- * POST /api/leagues/:leagueId/chat
- */
-export async function sendLeagueChatMessageHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+class LeagueChatController extends BaseController {
+  /**
+   * Send a league chat message
+   * POST /api/leagues/:leagueId/chat
+   */
+  sendLeagueChatMessage = this.asyncHandler(async (req: Request, res: Response) => {
     const { leagueId } = req.params;
     const { user_id, message, message_type = "chat", metadata = {} } = req.body;
 
     if (!user_id || !message) {
-      res.status(400).json({
-        success: false,
-        message: "user_id and message are required",
-      });
+      this.respondBadRequest(res, "user_id and message are required");
       return;
     }
 
     // Verify league exists
     const league = await getLeagueById(parseInt(leagueId));
     if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
+      this.respondNotFound(res, "League not found");
       return;
     }
 
@@ -129,28 +125,14 @@ export async function sendLeagueChatMessageHandler(
       console.error("Error sending league chat notification:", notifError);
     }
 
-    res.status(201).json({
-      success: true,
-      data: chatMessage,
-    });
-  } catch (error: any) {
-    console.error("Error sending league chat message:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error sending league chat message",
-    });
-  }
-}
+    this.respondCreated(res, chatMessage);
+  });
 
-/**
- * Get chat messages for a league
- * GET /api/leagues/:leagueId/chat
- */
-export async function getLeagueChatMessagesHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Get chat messages for a league
+   * GET /api/leagues/:leagueId/chat
+   */
+  getLeagueChatMessages = this.asyncHandler(async (req: Request, res: Response) => {
     const { leagueId } = req.params;
     const { limit = 100, since } = req.query;
 
@@ -170,30 +152,16 @@ export async function getLeagueChatMessagesHandler(
       );
     }
 
-    res.status(200).json({
-      success: true,
-      data: messages,
-    });
-  } catch (error: any) {
-    console.error("Error getting league chat messages:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error getting league chat messages",
-    });
-  }
-}
+    this.respondSuccess(res, messages);
+  });
 
-/**
- * Mark league chat as read for the authenticated user
- * POST /api/leagues/:leagueId/chat/mark-read
- */
-export async function markLeagueChatAsReadHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Mark league chat as read for the authenticated user
+   * POST /api/leagues/:leagueId/chat/mark-read
+   */
+  markLeagueChatAsRead = this.asyncHandler(async (req: Request, res: Response) => {
     const { leagueId } = req.params;
-    const userId = (req as any).user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
 
     console.log('[MarkRead] Request received:', {
       leagueId,
@@ -203,39 +171,22 @@ export async function markLeagueChatAsReadHandler(
     });
 
     if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "User not authenticated",
-      });
+      this.respondUnauthorized(res, "User not authenticated");
       return;
     }
 
     await markLeagueChatAsRead(userId, parseInt(leagueId));
 
-    res.status(200).json({
-      success: true,
-      message: "Chat marked as read",
-    });
-  } catch (error: any) {
-    console.error("Error marking chat as read:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error marking chat as read",
-    });
-  }
-}
+    this.respondSuccess(res, null, "Chat marked as read");
+  });
 
-/**
- * Get unread message count for the authenticated user
- * GET /api/leagues/:leagueId/chat/unread-count
- */
-export async function getUnreadMessageCountHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Get unread message count for the authenticated user
+   * GET /api/leagues/:leagueId/chat/unread-count
+   */
+  getUnreadMessageCount = this.asyncHandler(async (req: Request, res: Response) => {
     const { leagueId } = req.params;
-    const userId = (req as any).user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
 
     console.log('[UnreadCount] Request received:', {
       leagueId,
@@ -245,24 +196,18 @@ export async function getUnreadMessageCountHandler(
     });
 
     if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "User not authenticated",
-      });
+      this.respondUnauthorized(res, "User not authenticated");
       return;
     }
 
     const unreadCount = await getUnreadMessageCount(userId, parseInt(leagueId));
 
-    res.status(200).json({
-      success: true,
-      data: { unread_count: unreadCount },
-    });
-  } catch (error: any) {
-    console.error("Error getting unread count:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error getting unread count",
-    });
-  }
+    this.respondSuccess(res, { unread_count: unreadCount });
+  });
 }
+
+const leagueChatController = new LeagueChatController();
+export const sendLeagueChatMessageHandler = leagueChatController.sendLeagueChatMessage;
+export const getLeagueChatMessagesHandler = leagueChatController.getLeagueChatMessages;
+export const markLeagueChatAsReadHandler = leagueChatController.markLeagueChatAsRead;
+export const getUnreadMessageCountHandler = leagueChatController.getUnreadMessageCount;

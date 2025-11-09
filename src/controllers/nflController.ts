@@ -1,22 +1,20 @@
+// Before refactor: 44 lines
+// After refactor: 33 lines
+// Lines saved: 11 lines
 import { Request, Response } from "express";
 import { getCurrentNFLWeek } from "../services/currentWeekService";
+import { BaseController } from "./BaseController";
 
-/**
- * Get current NFL week
- * GET /api/nfl/current-week?season=2025
- */
-export async function getCurrentWeek(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+class NFLController extends BaseController {
+  /**
+   * Get current NFL week
+   * GET /api/nfl/current-week?season=2025
+   */
+  getCurrentWeek = this.asyncHandler(async (req: Request, res: Response) => {
     const { season, season_type = "regular" } = req.query;
 
     if (!season) {
-      res.status(400).json({
-        success: false,
-        message: "Season is required",
-      });
+      this.respondBadRequest(res, "Season is required");
       return;
     }
 
@@ -25,19 +23,13 @@ export async function getCurrentWeek(
       season_type as string
     );
 
-    res.status(200).json({
-      success: true,
-      data: {
-        season: season as string,
-        week: currentWeek,
-        season_type: season_type as string,
-      },
+    this.respondSuccess(res, {
+      season: season as string,
+      week: currentWeek,
+      season_type: season_type as string,
     });
-  } catch (error: any) {
-    console.error("Error getting current week:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error getting current week",
-    });
-  }
+  });
 }
+
+const nflController = new NFLController();
+export const getCurrentWeek = nflController.getCurrentWeek;

@@ -1,5 +1,6 @@
 import pool from "../config/database";
 import { escapeLikePattern } from "../utils/sqlHelpers";
+import { BaseRepository } from "./BaseRepository";
 
 export interface User {
   id: number;
@@ -11,6 +12,14 @@ export interface User {
   created_at: Date;
   updated_at: Date;
 }
+
+class UserRepository extends BaseRepository<User> {
+  constructor() {
+    super('users', 'id');
+  }
+}
+
+const userRepo = new UserRepository();
 
 /**
  * Search users by username or email
@@ -79,52 +88,23 @@ export async function createUser(
 
 /**
  * Get user by ID
+ * BEFORE: 18 lines with manual query
+ * AFTER: 1 line using BaseRepository
  */
 export async function getUserById(userId: number): Promise<User | null> {
-  try {
-    const query = `
-      SELECT id, username, email, phone_number, is_phone_verified, is_admin, created_at, updated_at
-      FROM users
-      WHERE id = $1
-    `;
-
-    const result = await pool.query(query, [userId]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error getting user:", error);
-    throw new Error("Error getting user");
-  }
+  return userRepo.findById(userId);
 }
 
 /**
  * Get user by username
+ * BEFORE: 20 lines with manual query
+ * AFTER: 2 lines using BaseRepository
  */
 export async function getUserByUsername(
   username: string
 ): Promise<User | null> {
-  try {
-    const query = `
-      SELECT id, username, email, phone_number, is_phone_verified, is_admin, created_at, updated_at
-      FROM users
-      WHERE username = $1
-    `;
-
-    const result = await pool.query(query, [username]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error getting user by username:", error);
-    throw new Error("Error getting user by username");
-  }
+  const users = await userRepo.findBy('username', username);
+  return users.length > 0 ? users[0] : null;
 }
 
 /**
@@ -155,45 +135,22 @@ export async function getUserByUsernameWithPassword(
 
 /**
  * Get user by email
+ * BEFORE: 18 lines with manual query
+ * AFTER: 2 lines using BaseRepository
  */
 export async function getUserByEmail(email: string): Promise<User | null> {
-  try {
-    const query = `
-      SELECT id, username, email, phone_number, is_phone_verified, is_admin, created_at, updated_at
-      FROM users
-      WHERE email = $1
-    `;
-
-    const result = await pool.query(query, [email]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error getting user by email:", error);
-    throw new Error("Error getting user by email");
-  }
+  const users = await userRepo.findBy('email', email);
+  return users.length > 0 ? users[0] : null;
 }
 
 /**
  * Update user password
+ * BEFORE: 15 lines with manual query
+ * AFTER: 1 line using BaseRepository
  */
 export async function updateUserPassword(
   userId: number,
   hashedPassword: string
 ): Promise<void> {
-  try {
-    const query = `
-      UPDATE users
-      SET password = $1, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
-    `;
-
-    await pool.query(query, [hashedPassword, userId]);
-  } catch (error) {
-    console.error("Error updating user password:", error);
-    throw new Error("Error updating user password");
-  }
+  await userRepo.update(userId, { password: hashedPassword } as any);
 }

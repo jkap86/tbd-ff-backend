@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { BaseRepository } from "./BaseRepository";
 
 export interface WaiverSettings {
   id: number;
@@ -12,38 +13,32 @@ export interface WaiverSettings {
   updated_at: Date;
 }
 
+class WaiverSettingsRepository extends BaseRepository<WaiverSettings> {
+  constructor() {
+    super('waiver_settings', 'id');
+  }
+}
+
+const waiverSettingsRepo = new WaiverSettingsRepository();
+
 /**
  * Get waiver settings for a league
  * Creates default settings if they don't exist
+ * BEFORE: 29 lines with manual query
+ * AFTER: 8 lines using BaseRepository
  */
 export async function getWaiverSettingsByLeague(
   leagueId: number
 ): Promise<WaiverSettings | null> {
-  try {
-    // Try to get existing settings
-    const result = await pool.query(
-      "SELECT * FROM waiver_settings WHERE league_id = $1",
-      [leagueId]
-    );
+  // Try to get existing settings
+  const settings = await waiverSettingsRepo.findBy('league_id', leagueId);
 
-    if (result.rows.length > 0) {
-      return result.rows[0];
-    }
-
-    // Create default settings if none exist
-    const createResult = await pool.query(
-      `INSERT INTO waiver_settings
-        (league_id, waiver_type, faab_budget, waiver_period_days, process_schedule, process_time)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [leagueId, "faab", 100, 2, "daily", "03:00:00"]
-    );
-
-    return createResult.rows[0];
-  } catch (error) {
-    console.error("Error getting waiver settings:", error);
-    throw error;
+  if (settings.length > 0) {
+    return settings[0];
   }
+
+  // Create default settings if none exist
+  return createDefaultWaiverSettings(leagueId);
 }
 
 /**

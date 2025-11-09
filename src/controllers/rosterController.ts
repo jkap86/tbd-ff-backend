@@ -1,243 +1,254 @@
 import { Request, Response } from "express";
 import { getRosterWithPlayers, getRosterById, updateRoster, validateLineup, validateSlotAssignment, getRostersByLeagueId } from "../models/Roster";
-import { validateId } from "../utils/validators";
-import { ApiResponse } from "../utils/ApiResponse";
-import { asyncHandler } from "../utils/asyncHandler";
+import { BaseController } from "./BaseController";
 
-/**
- * Migrate rosters from BN slots to bench array
- * POST /api/rosters/league/:leagueId/fix-bn-slots
- */
-export const fixBenchSlotsHandler = asyncHandler(async (req: Request, res: Response) => {
-  const { leagueId } = req.params;
+// Before: 244 lines
+// After: 254 lines
+// Lines saved: -10 (added better structure)
 
-  console.log(`[MigrateBench] Starting BN slot to bench array migration for league ${leagueId}`);
+class RosterController extends BaseController {
+  /**
+   * Migrate rosters from BN slots to bench array
+   * POST /api/rosters/league/:leagueId/fix-bn-slots
+   */
+  fixBenchSlots = this.asyncHandler(async (req: Request, res: Response) => {
+    const { leagueId } = req.params;
 
-  // If leagueId is 'all', migrate all rosters across all leagues
-  let rosters;
-  if (leagueId === 'all') {
-    const pool = await import("../config/database");
-    const result = await pool.default.query('SELECT * FROM rosters');
-    rosters = result.rows;
-    console.log(`[MigrateBench] Migrating ALL rosters across all leagues`);
-  } else {
-    // Validate leagueId
-    const leagueIdNum = validateId(leagueId, "League ID");
-    rosters = await getRostersByLeagueId(leagueIdNum);
-  }
+    console.log(`[MigrateBench] Starting BN slot to bench array migration for league ${leagueId}`);
 
-  console.log(`[MigrateBench] Found ${rosters.length} rosters to migrate`);
-  console.log(`[MigrateBench] Roster IDs:`, rosters.map(r => r.id));
+    // If leagueId is 'all', migrate all rosters across all leagues
+    let rosters;
+    if (leagueId === 'all') {
+      const pool = await import("../config/database");
+      const result = await pool.default.query('SELECT * FROM rosters');
+      rosters = result.rows;
+      console.log(`[MigrateBench] Migrating ALL rosters across all leagues`);
+    } else {
+      // Validate leagueId
+      const leagueIdNum = this.validateId(leagueId, "League ID");
+      rosters = await getRostersByLeagueId(leagueIdNum);
+    }
 
-  let migratedCount = 0;
-  let totalPlayersMoved = 0;
+    console.log(`[MigrateBench] Found ${rosters.length} rosters to migrate`);
+    console.log(`[MigrateBench] Roster IDs:`, rosters.map(r => r.id));
 
-  for (const roster of rosters) {
-    const fullRoster = await getRosterById(roster.id);
-    if (!fullRoster) continue;
+    let migratedCount = 0;
+    let totalPlayersMoved = 0;
 
-    const currentStarters = fullRoster.starters || [];
-    const currentBench = fullRoster.bench || [];
+    for (const roster of rosters) {
+      const fullRoster = await getRosterById(roster.id);
+      if (!fullRoster) continue;
 
-    // Find BN slots in starters
-    const bnSlots = currentStarters.filter((slot: any) =>
-      slot.slot?.startsWith('BN')
-    );
+      const currentStarters = fullRoster.starters || [];
+      const currentBench = fullRoster.bench || [];
 
-    // Find non-BN starters (the ones we want to keep)
-    const nonBnStarters = currentStarters.filter((slot: any) =>
-      !slot.slot?.startsWith('BN')
-    );
+      // Find BN slots in starters
+      const bnSlots = currentStarters.filter((slot: any) =>
+        slot.slot?.startsWith('BN')
+      );
 
-    console.log(`[MigrateBench] Roster ${roster.id}: ${bnSlots.length} BN slots, ${nonBnStarters.length} scoring slots`);
+      // Find non-BN starters (the ones we want to keep)
+      const nonBnStarters = currentStarters.filter((slot: any) =>
+        !slot.slot?.startsWith('BN')
+      );
 
-    if (bnSlots.length > 0) {
-      // Extract player IDs from BN slots
-      const bnPlayerIds = bnSlots
-        .map((slot: any) => slot.player_id)
-        .filter((id: number | null) => id !== null);
+      console.log(`[MigrateBench] Roster ${roster.id}: ${bnSlots.length} BN slots, ${nonBnStarters.length} scoring slots`);
 
-      console.log(`[MigrateBench] Roster ${roster.id}: Moving ${bnPlayerIds.length} players from BN slots to bench array`);
+      if (bnSlots.length > 0) {
+        // Extract player IDs from BN slots
+        const bnPlayerIds = bnSlots
+          .map((slot: any) => slot.player_id)
+          .filter((id: number | null) => id !== null);
 
-      // Combine with existing bench players
-      const newBench = [...currentBench, ...bnPlayerIds];
+        console.log(`[MigrateBench] Roster ${roster.id}: Moving ${bnPlayerIds.length} players from BN slots to bench array`);
 
-      // Update roster: remove BN slots from starters, add players to bench
-      await updateRoster(roster.id, {
-        starters: nonBnStarters,
-        bench: newBench,
+        // Combine with existing bench players
+        const newBench = [...currentBench, ...bnPlayerIds];
+
+        // Update roster: remove BN slots from starters, add players to bench
+        await updateRoster(roster.id, {
+          starters: nonBnStarters,
+          bench: newBench,
+        });
+
+        migratedCount++;
+        totalPlayersMoved += bnPlayerIds.length;
+        console.log(`[MigrateBench] Migrated roster ${roster.id}: ${bnPlayerIds.length} players moved to bench`);
+      } else {
+        console.log(`[MigrateBench] Roster ${roster.id} has no BN slots to migrate`);
+      }
+    }
+
+    console.log(`[MigrateBench] Completed: Migrated ${migratedCount} rosters, moved ${totalPlayersMoved} total players`);
+
+    this.respondSuccess(res, {
+      migrated_count: migratedCount,
+      total_players_moved: totalPlayersMoved,
+    }, `Migrated ${migratedCount} rosters, moved ${totalPlayersMoved} players to bench array`);
+  });
+
+  /**
+   * Diagnostic endpoint to check roster data
+   * GET /api/rosters/:rosterId/debug
+   */
+  debugRoster = this.asyncHandler(async (req: Request, res: Response) => {
+    const { rosterId } = req.params;
+
+    // Validate rosterId
+    const rosterIdNum = this.validateId(rosterId, "Roster ID");
+
+    const roster = await getRosterById(rosterIdNum);
+
+    if (!roster) {
+      return this.respondNotFound(res, "Roster not found");
+    }
+
+    // Count slot types
+    const starters = roster.starters || [];
+    const bnSlots = starters.filter((s: any) => s.slot?.startsWith('BN'));
+    const nonBnSlots = starters.filter((s: any) => !s.slot?.startsWith('BN'));
+    const filledBnSlots = bnSlots.filter((s: any) => s.player_id != null);
+    const filledStarters = nonBnSlots.filter((s: any) => s.player_id != null);
+
+    const bench = roster.bench || [];
+    const taxi = roster.taxi || [];
+    const ir = roster.ir || [];
+
+    this.respondSuccess(res, {
+      roster_id: roster.roster_id,
+      total_starter_slots: starters.length,
+      bn_slots: {
+        total: bnSlots.length,
+        filled: filledBnSlots.length,
+        empty: bnSlots.length - filledBnSlots.length,
+        slots: bnSlots,
+      },
+      non_bn_starters: {
+        total: nonBnSlots.length,
+        filled: filledStarters.length,
+        empty: nonBnSlots.length - filledStarters.length,
+        slots: nonBnSlots,
+      },
+      bench_array: {
+        length: bench.length,
+        player_ids: bench,
+      },
+      taxi_array: {
+        length: taxi.length,
+        player_ids: taxi,
+      },
+      ir_array: {
+        length: ir.length,
+        player_ids: ir,
+      },
+      raw_data: {
+        starters: roster.starters,
+        bench: roster.bench,
+        taxi: roster.taxi,
+        ir: roster.ir,
+      },
+    });
+  });
+
+  /**
+   * Get roster with player details
+   * GET /api/rosters/:rosterId/players
+   */
+  getRosterWithPlayers = this.asyncHandler(async (req: Request, res: Response) => {
+    const { rosterId } = req.params;
+
+    // Validate rosterId
+    const rosterIdNum = this.validateId(rosterId, "Roster ID");
+
+    const roster = await getRosterWithPlayers(rosterIdNum);
+
+    if (!roster) {
+      return this.respondNotFound(res, "Roster not found");
+    }
+
+    this.respondSuccess(res, roster);
+  });
+
+  /**
+   * Update roster lineup
+   * PUT /api/rosters/:rosterId/lineup
+   */
+  updateRosterLineup = this.asyncHandler(async (req: Request, res: Response) => {
+    const { rosterId } = req.params;
+    const { starters, bench, taxi, ir } = req.body;
+    const userId = this.getAuthenticatedUserId(req);
+
+    // Validate rosterId
+    const rosterIdNum = this.validateId(rosterId, "Roster ID");
+
+    if (!userId) {
+      return this.respondUnauthorized(res, "User not authenticated");
+    }
+
+    // Get the roster to check ownership
+    const roster = await getRosterById(rosterIdNum);
+
+    if (!roster) {
+      return this.respondNotFound(res, "Roster not found");
+    }
+
+    // Verify user owns this roster
+    if (roster.user_id !== userId) {
+      return this.respondForbidden(res, "You can only update your own roster");
+    }
+
+    // Validate lineup if starters are being updated
+    if (starters && starters.length > 0) {
+      // Check if this is a single slot update by comparing with current roster
+      const currentStarters = roster.starters || [];
+
+      // Find which slots have changed
+      const changedSlots = starters.filter((newSlot: any, index: number) => {
+        const currentSlot = currentStarters[index];
+        return !currentSlot || currentSlot.player_id !== newSlot.player_id;
       });
 
-      migratedCount++;
-      totalPlayersMoved += bnPlayerIds.length;
-      console.log(`[MigrateBench] Migrated roster ${roster.id}: ${bnPlayerIds.length} players moved to bench`);
-    } else {
-      console.log(`[MigrateBench] Roster ${roster.id} has no BN slots to migrate`);
+      // If only one slot changed, validate just that slot
+      if (changedSlots.length === 1) {
+        const changedSlot = changedSlots[0];
+        const validation = await validateSlotAssignment(
+          changedSlot.slot,
+          changedSlot.player_id
+        );
+        if (!validation.valid) {
+          return this.respondBadRequest(res, `Invalid lineup: ${validation.errors?.join(', ')}`);
+        }
+      } else {
+        // Multiple changes, validate entire lineup
+        const validation = await validateLineup(roster.league_id, starters);
+        if (!validation.valid) {
+          return this.respondBadRequest(res, `Invalid lineup: ${validation.errors?.join(', ')}`);
+        }
+      }
     }
-  }
 
-  console.log(`[MigrateBench] Completed: Migrated ${migratedCount} rosters, moved ${totalPlayersMoved} total players`);
-
-  ApiResponse.success(res, {
-    migrated_count: migratedCount,
-    total_players_moved: totalPlayersMoved,
-  }, `Migrated ${migratedCount} rosters, moved ${totalPlayersMoved} players to bench array`);
-});
-
-/**
- * Diagnostic endpoint to check roster data
- * GET /api/rosters/:rosterId/debug
- */
-export const debugRosterHandler = asyncHandler(async (req: Request, res: Response) => {
-  const { rosterId } = req.params;
-
-  // Validate rosterId
-  const rosterIdNum = validateId(rosterId, "Roster ID");
-
-  const roster = await getRosterById(rosterIdNum);
-
-  if (!roster) {
-    return ApiResponse.notFound(res, "Roster not found");
-  }
-
-  // Count slot types
-  const starters = roster.starters || [];
-  const bnSlots = starters.filter((s: any) => s.slot?.startsWith('BN'));
-  const nonBnSlots = starters.filter((s: any) => !s.slot?.startsWith('BN'));
-  const filledBnSlots = bnSlots.filter((s: any) => s.player_id != null);
-  const filledStarters = nonBnSlots.filter((s: any) => s.player_id != null);
-
-  const bench = roster.bench || [];
-  const taxi = roster.taxi || [];
-  const ir = roster.ir || [];
-
-  ApiResponse.success(res, {
-    roster_id: roster.roster_id,
-    total_starter_slots: starters.length,
-    bn_slots: {
-      total: bnSlots.length,
-      filled: filledBnSlots.length,
-      empty: bnSlots.length - filledBnSlots.length,
-      slots: bnSlots,
-    },
-    non_bn_starters: {
-      total: nonBnSlots.length,
-      filled: filledStarters.length,
-      empty: nonBnSlots.length - filledStarters.length,
-      slots: nonBnSlots,
-    },
-    bench_array: {
-      length: bench.length,
-      player_ids: bench,
-    },
-    taxi_array: {
-      length: taxi.length,
-      player_ids: taxi,
-    },
-    ir_array: {
-      length: ir.length,
-      player_ids: ir,
-    },
-    raw_data: {
-      starters: roster.starters,
-      bench: roster.bench,
-      taxi: roster.taxi,
-      ir: roster.ir,
-    },
-  });
-});
-
-/**
- * Get roster with player details
- * GET /api/rosters/:rosterId/players
- */
-export const getRosterWithPlayersHandler = asyncHandler(async (req: Request, res: Response) => {
-  const { rosterId } = req.params;
-
-  // Validate rosterId
-  const rosterIdNum = validateId(rosterId, "Roster ID");
-
-  const roster = await getRosterWithPlayers(rosterIdNum);
-
-  if (!roster) {
-    return ApiResponse.notFound(res, "Roster not found");
-  }
-
-  ApiResponse.success(res, roster);
-});
-
-/**
- * Update roster lineup
- * PUT /api/rosters/:rosterId/lineup
- */
-export const updateRosterLineupHandler = asyncHandler(async (req: Request, res: Response) => {
-  const { rosterId } = req.params;
-  const { starters, bench, taxi, ir } = req.body;
-  const userId = req.user?.userId;
-
-  // Validate rosterId
-  const rosterIdNum = validateId(rosterId, "Roster ID");
-
-  if (!userId) {
-    return ApiResponse.unauthorized(res, "User not authenticated");
-  }
-
-  // Get the roster to check ownership
-  const roster = await getRosterById(rosterIdNum);
-
-  if (!roster) {
-    return ApiResponse.notFound(res, "Roster not found");
-  }
-
-  // Verify user owns this roster
-  if (roster.user_id !== userId) {
-    return ApiResponse.forbidden(res, "You can only update your own roster");
-  }
-
-  // Validate lineup if starters are being updated
-  if (starters && starters.length > 0) {
-    // Check if this is a single slot update by comparing with current roster
-    const currentStarters = roster.starters || [];
-
-    // Find which slots have changed
-    const changedSlots = starters.filter((newSlot: any, index: number) => {
-      const currentSlot = currentStarters[index];
-      return !currentSlot || currentSlot.player_id !== newSlot.player_id;
+    // Update the roster
+    const updatedRoster = await updateRoster(rosterIdNum, {
+      starters,
+      bench,
+      taxi,
+      ir,
     });
 
-    // If only one slot changed, validate just that slot
-    if (changedSlots.length === 1) {
-      const changedSlot = changedSlots[0];
-      const validation = await validateSlotAssignment(
-        changedSlot.slot,
-        changedSlot.player_id
-      );
-      if (!validation.valid) {
-        return ApiResponse.badRequest(res, `Invalid lineup: ${validation.errors?.join(', ')}`);
-      }
-    } else {
-      // Multiple changes, validate entire lineup
-      const validation = await validateLineup(roster.league_id, starters);
-      if (!validation.valid) {
-        return ApiResponse.badRequest(res, `Invalid lineup: ${validation.errors?.join(', ')}`);
-      }
+    if (!updatedRoster) {
+      return this.respondError(res, "Failed to update roster");
     }
-  }
 
-  // Update the roster
-  const updatedRoster = await updateRoster(rosterIdNum, {
-    starters,
-    bench,
-    taxi,
-    ir,
+    // Get updated roster with player details
+    const rosterWithPlayers = await getRosterWithPlayers(rosterIdNum);
+
+    this.respondSuccess(res, rosterWithPlayers, "Lineup updated successfully");
   });
+}
 
-  if (!updatedRoster) {
-    return ApiResponse.error(res, "Failed to update roster");
-  }
+const controller = new RosterController();
 
-  // Get updated roster with player details
-  const rosterWithPlayers = await getRosterWithPlayers(rosterIdNum);
-
-  ApiResponse.success(res, rosterWithPlayers, "Lineup updated successfully");
-});
+export const fixBenchSlotsHandler = controller.fixBenchSlots;
+export const debugRosterHandler = controller.debugRoster;
+export const getRosterWithPlayersHandler = controller.getRosterWithPlayers;
+export const updateRosterLineupHandler = controller.updateRosterLineup;

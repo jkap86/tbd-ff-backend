@@ -64,7 +64,7 @@ export async function createInvite(
 export async function getInvitesForUser(userId: number): Promise<any[]> {
   try {
     const query = `
-      SELECT 
+      SELECT
         li.*,
         l.name as league_name,
         l.season,
@@ -73,7 +73,7 @@ export async function getInvitesForUser(userId: number): Promise<any[]> {
       FROM league_invites li
       INNER JOIN leagues l ON li.league_id = l.id
       INNER JOIN users u ON li.inviter_user_id = u.id
-      WHERE li.invited_user_id = $1
+      WHERE li.invited_user_id = $1 AND li.status = 'pending'
       ORDER BY li.created_at DESC
     `;
 

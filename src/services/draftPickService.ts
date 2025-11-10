@@ -3,13 +3,11 @@
  */
 
 import { PoolClient } from "pg";
-import {
-  calculateCurrentRoster,
-  getRosterAtPosition,
-} from "../models/DraftOrder";
+import { getRosterAtPosition } from "../models/DraftOrder";
 import { getLeagueById, updateLeague } from "../models/League";
 import { getRosterById } from "../models/Roster";
 import { getPlayerById } from "../models/Player";
+import { calculateCurrentRoster } from "../controllers/draftController";
 
 export interface DraftPickRequest {
   draftId: number;

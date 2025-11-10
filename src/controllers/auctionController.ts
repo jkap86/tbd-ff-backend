@@ -778,66 +778,11 @@ export async function completeAuctionHandler(req: Request, res: Response) {
     if (league) {
       await updateLeague(league.id, { status: "in_season" });
 
-      const startWeek = league.settings?.start_week || 1;
-      const playoffWeekStart = league.settings?.playoff_week_start || 15;
-
-      // Generate matchups if they don't exist
-      console.log(`[CompleteAuction] Checking/generating matchups...`);
-      const { generateMatchupsForWeek } = await import("../models/Matchup");
-      const { getMatchupsByLeagueAndWeek } = await import("../models/Matchup");
-
-      for (let week = startWeek; week < playoffWeekStart; week++) {
-        try {
-          const existingMatchups = await getMatchupsByLeagueAndWeek(
-            league.id,
-            week
-          );
-          if (existingMatchups.length === 0) {
-            console.log(`[CompleteAuction] Generating matchups for week ${week}...`);
-            await generateMatchupsForWeek(league.id, week, league.season);
-          }
-        } catch (error) {
-          console.error(
-            `[CompleteAuction] Failed to generate matchups for week ${week}:`,
-            error
-          );
-        }
-      }
-
-      // Calculate scores for all weeks
-      console.log(`[CompleteAuction] Calculating scores for all weeks...`);
-      const { updateMatchupScoresForWeek } = await import(
-        "../services/scoringService"
+      // Initialize season: generate matchups and calculate scores
+      const { initializeSeasonFromLeague } = await import(
+        "../services/draftCompletionService"
       );
-      const { finalizeWeekScores, recalculateAllRecords } = await import(
-        "../services/recordService"
-      );
-
-      for (let week = startWeek; week < playoffWeekStart; week++) {
-        try {
-          console.log(`[CompleteAuction] Updating scores for week ${week}...`);
-          await updateMatchupScoresForWeek(
-            league.id,
-            week,
-            league.season,
-            "regular"
-          );
-          await finalizeWeekScores(league.id, week, league.season, "regular");
-        } catch (error) {
-          console.error(
-            `[CompleteAuction] Failed to update scores for week ${week}:`,
-            error
-          );
-        }
-      }
-
-      // Recalculate all records
-      console.log(`[CompleteAuction] Recalculating all records...`);
-      try {
-        await recalculateAllRecords(league.id, league.season);
-      } catch (error) {
-        console.error(`[CompleteAuction] Failed to recalculate records:`, error);
-      }
+      await initializeSeasonFromLeague(league);
     }
 
     return res.status(200).json({

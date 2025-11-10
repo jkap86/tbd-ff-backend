@@ -525,66 +525,11 @@ async function processNominationExpiry(io: Server, nominationId: number, draftId
             if (league) {
               await updateLeague(league.id, { status: "in_season" });
 
-              const startWeek = league.settings?.start_week || 1;
-              const playoffWeekStart = league.settings?.playoff_week_start || 15;
-
-              // Generate matchups if they don't exist
-              console.log(`[Auction] Checking/generating matchups...`);
-              const { generateMatchupsForWeek, getMatchupsByLeagueAndWeek } =
-                await import("../models/Matchup");
-
-              for (let week = startWeek; week < playoffWeekStart; week++) {
-                try {
-                  const existingMatchups = await getMatchupsByLeagueAndWeek(
-                    league.id,
-                    week
-                  );
-                  if (existingMatchups.length === 0) {
-                    console.log(`[Auction] Generating matchups for week ${week}...`);
-                    await generateMatchupsForWeek(league.id, week, league.season);
-                  }
-                } catch (error) {
-                  console.error(
-                    `[Auction] Failed to generate matchups for week ${week}:`,
-                    error
-                  );
-                }
-              }
-
-              // Calculate scores for all weeks
-              console.log(`[Auction] Calculating scores for all weeks...`);
-              const { updateMatchupScoresForWeek } = await import(
-                "../services/scoringService"
+              // Initialize season: generate matchups and calculate scores
+              const { initializeSeasonFromLeague } = await import(
+                "../services/draftCompletionService"
               );
-              const { finalizeWeekScores, recalculateAllRecords } = await import(
-                "../services/recordService"
-              );
-
-              for (let week = startWeek; week < playoffWeekStart; week++) {
-                try {
-                  console.log(`[Auction] Updating scores for week ${week}...`);
-                  await updateMatchupScoresForWeek(
-                    league.id,
-                    week,
-                    league.season,
-                    "regular"
-                  );
-                  await finalizeWeekScores(league.id, week, league.season, "regular");
-                } catch (error) {
-                  console.error(
-                    `[Auction] Failed to update scores for week ${week}:`,
-                    error
-                  );
-                }
-              }
-
-              // Recalculate all records
-              console.log(`[Auction] Recalculating all records...`);
-              try {
-                await recalculateAllRecords(league.id, league.season);
-              } catch (error) {
-                console.error(`[Auction] Failed to recalculate records:`, error);
-              }
+              await initializeSeasonFromLeague(league);
             }
           }
 
@@ -861,66 +806,11 @@ async function processBidExpiry(io: Server, nominationId: number, draftId: numbe
             if (league) {
               await updateLeague(league.id, { status: "in_season" });
 
-              const startWeek = league.settings?.start_week || 1;
-              const playoffWeekStart = league.settings?.playoff_week_start || 15;
-
-              // Generate matchups if they don't exist
-              console.log(`[Auction] Checking/generating matchups...`);
-              const { generateMatchupsForWeek, getMatchupsByLeagueAndWeek } =
-                await import("../models/Matchup");
-
-              for (let week = startWeek; week < playoffWeekStart; week++) {
-                try {
-                  const existingMatchups = await getMatchupsByLeagueAndWeek(
-                    league.id,
-                    week
-                  );
-                  if (existingMatchups.length === 0) {
-                    console.log(`[Auction] Generating matchups for week ${week}...`);
-                    await generateMatchupsForWeek(league.id, week, league.season);
-                  }
-                } catch (error) {
-                  console.error(
-                    `[Auction] Failed to generate matchups for week ${week}:`,
-                    error
-                  );
-                }
-              }
-
-              // Calculate scores for all weeks
-              console.log(`[Auction] Calculating scores for all weeks...`);
-              const { updateMatchupScoresForWeek } = await import(
-                "../services/scoringService"
+              // Initialize season: generate matchups and calculate scores
+              const { initializeSeasonFromLeague } = await import(
+                "../services/draftCompletionService"
               );
-              const { finalizeWeekScores, recalculateAllRecords } = await import(
-                "../services/recordService"
-              );
-
-              for (let week = startWeek; week < playoffWeekStart; week++) {
-                try {
-                  console.log(`[Auction] Updating scores for week ${week}...`);
-                  await updateMatchupScoresForWeek(
-                    league.id,
-                    week,
-                    league.season,
-                    "regular"
-                  );
-                  await finalizeWeekScores(league.id, week, league.season, "regular");
-                } catch (error) {
-                  console.error(
-                    `[Auction] Failed to update scores for week ${week}:`,
-                    error
-                  );
-                }
-              }
-
-              // Recalculate all records
-              console.log(`[Auction] Recalculating all records...`);
-              try {
-                await recalculateAllRecords(league.id, league.season);
-              } catch (error) {
-                console.error(`[Auction] Failed to recalculate records:`, error);
-              }
+              await initializeSeasonFromLeague(league);
             }
           }
 

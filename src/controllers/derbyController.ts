@@ -53,7 +53,7 @@ class DerbyController extends BaseController {
     const rosterIds = rosters.map(r => r.id);
 
     // Import DraftDerby model functions
-    const { createDraftDerby, startDraftDerby, getDraftDerbyByDraftId } = await import('../models/DraftDerby');
+    const { createDraftDerby, startDraftDerby, getDraftDerbyByDraftId, getDraftDerbyWithDetails } = await import('../models/DraftDerby');
 
     // Check if derby already exists
     let derby = await getDraftDerbyByDraftId(parseInt(draftId));
@@ -64,7 +64,15 @@ class DerbyController extends BaseController {
     }
 
     // Start the derby (sets first roster's turn)
-    const startedDerby = await startDraftDerby(parseInt(draftId));
+    await startDraftDerby(parseInt(draftId));
+
+    // Get full derby details with selections and available_positions
+    const derbyWithDetails = await getDraftDerbyWithDetails(parseInt(draftId));
+
+    if (!derbyWithDetails) {
+      this.respondError(res, "Failed to get derby details after starting", 500);
+      return;
+    }
 
     // Calculate turn deadline
     const derbyTimeLimit = draft.derby_time_limit_seconds || 60;
@@ -76,10 +84,10 @@ class DerbyController extends BaseController {
     // Emit to socket with new schema
     io.to(`draft_${draftId}`).emit('derby:update', {
       draftId: parseInt(draftId),
-      derby: startedDerby,
-      selectionOrder: startedDerby.selection_order,
-      currentRosterId: startedDerby.current_turn_roster_id,
-      skippedRosterIds: startedDerby.skipped_roster_ids,
+      derby: derbyWithDetails,
+      selectionOrder: derbyWithDetails.selection_order,
+      currentRosterId: derbyWithDetails.current_turn_roster_id,
+      skippedRosterIds: derbyWithDetails.skipped_roster_ids,
       onlySkippedRemaining: false,
       turnDeadline: turnDeadline.toISOString(),
       message: 'Derby has started - teams will now select their draft positions',
@@ -107,7 +115,7 @@ class DerbyController extends BaseController {
       // Don't fail the request if chat message fails
     }
 
-    this.respondSuccess(res, startedDerby, "Derby started - teams can now select their draft positions");
+    this.respondSuccess(res, derbyWithDetails, "Derby started - teams can now select their draft positions");
   });
 
   /**
@@ -162,9 +170,21 @@ class DerbyController extends BaseController {
     console.log('[Derby] getDerbyStatus response - selection_order length:', derbyDetails.selection_order?.length);
     console.log('[Derby] getDerbyStatus response - status:', derbyDetails.status);
 
+    // Calculate turn deadline if derby is in progress with an active turn
+    let turnDeadline: string | null = null;
+    if (derbyDetails.status === 'in_progress' && derbyDetails.current_turn_started_at) {
+      const derbyTimeLimit = draft.derby_time_limit_seconds || 60;
+      const deadline = new Date(
+        new Date(derbyDetails.current_turn_started_at).getTime() +
+        derbyTimeLimit * 1000
+      );
+      turnDeadline = deadline.toISOString();
+    }
+
     this.respondSuccess(res, {
       ...derbyDetails,
       rosters: rostersResult.rows,
+      turnDeadline,
     });
   });
 

@@ -1,6 +1,9 @@
 import { Request, Response } from "express";
 import { getRosterWithPlayers, getRosterById, updateRoster, validateLineup, validateSlotAssignment, getRostersByLeagueId } from "../models/Roster";
 import { BaseController } from "./BaseController";
+import { io } from "../index";
+import { createLeagueChatMessage } from "../models/LeagueChatMessage";
+import pool from "../config/database";
 
 // Before: 244 lines
 // After: 254 lines
@@ -244,6 +247,101 @@ class RosterController extends BaseController {
 
     this.respondSuccess(res, rosterWithPlayers, "Lineup updated successfully");
   });
+
+  /**
+   * Update roster dues paid status
+   * PUT /api/rosters/:rosterId/dues
+   */
+  updateDuesStatus = this.asyncHandler(async (req: Request, res: Response) => {
+    const { rosterId } = req.params;
+    const { dues_paid } = req.body;
+    const userId = this.getAuthenticatedUserId(req);
+
+    // Validate rosterId
+    const rosterIdNum = this.validateId(rosterId, "Roster ID");
+
+    // Validate dues_paid is a boolean
+    if (typeof dues_paid !== 'boolean') {
+      return this.respondBadRequest(res, "dues_paid must be a boolean");
+    }
+
+    if (!userId) {
+      return this.respondUnauthorized(res, "User not authenticated");
+    }
+
+    // Get the roster
+    const roster = await getRosterById(rosterIdNum);
+
+    if (!roster) {
+      return this.respondNotFound(res, "Roster not found");
+    }
+
+    // Check if user is the commissioner of the roster's league
+    const { getLeagueById } = await import("../models/League");
+    const league = await getLeagueById(roster.league_id);
+
+    if (!league) {
+      return this.respondNotFound(res, "League not found");
+    }
+
+    if (league.settings?.commissioner_id !== userId) {
+      return this.respondForbidden(res, "Only the league commissioner can perform this action");
+    }
+
+    // Update the roster settings with dues_paid status
+    const currentSettings = roster.settings || {};
+    const updatedSettings = {
+      ...currentSettings,
+      dues_paid,
+    };
+
+    // Update the roster
+    const updatedRoster = await updateRoster(rosterIdNum, {
+      settings: updatedSettings,
+    });
+
+    if (!updatedRoster) {
+      return this.respondError(res, "Failed to update dues status");
+    }
+
+    // If marked as paid, send system message to league chat
+    if (dues_paid) {
+      try {
+        // Get username from users table
+        const userQuery = `SELECT username FROM users WHERE id = $1`;
+        const userResult = await pool.query(userQuery, [roster.user_id]);
+        const username = userResult.rows[0]?.username || "Unknown User";
+
+        // Create system message
+        const chatMessage = await createLeagueChatMessage({
+          league_id: roster.league_id,
+          user_id: null, // System message
+          message: `${username} has paid`,
+          message_type: "system",
+          metadata: {
+            type: "dues_paid",
+            roster_id: roster.id,
+            user_id: roster.user_id,
+          },
+        });
+
+        // Broadcast to league room
+        const roomName = `league_${roster.league_id}`;
+        io.to(roomName).emit("league_chat_message", {
+          ...chatMessage,
+          username: "System",
+          metadata: typeof chatMessage.metadata === 'string'
+            ? JSON.parse(chatMessage.metadata)
+            : chatMessage.metadata,
+        });
+      } catch (error) {
+        console.error("Error sending dues paid notification:", error);
+        // Don't fail the request if notification fails
+      }
+    }
+
+    this.respondSuccess(res, updatedRoster, `Dues status updated to ${dues_paid ? 'paid' : 'unpaid'}`);
+  });
 }
 
 const controller = new RosterController();
@@ -252,3 +350,4 @@ export const fixBenchSlotsHandler = controller.fixBenchSlots;
 export const debugRosterHandler = controller.debugRoster;
 export const getRosterWithPlayersHandler = controller.getRosterWithPlayers;
 export const updateRosterLineupHandler = controller.updateRosterLineup;
+export const updateDuesStatusHandler = controller.updateDuesStatus;

@@ -541,22 +541,21 @@ class LeagueController extends BaseController {
           // Skip payout_structure - it will be handled separately
           if (key === 'payout_structure') continue;
 
-          if (oldSettings[key] !== value) {
-            const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-
-            // Format dues specially
-            if (key === 'dues') {
-              const oldDues = oldSettings[key] || 0;
-              const newDues = value || 0;
+          // Special handling for dues to handle type coercion
+          if (key === 'dues') {
+            const oldDues = Number(oldSettings[key] || 0);
+            const newDues = Number(value || 0);
+            if (oldDues !== newDues) {
               changes.push({
                 field: `settings.${key}`,
-                label: 'Buy-in Amount',
-                oldValue: `$${Number(oldDues).toFixed(2)}`,
-                newValue: `$${Number(newDues).toFixed(2)}`
+                label: 'Buy In',
+                oldValue: `$${oldDues.toFixed(2)}`,
+                newValue: `$${newDues.toFixed(2)}`
               });
-            } else {
-              changes.push({ field: `settings.${key}`, label, oldValue: oldSettings[key], newValue: value });
             }
+          } else if (oldSettings[key] !== value) {
+            const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            changes.push({ field: `settings.${key}`, label, oldValue: oldSettings[key], newValue: value });
           }
         }
 

@@ -1,9 +1,19 @@
 import pool from "../config/database";
 
+export type PayoutType =
+  | 'placement'           // Playoff/final standings (1st, 2nd, 3rd, etc.)
+  | 'placement_points'    // Point rankings (most points, 2nd most, etc.)
+  | 'highest_weekly_score' // Highest single week score
+  | 'regular_season_winner' // Best regular season record
+  | 'highest_points_non_playoff' // Highest points among non-playoff teams
+  | 'custom';             // Custom payout type
+
 export interface PayoutStructure {
-  place: number;
-  amount?: number;
-  percentage?: number;
+  type: PayoutType;
+  place?: number;        // For placement & placement_points types (1, 2, 3, etc.)
+  amount?: number;       // Fixed dollar amount
+  percentage?: number;   // Percentage of pot (0-100)
+  description?: string;  // Custom label/description
 }
 
 export interface LeaguePaymentSettings {

@@ -538,9 +538,96 @@ class LeagueController extends BaseController {
       if (settings !== undefined) {
         const oldSettings = currentLeague.settings || {};
         for (const [key, value] of Object.entries(settings)) {
+          // Skip payout_structure - it will be handled separately
+          if (key === 'payout_structure') continue;
+
           if (oldSettings[key] !== value) {
             const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-            changes.push({ field: `settings.${key}`, label, oldValue: oldSettings[key], newValue: value });
+
+            // Format dues specially
+            if (key === 'dues') {
+              const oldDues = oldSettings[key] || 0;
+              const newDues = value || 0;
+              changes.push({
+                field: `settings.${key}`,
+                label: 'Buy-in Amount',
+                oldValue: `$${Number(oldDues).toFixed(2)}`,
+                newValue: `$${Number(newDues).toFixed(2)}`
+              });
+            } else {
+              changes.push({ field: `settings.${key}`, label, oldValue: oldSettings[key], newValue: value });
+            }
+          }
+        }
+
+        // Handle payout_structure changes separately
+        if ('payout_structure' in settings) {
+          const oldPayouts = oldSettings['payout_structure'] || [];
+          const newPayouts = settings['payout_structure'] || [];
+
+          // Format payout structure for display
+          const formatPayouts = (payouts: any[]) => {
+            if (!Array.isArray(payouts) || payouts.length === 0) {
+              return 'None';
+            }
+
+            // Group payouts by type
+            const groupedByType: {[key: string]: any[]} = {};
+            payouts.forEach((p: any) => {
+              if (!groupedByType[p.type]) {
+                groupedByType[p.type] = [];
+              }
+              groupedByType[p.type].push(p);
+            });
+
+            const typeLabels: {[key: string]: string} = {
+              'placement': 'Playoff Finish',
+              'placement_points': 'Points Ranking',
+              'highest_weekly_score': 'Highest Week Score',
+              'regular_season_winner': 'Regular Season Finish',
+              'highest_points_non_playoff': 'Highest Points (Non-Playoff)',
+            };
+
+            const ordinal = (n: number) => {
+              if (n === 1) return '1st';
+              if (n === 2) return '2nd';
+              if (n === 3) return '3rd';
+              return `${n}th`;
+            };
+
+            // Format each type group
+            const lines: string[] = [];
+            for (const [type, typePayouts] of Object.entries(groupedByType)) {
+              const typeLabel = typeLabels[type] || type;
+              lines.push(`${typeLabel}:`);
+
+              // Add each place on its own line
+              typePayouts
+                .sort((a, b) => (a.place || 0) - (b.place || 0))
+                .forEach((p: any) => {
+                  const placeLabel = p.place ? ordinal(p.place) : '';
+                  const percentage = p.percentage ? `${p.percentage.toFixed(1)}%` : '';
+                  if (placeLabel) {
+                    lines.push(`  ${placeLabel}: ${percentage}`);
+                  } else {
+                    lines.push(`  ${percentage}`);
+                  }
+                });
+            }
+
+            return lines.join('\n');
+          };
+
+          const oldPayoutStr = formatPayouts(oldPayouts);
+          const newPayoutStr = formatPayouts(newPayouts);
+
+          if (oldPayoutStr !== newPayoutStr) {
+            changes.push({
+              field: 'settings.payout_structure',
+              label: 'Payout Structure',
+              oldValue: oldPayoutStr,
+              newValue: newPayoutStr
+            });
           }
         }
       }

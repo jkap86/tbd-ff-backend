@@ -6,6 +6,7 @@ import { withCronLogging } from "../utils/cronHelper";
 import { getLeagueById, updateLeague } from "../models/League";
 import { getDraftOrder, getRosterAtPosition } from "../models/DraftOrder";
 import { calculateCurrentRoster } from "../controllers/draftController";
+import { logger } from "../utils/logger";
 
 /**
  * Draft Scheduler Service
@@ -169,10 +170,12 @@ async function checkAndAutoStartDrafts(): Promise<void> {
       const result = await pool.query(query);
       const drafts: Draft[] = result.rows;
 
+      if (drafts.length > 0) {
+        logger.info(`Found ${drafts.length} draft(s) ready to auto-start`);
+      }
+
       for (const draft of drafts) {
-        console.log(
-          `[DraftScheduler] Auto-starting draft ${draft.id} (scheduled for ${draft.scheduled_start_time})`
-        );
+        logger.info(`Auto-starting draft ${draft.id} (scheduled for ${draft.scheduled_start_time})`);
 
         try {
           // Get league info
@@ -380,7 +383,7 @@ export async function checkAndAutoPauseDraft(draftId: number): Promise<void> {
  * Start the draft scheduler
  */
 export function startDraftScheduler(io?: any): void {
-  console.log("[DraftScheduler] Starting draft scheduler (checking every minute)");
+  logger.info("Draft scheduler initialized - checking every minute for auto-start and pause/resume");
 
   // Store io instance if provided
   if (io) {

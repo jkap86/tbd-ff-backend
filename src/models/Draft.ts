@@ -371,57 +371,120 @@ async function autoPopulateStarters(
 
     const assignedPlayerIds = new Set<string>();
 
-    // Fill starter slots (in order of draft position, which is playerIds order)
-    // PRIORITIZE: Exact position matches first, then FLEX positions
-    for (const playerId of playerIds) {
-      const playerPosition = playersMap[playerId];
-      if (!playerPosition) continue;
+    // Helper: Get eligible positions for a player
+    const getEligiblePositions = (playerPosition: string): string[] => {
+      const eligible: string[] = [playerPosition]; // Always eligible for exact position match
 
-      // Helper function to check if player can fill a FLEX slot
-      const canFillFlexSlot = (slotPos: string): boolean => {
-        // Check FLEX positions
-        if (slotPos === "FLEX" && ["RB", "WR", "TE"].includes(playerPosition))
-          return true;
-        if (
-          slotPos === "SUPER_FLEX" &&
-          ["QB", "RB", "WR", "TE"].includes(playerPosition)
-        )
-          return true;
-        if (slotPos === "WRT" && ["WR", "RB", "TE"].includes(playerPosition))
-          return true;
-        if (slotPos === "REC_FLEX" && ["WR", "TE"].includes(playerPosition))
-          return true;
-        if (
-          slotPos === "IDP_FLEX" &&
-          ["DL", "LB", "DB"].includes(playerPosition)
-        )
-          return true;
-
-        return false;
-      };
-
-      // First, try to find an EXACT position match
-      let slotIndex = starters.findIndex((slot) => {
-        if (slot.player_id !== null) return false;
-        const slotPos = slot.slot.replace(/\d+$/, "");
-        return playerPosition === slotPos; // Exact match only
-      });
-
-      // If no exact match, then try FLEX positions
-      if (slotIndex === -1) {
-        slotIndex = starters.findIndex((slot) => {
-          if (slot.player_id !== null) return false;
-          const slotPos = slot.slot.replace(/\d+$/, "");
-          return canFillFlexSlot(slotPos); // FLEX match
-        });
+      // Add FLEX eligibility
+      if (["RB", "WR", "TE"].includes(playerPosition)) {
+        eligible.push("FLEX", "WRT");
+      }
+      if (["QB", "RB", "WR", "TE"].includes(playerPosition)) {
+        eligible.push("SUPER_FLEX");
+      }
+      if (["WR", "TE"].includes(playerPosition)) {
+        eligible.push("REC_FLEX");
+      }
+      if (["DL", "LB", "DB"].includes(playerPosition)) {
+        eligible.push("IDP_FLEX");
       }
 
-      if (slotIndex !== -1) {
-        starters[slotIndex].player_id = playerId;
-        assignedPlayerIds.add(playerId);
-        console.log(
-          `[AutoPopulate] Assigned player ${playerId} (${playerPosition}) to slot ${starters[slotIndex].slot}`
-        );
+      return eligible;
+    };
+
+    // Helper: Check if player can fill a slot
+    const canFillSlot = (playerId: string, slotPos: string): boolean => {
+      const playerPosition = playersMap[playerId];
+      if (!playerPosition) {
+        console.log(`[AutoPopulate] WARNING: No position found for player ${playerId}`);
+        return false;
+      }
+
+      const eligiblePositions = getEligiblePositions(playerPosition);
+      const canFill = eligiblePositions.includes(slotPos);
+
+      // Extra validation: QB can ONLY go in QB or SUPER_FLEX
+      if (playerPosition === "QB" && !["QB", "SUPER_FLEX"].includes(slotPos)) {
+        console.log(`[AutoPopulate] BLOCKED: QB ${playerId} cannot fill ${slotPos}`);
+        return false;
+      }
+
+      // Validate non-QB cannot go in QB slot
+      if (slotPos === "QB" && playerPosition !== "QB") {
+        console.log(`[AutoPopulate] BLOCKED: ${playerPosition} player ${playerId} cannot fill QB slot`);
+        return false;
+      }
+
+      return canFill;
+    };
+
+    // Helper: Get slot restrictiveness score (lower = more restrictive)
+    const getSlotRestrictiveness = (slotPos: string): number => {
+      // Single-position slots are most restrictive
+      if (["QB", "RB", "WR", "TE", "K", "DEF", "DL", "LB", "DB"].includes(slotPos)) {
+        return 1;
+      }
+      // Multi-position FLEX slots are less restrictive (ordered by flexibility)
+      if (slotPos === "REC_FLEX") return 2; // WR, TE
+      if (slotPos === "WRT") return 3; // WR, RB, TE
+      if (slotPos === "FLEX") return 4; // RB, WR, TE
+      if (slotPos === "IDP_FLEX") return 5; // DL, LB, DB
+      if (slotPos === "SUPER_FLEX") return 6; // QB, RB, WR, TE
+
+      // Unknown slot types default to very flexible
+      return 99;
+    };
+
+    // Sort slots by restrictiveness (most restrictive first)
+    const sortedSlots = [...starters].sort((a, b) => {
+      const aPos = a.slot.replace(/\d+$/, "");
+      const bPos = b.slot.replace(/\d+$/, "");
+      const aScore = getSlotRestrictiveness(aPos);
+      const bScore = getSlotRestrictiveness(bPos);
+
+      // If same restrictiveness, maintain original order
+      if (aScore === bScore) {
+        return starters.indexOf(a) - starters.indexOf(b);
+      }
+
+      return aScore - bScore;
+    });
+
+    // NEW ALGORITHM: Fill most restrictive slots first
+    // For each slot (most restrictive to least):
+    //   - Find all unassigned players that fit
+    //   - Pick the one drafted earliest (earliest in playerIds array)
+    console.log(`[AutoPopulate] Starting slot assignment with ${playerIds.length} players`);
+    console.log(`[AutoPopulate] Players map:`, JSON.stringify(playersMap, null, 2));
+
+    for (const slot of sortedSlots) {
+      const slotPos = slot.slot.replace(/\d+$/, "");
+
+      console.log(`[AutoPopulate] Filling slot ${slot.slot} (${slotPos}, restrictiveness: ${getSlotRestrictiveness(slotPos)})`);
+
+      // Find all unassigned players that can fill this slot
+      const eligiblePlayers = playerIds.filter(
+        (playerId) => !assignedPlayerIds.has(playerId) && canFillSlot(playerId, slotPos)
+      );
+
+      console.log(`[AutoPopulate]   Found ${eligiblePlayers.length} eligible players:`, eligiblePlayers.map(id => `${id}(${playersMap[id]})`).join(', '));
+
+      if (eligiblePlayers.length > 0) {
+        // Pick the first one (earliest draft pick)
+        const selectedPlayer = eligiblePlayers[0];
+        const playerPosition = playersMap[selectedPlayer];
+
+        // Find the slot in the original starters array and assign
+        const slotIndex = starters.findIndex((s) => s.slot === slot.slot);
+        if (slotIndex !== -1) {
+          starters[slotIndex].player_id = selectedPlayer;
+          assignedPlayerIds.add(selectedPlayer);
+          console.log(
+            `[AutoPopulate] ✓ Assigned player ${selectedPlayer} (${playerPosition}) to slot ${starters[slotIndex].slot}`
+          );
+        }
+      } else {
+        console.log(`[AutoPopulate]   No eligible players for slot ${slot.slot}`);
       }
     }
 

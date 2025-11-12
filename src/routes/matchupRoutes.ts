@@ -8,6 +8,7 @@ import {
   getMatchupScoresHandler,
   recalculateRecordsHandler,
   generateFullSeasonMatchups,
+  deleteAllMatchupsForLeague,
 } from "../controllers/matchupController";
 import { authenticate } from "../middleware/authMiddleware";
 
@@ -36,5 +37,8 @@ router.post("/league/:leagueId/week/:week/update-scores", authenticate, updateSc
 
 // POST /api/matchups/league/:leagueId/recalculate-records - Recalculate all records from scratch
 router.post("/league/:leagueId/recalculate-records", authenticate, recalculateRecordsHandler);
+
+// DELETE /api/matchups/league/:leagueId - Delete all matchups for a league (commissioner only)
+router.delete("/league/:leagueId", authenticate, deleteAllMatchupsForLeague);
 
 export default router;

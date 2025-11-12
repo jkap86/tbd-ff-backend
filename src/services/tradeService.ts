@@ -10,6 +10,7 @@ import {
 import { getRosterById, addPlayerToRoster, removePlayerFromRoster } from "../models/Roster";
 import { getPlayerById } from "../models/Player";
 import { createTransaction } from "../models/Transaction";
+import { setTransactionTimeouts } from "../utils/transactionTimeout";
 
 export interface ProposeTradeParams {
   league_id: number;
@@ -27,6 +28,7 @@ export async function proposeTrade(
   params: ProposeTradeParams
 ): Promise<Trade> {
   const client = await pool.connect();
+    await setTransactionTimeouts(client);
 
   try {
     await client.query("BEGIN");
@@ -185,6 +187,7 @@ export async function cancelTrade(
  */
 export async function processTrade(tradeId: number): Promise<Trade> {
   const client = await pool.connect();
+    await setTransactionTimeouts(client);
 
   try {
     await client.query("BEGIN");

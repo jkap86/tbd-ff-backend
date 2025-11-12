@@ -1,0 +1,732 @@
+import pool from "../config/database";
+import { setTransactionTimeouts } from "../utils/transactionTimeout";
+
+export interface DraftDerby {
+  id: number;
+  draft_id: number;
+  status: "pending" | "in_progress" | "completed";
+  current_turn_roster_id: number | null;
+  current_turn_started_at: Date | null;
+  selection_order: number[]; // Array of roster IDs
+  skipped_roster_ids: number[]; // Array of roster IDs that were skipped
+  is_randomized: boolean; // Whether selection order has been randomized
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface DraftDerbySelection {
+  id: number;
+  derby_id: number;
+  roster_id: number;
+  draft_position: number;
+  selected_at: Date;
+}
+
+export interface DerbyWithDetails extends DraftDerby {
+  selections: DraftDerbySelection[];
+  available_positions: number[];
+}
+
+/**
+ * Create a new draft derby
+ * NOTE: Selection order is set to draft order initially (NOT randomized)
+ * Commissioner must manually randomize order using randomizeDerbyOrder()
+ */
+export async function createDraftDerby(
+  draftId: number,
+  rosterIds: number[]
+): Promise<DraftDerby> {
+  try {
+    // Use draft order as initial selection order (NOT randomized)
+    // Commissioner can randomize later using randomizeDerbyOrder()
+    const selectionOrder = [...rosterIds];
+
+    const query = `
+      INSERT INTO draft_derby (draft_id, selection_order, status, is_randomized)
+      VALUES ($1, $2, 'pending', FALSE)
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [draftId, JSON.stringify(selectionOrder)]);
+
+    const derby = result.rows[0];
+    return {
+      ...derby,
+      selection_order: derby.selection_order,
+      skipped_roster_ids: derby.skipped_roster_ids || [],
+    };
+  } catch (error: any) {
+    console.error("Error creating draft derby:", error);
+
+    if (error.code === "23505") {
+      throw new Error("Derby already exists for this draft");
+    }
+
+    throw new Error("Error creating draft derby");
+  }
+}
+
+/**
+ * Get draft derby by draft ID
+ */
+export async function getDraftDerbyByDraftId(
+  draftId: number
+): Promise<DraftDerby | null> {
+  try {
+    const query = `
+      SELECT * FROM draft_derby
+      WHERE draft_id = $1
+    `;
+
+    const result = await pool.query(query, [draftId]);
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    const derby = result.rows[0];
+    return {
+      ...derby,
+      selection_order: derby.selection_order,
+      skipped_roster_ids: derby.skipped_roster_ids || [],
+    };
+  } catch (error) {
+    console.error("Error getting draft derby:", error);
+    throw new Error("Error getting draft derby");
+  }
+}
+
+/**
+ * Randomize derby selection order (commissioner only, before derby starts)
+ */
+export async function randomizeDerbyOrder(draftId: number): Promise<DraftDerby> {
+  try {
+    const derby = await getDraftDerbyByDraftId(draftId);
+
+    if (!derby) {
+      throw new Error("Derby not found");
+    }
+
+    if (derby.status !== "pending") {
+      throw new Error("Cannot randomize order - derby has already started");
+    }
+
+    // Shuffle the selection order
+    const shuffled = [...derby.selection_order].sort(() => Math.random() - 0.5);
+
+    const query = `
+      UPDATE draft_derby
+      SET selection_order = $1,
+          is_randomized = TRUE,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE draft_id = $2
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [JSON.stringify(shuffled), draftId]);
+
+    const updatedDerby = result.rows[0];
+    return {
+      ...updatedDerby,
+      selection_order: updatedDerby.selection_order,
+      skipped_roster_ids: updatedDerby.skipped_roster_ids || [],
+    };
+  } catch (error: any) {
+    console.error("Error randomizing derby order:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get draft derby with all selections and available positions
+ */
+export async function getDraftDerbyWithDetails(
+  draftId: number
+): Promise<DerbyWithDetails | null> {
+  try {
+    const derby = await getDraftDerbyByDraftId(draftId);
+
+    if (!derby) {
+      return null;
+    }
+
+    // Get all selections
+    const selectionsQuery = `
+      SELECT * FROM draft_derby_selections
+      WHERE derby_id = $1
+      ORDER BY selected_at ASC
+    `;
+
+    const selectionsResult = await pool.query(selectionsQuery, [derby.id]);
+    const selections = selectionsResult.rows;
+
+    // Calculate available positions (1 to N where N = number of rosters)
+    const totalPositions = derby.selection_order.length;
+    const takenPositions = selections.map((s) => s.draft_position);
+    const availablePositions = Array.from(
+      { length: totalPositions },
+      (_, i) => i + 1
+    ).filter((pos) => !takenPositions.includes(pos));
+
+    return {
+      ...derby,
+      selections,
+      available_positions: availablePositions,
+    };
+  } catch (error) {
+    console.error("Error getting draft derby with details:", error);
+    throw new Error("Error getting draft derby with details");
+  }
+}
+
+/**
+ * Start the derby (set status to in_progress and set first turn)
+ */
+export async function startDraftDerby(draftId: number): Promise<DraftDerby> {
+  const client = await pool.connect();
+  await setTransactionTimeouts(client);
+
+  try {
+    await client.query("BEGIN");
+
+    const derby = await getDraftDerbyByDraftId(draftId);
+
+    if (!derby) {
+      throw new Error("Derby not found");
+    }
+
+    if (derby.status !== "pending") {
+      throw new Error(`Derby is already ${derby.status}`);
+    }
+
+    // Set first roster's turn
+    const firstRosterId = derby.selection_order[0];
+
+    const query = `
+      UPDATE draft_derby
+      SET status = 'in_progress',
+          current_turn_roster_id = $1,
+          current_turn_started_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE draft_id = $2
+      RETURNING *
+    `;
+
+    const result = await client.query(query, [firstRosterId, draftId]);
+
+    await client.query("COMMIT");
+
+    const updatedDerby = result.rows[0];
+    return {
+      ...updatedDerby,
+      selection_order: updatedDerby.selection_order,
+      skipped_roster_ids: updatedDerby.skipped_roster_ids || [],
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Error starting draft derby:", error);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Make a derby selection (roster selects their draft position)
+ */
+export async function makeDerbySelection(
+  draftId: number,
+  rosterId: number,
+  draftPosition: number
+): Promise<DraftDerbySelection> {
+  const client = await pool.connect();
+  await setTransactionTimeouts(client);
+
+  try {
+    await client.query("BEGIN");
+
+    const derby = await getDraftDerbyByDraftId(draftId);
+
+    if (!derby) {
+      throw new Error("Derby not found");
+    }
+
+    if (derby.status !== "in_progress") {
+      throw new Error("Derby is not in progress");
+    }
+
+    if (derby.current_turn_roster_id !== rosterId) {
+      throw new Error("It is not your turn to select");
+    }
+
+    // Validate draft position is available
+    const checkQuery = `
+      SELECT id FROM draft_derby_selections
+      WHERE derby_id = $1 AND draft_position = $2
+    `;
+
+    const checkResult = await client.query(checkQuery, [derby.id, draftPosition]);
+
+    if (checkResult.rows.length > 0) {
+      throw new Error("This draft position has already been selected");
+    }
+
+    // Insert selection
+    const insertQuery = `
+      INSERT INTO draft_derby_selections (derby_id, roster_id, draft_position)
+      VALUES ($1, $2, $3)
+      RETURNING *
+    `;
+
+    const insertResult = await client.query(insertQuery, [
+      derby.id,
+      rosterId,
+      draftPosition,
+    ]);
+
+    const selection = insertResult.rows[0];
+
+    // Remove roster from skipped list if they were skipped
+    const skippedRosterIds = derby.skipped_roster_ids.filter(
+      (id) => id !== rosterId
+    );
+
+    // Calculate next turn
+    await calculateNextTurn(
+      derby,
+      skippedRosterIds,
+      client
+    );
+
+    await client.query("COMMIT");
+
+    return selection;
+  } catch (error: any) {
+    await client.query("ROLLBACK");
+    console.error("Error making derby selection:", error);
+
+    if (error.code === "23505") {
+      throw new Error("This draft position has already been selected");
+    }
+
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Calculate and set the next turn
+ */
+async function calculateNextTurn(
+  derby: DraftDerby,
+  skippedRosterIds: number[],
+  client: any
+): Promise<{ rosterId: number | null; isComplete: boolean }> {
+  // Get all selections so far
+  const selectionsQuery = `
+    SELECT roster_id FROM draft_derby_selections
+    WHERE derby_id = $1
+  `;
+
+  const selectionsResult = await client.query(selectionsQuery, [derby.id]);
+  const selectedRosterIds = selectionsResult.rows.map((r: any) => r.roster_id);
+
+  // Check if derby is complete
+  if (selectedRosterIds.length === derby.selection_order.length) {
+    // Derby complete! Update status
+    const completeQuery = `
+      UPDATE draft_derby
+      SET status = 'completed',
+          current_turn_roster_id = NULL,
+          current_turn_started_at = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+    `;
+
+    await client.query(completeQuery, [derby.id]);
+
+    return { rosterId: null, isComplete: true };
+  }
+
+  // Find next roster that hasn't selected yet
+  // NFL-style skip: follow selection order, but SKIP rosters that are already skipped
+  // Skipped rosters can only pick "out of turn" - they should not be set as current turn
+  let nextRosterId: number | null = null;
+
+  // Follow selection order, skip rosters that have selected OR are skipped
+  for (const rosterId of derby.selection_order) {
+    if (!selectedRosterIds.includes(rosterId) && !skippedRosterIds.includes(rosterId)) {
+      nextRosterId = rosterId;
+      break;
+    }
+  }
+
+  // If no non-skipped rosters remain, check if only skipped users are left
+  if (!nextRosterId) {
+    const hasSkippedRemaining = skippedRosterIds.some(
+      rosterId => !selectedRosterIds.includes(rosterId)
+    );
+
+    if (hasSkippedRemaining) {
+      // Only skipped users remain - set current_turn_roster_id to NULL
+      // This allows any skipped roster to pick out of turn
+      nextRosterId = null;
+    } else {
+      throw new Error("Could not determine next roster");
+    }
+  }
+
+  // Update current turn
+  const updateQuery = `
+    UPDATE draft_derby
+    SET current_turn_roster_id = $1,
+        current_turn_started_at = CURRENT_TIMESTAMP,
+        skipped_roster_ids = $2,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $3
+  `;
+
+  await client.query(updateQuery, [
+    nextRosterId,
+    JSON.stringify(skippedRosterIds),
+    derby.id,
+  ]);
+
+  return { rosterId: nextRosterId, isComplete: false };
+}
+
+/**
+ * Skip current turn (timeout or manual skip)
+ */
+export async function skipDerbyTurn(draftId: number): Promise<DraftDerby> {
+  const client = await pool.connect();
+  await setTransactionTimeouts(client);
+
+  try {
+    await client.query("BEGIN");
+
+    const derby = await getDraftDerbyByDraftId(draftId);
+
+    if (!derby) {
+      throw new Error("Derby not found");
+    }
+
+    if (derby.status !== "in_progress") {
+      throw new Error("Derby is not in progress");
+    }
+
+    if (!derby.current_turn_roster_id) {
+      throw new Error("No current turn to skip");
+    }
+
+    // Add current roster to skipped list
+    const skippedRosterIds = [
+      ...derby.skipped_roster_ids,
+      derby.current_turn_roster_id,
+    ];
+
+    // Calculate next turn
+    await calculateNextTurn(derby, skippedRosterIds, client);
+
+    await client.query("COMMIT");
+
+    // Fetch updated derby
+    const updatedDerby = await getDraftDerbyByDraftId(draftId);
+    return updatedDerby!;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Error skipping derby turn:", error);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Auto-assign a random available position (for timeout with 'auto' behavior)
+ */
+export async function autoAssignDerbyPosition(
+  draftId: number
+): Promise<DraftDerbySelection> {
+  const client = await pool.connect();
+  await setTransactionTimeouts(client);
+
+  try {
+    await client.query("BEGIN");
+
+    const derby = await getDraftDerbyByDraftId(draftId);
+
+    if (!derby) {
+      throw new Error("Derby not found");
+    }
+
+    if (derby.status !== "in_progress") {
+      throw new Error("Derby is not in progress");
+    }
+
+    // Determine which roster to auto-assign
+    let rosterToAssign: number;
+
+    if (derby.current_turn_roster_id) {
+      // Normal case: assign to current roster on the clock
+      rosterToAssign = derby.current_turn_roster_id;
+    } else if (derby.skipped_roster_ids && derby.skipped_roster_ids.length > 0) {
+      // Only skipped users remain: pick a random skipped roster to auto-assign
+      const selectionsQuery = `
+        SELECT roster_id FROM draft_derby_selections
+        WHERE derby_id = $1
+      `;
+      const selectionsResult = await client.query(selectionsQuery, [derby.id]);
+      const selectedRosterIds = selectionsResult.rows.map((r: any) => r.roster_id);
+
+      // Get skipped rosters that haven't selected yet
+      const skippedNotSelected = derby.skipped_roster_ids.filter(
+        rosterId => !selectedRosterIds.includes(rosterId)
+      );
+
+      if (skippedNotSelected.length === 0) {
+        throw new Error("No skipped rosters available to auto-assign");
+      }
+
+      // Pick random skipped roster
+      rosterToAssign = skippedNotSelected[Math.floor(Math.random() * skippedNotSelected.length)];
+      console.log(`[DerbyAutoAssign] Only skipped remain, randomly selected roster ${rosterToAssign}`);
+    } else {
+      throw new Error("No current turn and no skipped rosters to auto-assign");
+    }
+
+    // Get available positions
+    const derbyWithDetails = await getDraftDerbyWithDetails(draftId);
+
+    if (!derbyWithDetails || derbyWithDetails.available_positions.length === 0) {
+      throw new Error("No available positions to assign");
+    }
+
+    // Pick random available position
+    const randomPosition =
+      derbyWithDetails.available_positions[
+        Math.floor(Math.random() * derbyWithDetails.available_positions.length)
+      ];
+
+    // Make selection
+    const insertQuery = `
+      INSERT INTO draft_derby_selections (derby_id, roster_id, draft_position)
+      VALUES ($1, $2, $3)
+      RETURNING *
+    `;
+
+    const insertResult = await client.query(insertQuery, [
+      derby.id,
+      rosterToAssign,
+      randomPosition,
+    ]);
+
+    const selection = insertResult.rows[0];
+
+    // Remove the auto-assigned roster from skipped list if it was skipped
+    const updatedSkippedRosterIds = derby.skipped_roster_ids.filter(
+      id => id !== rosterToAssign
+    );
+
+    // Calculate next turn
+    await calculateNextTurn(derby, updatedSkippedRosterIds, client);
+
+    await client.query("COMMIT");
+
+    return selection;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Error auto-assigning derby position:", error);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Auto-assign all remaining skipped rosters at once
+ */
+export async function autoAssignAllSkippedRosters(
+  draftId: number
+): Promise<DraftDerbySelection[]> {
+  const client = await pool.connect();
+  await setTransactionTimeouts(client);
+
+  try {
+    await client.query("BEGIN");
+
+    const derby = await getDraftDerbyByDraftId(draftId);
+
+    if (!derby) {
+      throw new Error("Derby not found");
+    }
+
+    if (derby.status !== "in_progress") {
+      throw new Error("Derby is not in progress");
+    }
+
+    // Get all selections so far
+    const selectionsQuery = `
+      SELECT roster_id FROM draft_derby_selections
+      WHERE derby_id = $1
+    `;
+    const selectionsResult = await client.query(selectionsQuery, [derby.id]);
+    const selectedRosterIds = selectionsResult.rows.map((r: any) => r.roster_id);
+
+    // Get skipped rosters that haven't selected
+    const skippedNotSelected = derby.skipped_roster_ids.filter(
+      rosterId => !selectedRosterIds.includes(rosterId)
+    );
+
+    if (skippedNotSelected.length === 0) {
+      throw new Error("No skipped rosters to auto-assign");
+    }
+
+    // Get available positions
+    const derbyWithDetails = await getDraftDerbyWithDetails(draftId);
+    if (!derbyWithDetails || derbyWithDetails.available_positions.length === 0) {
+      throw new Error("No available positions");
+    }
+
+    const availablePositions = [...derbyWithDetails.available_positions];
+
+    // Shuffle available positions for random assignment
+    for (let i = availablePositions.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [availablePositions[i], availablePositions[j]] = [availablePositions[j], availablePositions[i]];
+    }
+
+    // Create selections for all skipped rosters
+    const selections: DraftDerbySelection[] = [];
+    for (let i = 0; i < skippedNotSelected.length; i++) {
+      const rosterId = skippedNotSelected[i];
+      const position = availablePositions[i];
+
+      const insertQuery = `
+        INSERT INTO draft_derby_selections (derby_id, roster_id, draft_position)
+        VALUES ($1, $2, $3)
+        RETURNING *
+      `;
+      const insertResult = await client.query(insertQuery, [
+        derby.id,
+        rosterId,
+        position,
+      ]);
+
+      selections.push(insertResult.rows[0]);
+    }
+
+    // Mark derby as completed
+    const completeQuery = `
+      UPDATE draft_derby
+      SET status = 'completed',
+          current_turn_roster_id = NULL,
+          current_turn_started_at = NULL,
+          skipped_roster_ids = '[]',
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+    `;
+    await client.query(completeQuery, [derby.id]);
+
+    await client.query("COMMIT");
+
+    console.log(`[DerbyAutoAssign] Auto-assigned ${selections.length} skipped rosters to positions`);
+
+    return selections;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Error auto-assigning all skipped rosters:", error);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Get all selections for a derby
+ */
+export async function getDerbySelections(
+  derbyId: number
+): Promise<DraftDerbySelection[]> {
+  try {
+    const query = `
+      SELECT * FROM draft_derby_selections
+      WHERE derby_id = $1
+      ORDER BY selected_at ASC
+    `;
+
+    const result = await pool.query(query, [derbyId]);
+    return result.rows;
+  } catch (error) {
+    console.error("Error getting derby selections:", error);
+    throw new Error("Error getting derby selections");
+  }
+}
+
+/**
+ * Delete draft derby (used during draft reset)
+ */
+export async function deleteDraftDerby(draftId: number): Promise<void> {
+  try {
+    const query = `DELETE FROM draft_derby WHERE draft_id = $1`;
+    await pool.query(query, [draftId]);
+  } catch (error) {
+    console.error("Error deleting draft derby:", error);
+    throw new Error("Error deleting draft derby");
+  }
+}
+
+/**
+ * Reset draft derby (clear selections, reset to pending)
+ */
+export async function resetDraftDerby(draftId: number): Promise<DraftDerby | null> {
+  const client = await pool.connect();
+  await setTransactionTimeouts(client);
+
+  try {
+    await client.query("BEGIN");
+
+    const derby = await getDraftDerbyByDraftId(draftId);
+
+    if (!derby) {
+      return null;
+    }
+
+    // Delete all selections
+    await client.query("DELETE FROM draft_derby_selections WHERE derby_id = $1", [
+      derby.id,
+    ]);
+
+    // Reset derby to pending, keep selection order but mark as not randomized
+    // This allows commissioner to randomize again if desired
+    const query = `
+      UPDATE draft_derby
+      SET status = 'pending',
+          current_turn_roster_id = NULL,
+          current_turn_started_at = NULL,
+          is_randomized = FALSE,
+          skipped_roster_ids = '[]',
+          updated_at = CURRENT_TIMESTAMP
+      WHERE draft_id = $1
+      RETURNING *
+    `;
+
+    const result = await client.query(query, [draftId]);
+
+    await client.query("COMMIT");
+
+    const resetDerby = result.rows[0];
+    return {
+      ...resetDerby,
+      selection_order: resetDerby.selection_order,
+      skipped_roster_ids: resetDerby.skipped_roster_ids || [],
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Error resetting draft derby:", error);
+    throw error;
+  } finally {
+    client.release();
+  }
+}

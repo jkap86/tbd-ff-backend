@@ -6,6 +6,7 @@ import {
   joinLeagueHandler,
   getPublicLeaguesHandler,
   updateLeagueSettingsHandler,
+  getPublicLeagueInfoHandler,
 } from "../controllers/leagueController";
 import { authenticate } from "../middleware/authMiddleware";
 import {
@@ -19,10 +20,15 @@ import { removeLeagueMemberHandler } from "../controllers/leagueController";
 import { getLeagueStatsHandler } from "../controllers/leagueController";
 import { resetLeagueHandler } from "../controllers/leagueController";
 import { deleteLeagueHandler } from "../controllers/leagueController";
+import { generateInviteLinkHandler } from "../controllers/leagueController";
+import { getOpponentSelectionOrderHandler } from "../controllers/leagueController";
+import { randomizeOpponentSelectionOrderHandler } from "../controllers/leagueController";
 import { getDraftByLeagueHandler } from "../controllers/draftController";
 import {
   sendLeagueChatMessageHandler,
   getLeagueChatMessagesHandler,
+  markLeagueChatAsReadHandler,
+  getUnreadMessageCountHandler,
 } from "../controllers/leagueChatController";
 import { getLeagueTradesController } from "../controllers/tradeController";
 
@@ -37,6 +43,21 @@ router.get("/public", publicDataLimiter, getPublicLeaguesHandler);
 
 // GET /api/leagues/user/:userId - Get all leagues for a user
 router.get("/user/:userId", getUserLeaguesHandler);
+
+/**
+ * Generate shareable league invitation link
+ * POST /api/leagues/:leagueId/generate-invite-link
+ * MUST be before /:leagueId route to avoid matching
+ */
+router.post("/:leagueId/generate-invite-link", authenticate, requireCommissioner, generateInviteLinkHandler);
+
+/**
+ * Get public league info for invite page
+ * GET /api/leagues/:leagueId/public-info
+ * No authentication required - returns only basic league info
+ * MUST be before /:leagueId route to avoid matching
+ */
+router.get("/:leagueId/public-info", getPublicLeagueInfoHandler);
 
 // GET /api/leagues/:leagueId - Get specific league details with rosters
 router.get("/:leagueId", authenticate, requireLeagueMember, getLeagueDetailsHandler);
@@ -100,10 +121,44 @@ router.post("/:leagueId/chat", authenticate, requireLeagueMember, sendLeagueChat
 router.get("/:leagueId/chat", authenticate, requireLeagueMember, getLeagueChatMessagesHandler);
 
 /**
+ * Mark league chat as read
+ * POST /api/leagues/:leagueId/chat/mark-read
+ */
+router.post("/:leagueId/chat/mark-read", authenticate, requireLeagueMember, markLeagueChatAsReadHandler);
+
+/**
+ * Get unread message count
+ * GET /api/leagues/:leagueId/chat/unread-count
+ */
+router.get("/:leagueId/chat/unread-count", authenticate, requireLeagueMember, getUnreadMessageCountHandler);
+
+/**
  * Reset league to pre-draft status
  * POST /api/leagues/:leagueId/reset
  */
 router.post("/:leagueId/reset", authenticate, requireCommissioner, resetLeagueHandler);
+
+/**
+ * Get opponent selection order
+ * GET /api/leagues/:leagueId/opponent-selection-order
+ */
+router.get(
+  "/:leagueId/opponent-selection-order",
+  authenticate,
+  requireLeagueMember,
+  getOpponentSelectionOrderHandler
+);
+
+/**
+ * Randomize opponent selection order
+ * POST /api/leagues/:leagueId/randomize-opponent-selection-order
+ */
+router.post(
+  "/:leagueId/randomize-opponent-selection-order",
+  authenticate,
+  requireCommissioner,
+  randomizeOpponentSelectionOrderHandler
+);
 
 /**
  * Delete a league (commissioner only)

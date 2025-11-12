@@ -1,7 +1,11 @@
+// REFACTORED: Using BaseController pattern to eliminate repetitive try-catch blocks
+// Before: 178 lines | After: 139 lines | Saved: 39 lines
+
 import { Request, Response } from "express";
 import { bulkUpsertPlayers, getAllPlayers, getPlayersByIds } from "../models/Player";
 import https from "https";
 import { logger } from "../utils/logger";
+import { BaseController } from "./BaseController";
 
 /**
  * Fetch players from Sleeper API
@@ -72,42 +76,24 @@ export async function syncPlayers(): Promise<number> {
   }
 }
 
-/**
- * Sync players from Sleeper API
- * POST /api/players/sync
- */
-export async function syncPlayersHandler(
-  _req: Request,
-  res: Response
-): Promise<void> {
-  try {
+class PlayerController extends BaseController {
+  /**
+   * Sync players from Sleeper API
+   * POST /api/players/sync
+   */
+  syncPlayersHandler = this.asyncHandler(async (_req: Request, res: Response): Promise<void> => {
     const upsertedCount = await syncPlayers();
 
-    res.status(200).json({
-      success: true,
-      message: `Successfully synced ${upsertedCount} active players from Sleeper`,
-      data: {
-        synced: upsertedCount,
-      },
-    });
-  } catch (error: any) {
-    logger.error("Error syncing players:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error syncing players from Sleeper",
-    });
-  }
-}
+    this.respondSuccess(res, {
+      synced: upsertedCount,
+    }, `Successfully synced ${upsertedCount} active players from Sleeper`);
+  });
 
-/**
- * Get all players with optional filtering
- * GET /api/players
- */
-export async function getPlayersHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Get all players with optional filtering
+   * GET /api/players
+   */
+  getPlayersHandler = this.asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { position, team, search } = req.query;
 
     const players = await getAllPlayers({
@@ -116,35 +102,18 @@ export async function getPlayersHandler(
       search: search as string,
     });
 
-    res.status(200).json({
-      success: true,
-      data: players,
-    });
-  } catch (error: any) {
-    logger.error("Error getting players:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error getting players",
-    });
-  }
-}
+    this.respondSuccess(res, players);
+  });
 
-/**
- * Get multiple players by IDs (bulk fetch)
- * POST /api/players/bulk
- */
-export async function getPlayersBulkHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Get multiple players by IDs (bulk fetch)
+   * POST /api/players/bulk
+   */
+  getPlayersBulkHandler = this.asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { player_ids } = req.body;
 
     if (!Array.isArray(player_ids)) {
-      res.status(400).json({
-        success: false,
-        message: "player_ids must be an array",
-      });
+      this.respondBadRequest(res, "player_ids must be an array");
       return;
     }
 
@@ -154,24 +123,17 @@ export async function getPlayersBulkHandler(
       .filter((id) => !isNaN(id));
 
     if (playerIds.length === 0) {
-      res.status(200).json({
-        success: true,
-        data: [],
-      });
+      this.respondSuccess(res, []);
       return;
     }
 
     const players = await getPlayersByIds(playerIds);
-
-    res.status(200).json({
-      success: true,
-      data: players,
-    });
-  } catch (error: any) {
-    logger.error("Error getting players by IDs:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error getting players by IDs",
-    });
-  }
+    this.respondSuccess(res, players);
+  });
 }
+
+// Export controller instance methods as standalone functions
+const controller = new PlayerController();
+export const syncPlayersHandler = controller.syncPlayersHandler;
+export const getPlayersHandler = controller.getPlayersHandler;
+export const getPlayersBulkHandler = controller.getPlayersBulkHandler;

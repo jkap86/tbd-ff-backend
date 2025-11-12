@@ -4,6 +4,8 @@ import cors from "cors";
 import helmet from "helmet";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import swaggerUi from "swagger-ui-express";
+import { swaggerSpec } from "./config/swagger";
 import authRoutes from "./routes/authRoutes";
 import { authenticate } from "./middleware/authMiddleware";
 import leagueRoutes from "./routes/leagueRoutes";
@@ -18,6 +20,7 @@ import matchupRoutes from "./routes/matchupRoutes";
 import weeklyLineupRoutes from "./routes/weeklyLineupRoutes";
 import nflRoutes from "./routes/nflRoutes";
 import { setupDraftSocket } from "./socket/draftSocket";
+import { setupDerbySocket } from "./socket/derbySocket";
 import { setupLeagueSocket } from "./socket/leagueSocket";
 import { setupMatchupSocket } from "./socket/matchupSocket";
 import { setupWaiverSocket } from "./socket/waiverSocket";
@@ -41,11 +44,56 @@ import playoffRoutes from "./routes/playoffRoutes";
 import leagueMedianRoutes from "./routes/leagueMedianRoutes";
 import injuryRoutes from "./routes/injuryRoutes";
 import adpRoutes from "./routes/adpRoutes";
+import keeperRoutes from "./routes/keeperRoutes";
+import dynastyRoutes from "./routes/dynastyRoutes";
+import draftPickTradeRoutes from "./routes/draftPickTradeRoutes";
+import notificationRoutes from "./routes/notificationRoutes";
 import { globalApiLimiter } from "./middleware/rateLimiter";
-import { checkDatabaseHealth } from "./config/database";
+import { requestIdMiddleware } from "./middleware/requestId";
+import pool from "./config/database";
+import { logger } from "./config/logger";
 
 // Load environment variables
 dotenv.config();
+
+// Validate critical environment variables
+const requiredEnvVars = [
+  'DATABASE_URL',
+  'JWT_SECRET',
+];
+
+const requiredProductionEnvVars = [
+  'SMTP_HOST',
+  'SMTP_USER',
+  'SMTP_PASS',
+  'FRONTEND_URL',
+  'ALLOWED_ORIGINS'
+];
+
+// Check required vars for all environments
+const missingRequired = requiredEnvVars.filter(v => !process.env[v]);
+if (missingRequired.length > 0) {
+  throw new Error(`Missing required environment variables: ${missingRequired.join(', ')}`);
+}
+
+// Check production-only vars
+if (process.env.NODE_ENV === 'production') {
+  const missingProduction = requiredProductionEnvVars.filter(v => !process.env[v]);
+  if (missingProduction.length > 0) {
+    throw new Error(`Missing required production environment variables: ${missingProduction.join(', ')}`);
+  }
+}
+
+// Validate JWT_SECRET length (critical for security)
+if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
+  throw new Error('JWT_SECRET must be at least 32 characters long');
+}
+
+logger.info('Environment validation passed', {
+  env: process.env.NODE_ENV,
+  requiredVarsPresent: requiredEnvVars.length,
+  productionVarsPresent: process.env.NODE_ENV === 'production' ? requiredProductionEnvVars.length : 'N/A'
+});
 
 // Parse and validate allowed origins
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",").map(origin => origin.trim());
@@ -58,8 +106,8 @@ if (!allowedOrigins || allowedOrigins.length === 0) {
     );
   } else {
     // Default for development only
-    console.warn(
-      "WARNING: ALLOWED_ORIGINS not set. Defaulting to localhost:3000 for development."
+    logger.warn(
+      "ALLOWED_ORIGINS not set. Defaulting to localhost:3000 for development."
     );
   }
 }
@@ -76,21 +124,24 @@ finalAllowedOrigins.forEach(origin => {
   }
 });
 
-console.log("CORS enabled for origins:", finalAllowedOrigins);
+logger.info("CORS enabled for origins", { origins: finalAllowedOrigins });
 
 // CORS configuration
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
+    // In development, allow localhost without origin
+    if (process.env.NODE_ENV !== "production" &&
+        (!origin || origin.startsWith("http://localhost"))) {
+      return callback(null, true);
+    }
+
+    // In production, allow requests without origin (mobile apps, native clients)
+    // Mobile apps typically don't send origin headers
     if (!origin) {
       return callback(null, true);
     }
 
-    // In development, allow any localhost port
-    if (process.env.NODE_ENV !== "production" && origin.startsWith("http://localhost:")) {
-      return callback(null, true);
-    }
-
+    // Check against whitelist
     if (finalAllowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -131,6 +182,7 @@ const PORT = process.env.PORT || 3000;
 
 // Setup Socket.io for draft, league, matchup, waiver, trade, and auction events
 setupDraftSocket(io);
+setupDerbySocket();
 setupLeagueSocket(io);
 setupMatchupSocket(io);
 setupWaiverSocket(io);
@@ -140,8 +192,13 @@ setupAuctionSocket(io);
 // Make io available globally for controllers
 export { io };
 
+// Trust proxy for Heroku (enables x-forwarded-* headers)
+// Set to 1 to trust only the first proxy (Heroku router) for security
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(helmet()); // Security headers
+app.use(requestIdMiddleware); // Request ID tracking
 app.use(cors(corsOptions)); // Enable CORS with configured origins
 // Request size limits to prevent resource exhaustion attacks
 // 100kb limit is adequate for API requests while preventing DoS via large payloads
@@ -152,48 +209,87 @@ app.use(express.urlencoded({ extended: true, limit: '100kb' })); // Parse URL-en
 // 100 requests per minute per IP
 app.use("/api", globalApiLimiter);
 
+// Swagger API documentation
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
 // Health check endpoint
 app.get("/health", async (_req, res) => {
-  const dbHealthy = await checkDatabaseHealth();
+  const health = {
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    checks: {
+      database: "unknown",
+      memory: "unknown",
+    },
+  };
 
-  if (dbHealthy) {
-    res.status(200).json({
-      status: "healthy",
-      database: "connected",
-      timestamp: new Date().toISOString(),
-    });
-  } else {
-    res.status(503).json({
-      status: "unhealthy",
-      database: "disconnected",
-      timestamp: new Date().toISOString(),
-    });
+  try {
+    // Check database
+    await pool.query("SELECT 1");
+    health.checks.database = "healthy";
+  } catch (error) {
+    health.checks.database = "unhealthy";
+    health.status = "degraded";
+  }
+
+  // Check memory usage
+  const memoryUsage = process.memoryUsage();
+  const memoryUsageMB = {
+    rss: Math.round(memoryUsage.rss / 1024 / 1024),
+    heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024),
+    heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024),
+  };
+
+  health.checks.memory = memoryUsageMB.heapUsed < 500 ? "healthy" : "warning";
+
+  const statusCode = health.status === "healthy" ? 200 : 503;
+  res.status(statusCode).json(health);
+});
+
+// Liveness probe endpoint
+app.get("/health/live", (_req, res) => {
+  res.status(200).json({ status: "alive" });
+});
+
+// Readiness probe endpoint
+app.get("/health/ready", async (_req, res) => {
+  try {
+    await pool.query("SELECT 1");
+    res.status(200).json({ status: "ready" });
+  } catch (error) {
+    res.status(503).json({ status: "not ready" });
   }
 });
 
-// API Routes
-app.use("/api/auth", authRoutes);
-app.use("/api/leagues", leagueRoutes);
-app.use("/api/invites", inviteRoutes);
-app.use("/api/users", userRoutes);
-app.use("/api/drafts", draftRoutes);
-app.use("/api/players", playerRoutes);
-app.use("/api/player-stats", playerStatsRoutes);
-app.use("/api/player-projections", playerProjectionsRoutes);
-app.use("/api/rosters", rosterRoutes);
-app.use("/api/matchups", matchupRoutes);
-app.use("/api/weekly-lineups", weeklyLineupRoutes);
-app.use("/api/nfl", nflRoutes);
-app.use("/api", waiverRoutes);
-app.use("/api/trades", tradeRoutes);
-app.use("/api", auctionRoutes);
-app.use("/api/playoffs", playoffRoutes);
-app.use("/api/league-median", leagueMedianRoutes);
-app.use("/api/injuries", injuryRoutes);
-app.use("/api/adp", adpRoutes);
+// Version 1 API routes
+const v1Router = express.Router();
+v1Router.use("/auth", authRoutes);
+v1Router.use("/leagues", leagueRoutes);
+v1Router.use("/invites", inviteRoutes);
+v1Router.use("/users", userRoutes);
+v1Router.use("/drafts", draftRoutes);
+v1Router.use("/players", playerRoutes);
+v1Router.use("/player-stats", playerStatsRoutes);
+v1Router.use("/player-projections", playerProjectionsRoutes);
+v1Router.use("/rosters", rosterRoutes);
+v1Router.use("/matchups", matchupRoutes);
+v1Router.use("/weekly-lineups", weeklyLineupRoutes);
+v1Router.use("/nfl", nflRoutes);
+v1Router.use("/", waiverRoutes);
+v1Router.use("/trades", tradeRoutes);
+v1Router.use("/", auctionRoutes);
+v1Router.use("/playoffs", playoffRoutes);
+v1Router.use("/league-median", leagueMedianRoutes);
+v1Router.use("/injuries", injuryRoutes);
+v1Router.use("/adp", adpRoutes);
+v1Router.use("/", keeperRoutes);
+v1Router.use("/", dynastyRoutes);
+v1Router.use("/", draftPickTradeRoutes);
+v1Router.use("/notifications", notificationRoutes);
 
 // Protected route example (to test authentication)
-app.get("/api/profile", authenticate, (req: Request, res: Response) => {
+v1Router.get("/profile", authenticate, (req: Request, res: Response) => {
   res.status(200).json({
     success: true,
     message: "Protected route accessed successfully",
@@ -201,6 +297,39 @@ app.get("/api/profile", authenticate, (req: Request, res: Response) => {
       user: req.user,
     },
   });
+});
+
+// Diagnostic logging endpoint (no auth required for debugging) - MUST be before v1Router
+app.post("/api/v1/diagnostic/log", (req: Request, res: Response) => {
+  const { message, data } = req.body;
+  console.log(`[DIAGNOSTIC] ${message}`, data ? JSON.stringify(data) : '');
+  res.json({ success: true });
+});
+
+// Mount v1 API (all routes now use versioned endpoints)
+app.use("/api/v1", v1Router);
+
+// Test push notifications page
+app.get("/test-push", (_req: Request, res: Response) => {
+  // Disable CSP for this test page
+  res.removeHeader('Content-Security-Policy');
+  res.setHeader('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval'; script-src * 'unsafe-inline' 'unsafe-eval'; connect-src *; img-src * data: blob: 'unsafe-inline'; frame-src *; style-src * 'unsafe-inline';");
+
+  const html = '<!DOCTYPE html><html><head><title>Push Test</title></head><body><h1>Push Test</h1>' +
+    '<input id="u" placeholder="User"><input id="p" type="password" placeholder="Pass">' +
+    '<button id="lb">Login</button><div id="lr"></div><br>' +
+    '<button id="rb" disabled>Register Token</button><div id="rr"></div>' +
+    '<script>const API="/api/v1";let t;' +
+    'document.getElementById("lb").addEventListener("click",async()=>{const u=document.getElementById("u").value,p=document.getElementById("p").value,r=document.getElementById("lr");' +
+    'r.textContent="Logging in...";try{const res=await fetch(API+"/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},' +
+    'body:JSON.stringify({username:u,password:p})});const d=await res.json();if(res.ok){t=d.data.token;r.textContent="OK! "+d.data.user.username;' +
+    'document.getElementById("rb").disabled=false}else{r.textContent="Failed: "+d.message}}catch(e){r.textContent="Error: "+e.message}});' +
+    'document.getElementById("rb").addEventListener("click",async()=>{const r=document.getElementById("rr");r.textContent="Registering...";try{' +
+    'const res=await fetch(API+"/notifications/token",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+t},' +
+    'body:JSON.stringify({token:"test_web_"+Date.now(),device_type:"web",device_id:"web_test"})});const d=await res.json();' +
+    'if(res.ok){r.textContent="Success! "+JSON.stringify(d)}else{r.textContent="Failed: "+JSON.stringify(d)}}' +
+    'catch(e){r.textContent="Error: "+e.message}});</script></body></html>';
+  res.send(html);
 });
 
 // 404 handler
@@ -217,11 +346,12 @@ app.use(errorHandler);
 
 // Start server
 httpServer.listen(PORT, () => {
-  console.log(`🚀 Server is running on port ${PORT}`);
-  console.log(`📍 Health check: http://localhost:${PORT}/health`);
-  console.log(`🔐 Auth endpoints: http://localhost:${PORT}/api/auth`);
-  console.log(`🔌 WebSocket server running for real-time draft updates`);
-  console.log(`⏱️  Auto-pick service initialized`);
+  logger.info(`Server is running on port ${PORT}`);
+  logger.info(`Health check: http://localhost:${PORT}/health`);
+  logger.info(`API Documentation: http://localhost:${PORT}/api-docs`);
+  logger.info(`Auth endpoints: http://localhost:${PORT}/api/auth`);
+  logger.info(`WebSocket server running for real-time draft updates`);
+  logger.info(`Auto-pick service initialized`);
 
   // Start background score scheduler (10 minute checks)
   startScoreScheduler();
@@ -267,30 +397,32 @@ httpServer.listen(PORT, () => {
   });
 
   // Sync injuries on server startup
-  syncInjuriesFromSleeper().catch(console.error);
+  syncInjuriesFromSleeper().catch((error) => {
+    logger.error('Failed to sync injuries on startup', { error: error.message, stack: error.stack });
+  });
 });
 
 // Graceful shutdown
 process.on("SIGTERM", () => {
-  console.log("SIGTERM signal received: closing HTTP server");
+  logger.info("SIGTERM signal received: closing HTTP server");
   stopAllAutoPickMonitoring();
   stopScoreScheduler();
   stopLiveScoreUpdates();
   stopTokenCleanupScheduler();
   httpServer.close(() => {
-    console.log("HTTP server closed");
+    logger.info("HTTP server closed");
     process.exit(0);
   });
 });
 
 process.on("SIGINT", () => {
-  console.log("SIGINT signal received: closing HTTP server");
+  logger.info("SIGINT signal received: closing HTTP server");
   stopAllAutoPickMonitoring();
   stopScoreScheduler();
   stopLiveScoreUpdates();
   stopTokenCleanupScheduler();
   httpServer.close(() => {
-    console.log("HTTP server closed");
+    logger.info("HTTP server closed");
     process.exit(0);
   });
 });

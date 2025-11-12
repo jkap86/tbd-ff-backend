@@ -7,20 +7,26 @@ import {
   isUserDraftCommissioner,
   doesUserOwnRoster,
 } from "../utils/draftAuthorization";
+import validator from "validator";
+import { SocketRateLimiter } from "../utils/socketRateLimiter";
+import { logger } from "../config/logger";
 
 export function setupDraftSocket(io: Server) {
   // Apply authentication middleware to all socket connections
   io.use(socketAuthMiddleware);
 
+  // Create rate limiter for chat messages (500ms cooldown = max 2 messages per second)
+  const chatLimiter = new SocketRateLimiter(500);
+
   io.on("connection", (socket: Socket) => {
     const user = socket.data.user;
     if (!user) {
-      console.error(`[DraftSocket] Socket connected without user data: ${socket.id}`);
+      logger.error('Socket connected without user data', { socketId: socket.id, context: 'DraftSocket' });
       socket.disconnect();
       return;
     }
 
-    console.log(`[DraftSocket] Socket connected: ${socket.id} - User: ${user.username} (${user.userId})`);
+    logger.info('Socket connected', { socketId: socket.id, username: user.username, userId: user.userId, context: 'DraftSocket' });
 
     /**
      * Join a draft room
@@ -40,7 +46,7 @@ export function setupDraftSocket(io: Server) {
         // Verify user is a participant in this draft
         const isParticipant = await isUserDraftParticipant(user.userId, draft_id);
         if (!isParticipant) {
-          console.log(`[DraftSocket] User ${user.username} (${user.userId}) denied access to draft ${draft_id} - not a participant`);
+          logger.warn('User denied access to draft - not a participant', { username: user.username, userId: user.userId, draftId: draft_id, context: 'DraftSocket' });
           socket.emit("error", { message: "Access denied: You are not a participant in this draft" });
           return;
         }
@@ -49,7 +55,7 @@ export function setupDraftSocket(io: Server) {
         const roomName = `draft_${draft_id}`;
         socket.join(roomName);
 
-        console.log(`[DraftSocket] User ${user.username} (${user.userId}) joined draft ${draft_id}`);
+        logger.info('User joined draft', { username: user.username, userId: user.userId, draftId: draft_id, context: 'DraftSocket' });
 
         // Notify others in the room
         socket.to(roomName).emit("user_joined", {
@@ -74,7 +80,7 @@ export function setupDraftSocket(io: Server) {
 
         io.to(roomName).emit("chat_message", systemMessage);
       } catch (error) {
-        console.error("[DraftSocket] Error joining draft:", error);
+        logger.error('Error joining draft', { error, context: 'DraftSocket' });
         socket.emit("error", { message: "Error joining draft" });
       }
     });
@@ -89,7 +95,7 @@ export function setupDraftSocket(io: Server) {
       const roomName = `draft_${draft_id}`;
       socket.leave(roomName);
 
-      console.log(`[DraftSocket] User ${user.username} (${user.userId}) left draft ${draft_id}`);
+      logger.info('User left draft', { username: user.username, userId: user.userId, draftId: draft_id, context: 'DraftSocket' });
 
       // Notify others in the room
       socket.to(roomName).emit("user_left", {
@@ -109,7 +115,7 @@ export function setupDraftSocket(io: Server) {
 
         io.to(roomName).emit("chat_message", systemMessage);
       } catch (error) {
-        console.error("[DraftSocket] Error sending leave message:", error);
+        logger.error('Error sending leave message', { error, context: 'DraftSocket' });
       }
     });
 
@@ -117,14 +123,31 @@ export function setupDraftSocket(io: Server) {
      * Send chat message
      */
     socket.on("send_chat_message", async (data: { draft_id: number; message: string }) => {
-      const { draft_id, message } = data;
+      const { draft_id } = data;
+      let { message } = data;
       const user = socket.data.user!;
 
+      // Rate limiting check
+      if (!chatLimiter.canProceed(user.userId)) {
+        socket.emit("rate_limit_error", { message: "Please slow down" });
+        return;
+      }
+
       try {
+        // Sanitize message
+        message = validator.escape(message);  // Escapes HTML characters
+        message = message.trim();
+        message = message.substring(0, 500);  // Limit length
+
+        if (message.length === 0) {
+          socket.emit("error", { message: "Message cannot be empty" });
+          return;
+        }
+
         // Verify user is a participant in this draft
         const isParticipant = await isUserDraftParticipant(user.userId, draft_id);
         if (!isParticipant) {
-          console.log(`[DraftSocket] User ${user.username} (${user.userId}) denied chat access to draft ${draft_id}`);
+          logger.warn('User denied chat access to draft', { username: user.username, userId: user.userId, draftId: draft_id, context: 'DraftSocket' });
           socket.emit("error", { message: "Access denied: You are not a participant in this draft" });
           return;
         }
@@ -144,7 +167,7 @@ export function setupDraftSocket(io: Server) {
           username: user.username, // Include username for display
         });
       } catch (error) {
-        console.error("[DraftSocket] Error sending chat message:", error);
+        logger.error('Error sending chat message', { error, context: 'DraftSocket' });
         socket.emit("error", { message: "Error sending chat message" });
       }
     });
@@ -166,7 +189,7 @@ export function setupDraftSocket(io: Server) {
         timestamp: new Date(),
       });
 
-      console.log(`Pick made in draft ${draft_id}: ${pick.pick_number}`);
+      logger.info('Pick made in draft', { draftId: draft_id, pickNumber: pick.pick_number, context: 'DraftSocket' });
     });
 
     /**
@@ -186,7 +209,7 @@ export function setupDraftSocket(io: Server) {
         timestamp: new Date(),
       });
 
-      console.log(`Draft ${draft_id} status changed to ${status}`);
+      logger.info('Draft status changed', { draftId: draft_id, status, context: 'DraftSocket' });
     });
 
     /**
@@ -224,7 +247,7 @@ export function setupDraftSocket(io: Server) {
         timestamp: new Date(),
       });
 
-      console.log(`Auto-pick made in draft ${draft_id} for roster ${roster_id}`);
+      logger.info('Auto-pick made in draft', { draftId: draft_id, rosterId: roster_id, context: 'DraftSocket' });
     });
 
     /**
@@ -242,7 +265,7 @@ export function setupDraftSocket(io: Server) {
         timestamp: new Date(),
       });
 
-      console.log(`Draft order set for draft ${draft_id}`);
+      logger.info('Draft order set', { draftId: draft_id, context: 'DraftSocket' });
     });
 
     /**
@@ -256,7 +279,7 @@ export function setupDraftSocket(io: Server) {
         // Verify user is a participant in this draft
         const isParticipant = await isUserDraftParticipant(user.userId, draft_id);
         if (!isParticipant) {
-          console.log(`[DraftSocket] User ${user.username} (${user.userId}) denied draft state access to draft ${draft_id}`);
+          logger.warn('User denied draft state access', { username: user.username, userId: user.userId, draftId: draft_id, context: 'DraftSocket' });
           socket.emit("error", { message: "Access denied: You are not a participant in this draft" });
           return;
         }
@@ -272,7 +295,7 @@ export function setupDraftSocket(io: Server) {
           timestamp: new Date(),
         });
       } catch (error) {
-        console.error("[DraftSocket] Error getting draft state:", error);
+        logger.error('Error getting draft state', { error, context: 'DraftSocket' });
         socket.emit("error", { message: "Error getting draft state" });
       }
     });
@@ -286,18 +309,50 @@ export function setupDraftSocket(io: Server) {
       is_autodrafting: boolean;
     }) => {
       const { draft_id, roster_id, is_autodrafting } = data;
-      const user = socket.data.user!;
+
+      // Check if user is properly attached to socket
+      if (!socket.data.user) {
+        logger.error('toggle_autodraft: User not attached to socket data', { context: 'DraftSocket' });
+        socket.emit("error", { message: "User authentication lost" });
+        return;
+      }
+
+      const user = socket.data.user;
 
       try {
         // Verify user owns this roster or is the commissioner
+        logger.info('Autodraft toggle request', {
+          username: user.username,
+          userId: user.userId,
+          userIdType: typeof user.userId,
+          rosterId: roster_id,
+          rosterIdType: typeof roster_id,
+          draftId: draft_id,
+          draftIdType: typeof draft_id,
+          context: 'DraftSocket'
+        });
+
+        logger.debug('Checking roster ownership', { userId: user.userId, rosterId: roster_id, draftId: draft_id, context: 'DraftSocket' });
         const ownsRoster = await doesUserOwnRoster(user.userId, roster_id, draft_id);
+        logger.debug('Roster ownership result', { ownsRoster, context: 'DraftSocket' });
+
+        logger.debug('Checking commissioner status', { userId: user.userId, draftId: draft_id, context: 'DraftSocket' });
         const isCommissioner = await isUserDraftCommissioner(user.userId, draft_id);
+        logger.debug('Commissioner status result', { isCommissioner, context: 'DraftSocket' });
 
         if (!ownsRoster && !isCommissioner) {
-          console.log(`[DraftSocket] User ${user.username} (${user.userId}) denied autodraft toggle for roster ${roster_id} in draft ${draft_id}`);
-          socket.emit("error", { message: "Access denied: You can only toggle autodraft for your own roster" });
+          logger.error('Autodraft toggle denied - user does not own roster and is not commissioner', {
+            username: user.username,
+            userId: user.userId,
+            rosterId: roster_id,
+            draftId: draft_id,
+            context: 'DraftSocket'
+          });
+          socket.emit("error", { message: "Access denied: You can only toggle autodraft for your own roster or if you are the commissioner" });
           return;
         }
+
+        logger.info('Autodraft toggle authorized', { userId: user.userId, rosterId: roster_id, draftId: draft_id, ownsRoster, isCommissioner, context: 'DraftSocket' });
 
         const { toggleAutodraft } = await import("../models/DraftOrder");
         const updatedOrder = await toggleAutodraft(draft_id, roster_id, is_autodrafting);
@@ -313,10 +368,19 @@ export function setupDraftSocket(io: Server) {
             timestamp: new Date(),
           });
 
-          console.log(`[DraftSocket] Autodraft ${is_autodrafting ? 'enabled' : 'disabled'} for roster ${roster_id} in draft ${draft_id} by ${user.username}`);
+          logger.info('Autodraft toggled', {
+            enabled: is_autodrafting,
+            rosterId: roster_id,
+            draftId: draft_id,
+            username: user.username,
+            context: 'DraftSocket'
+          });
+        } else {
+          logger.warn('toggleAutodraft returned null/false', { draftId: draft_id, rosterId: roster_id, context: 'DraftSocket' });
+          socket.emit("error", { message: "Failed to update autodraft status" });
         }
       } catch (error) {
-        console.error("[DraftSocket] Error toggling autodraft:", error);
+        logger.error('Error toggling autodraft', { error, context: 'DraftSocket' });
         socket.emit("error", { message: "Error toggling autodraft" });
       }
     });
@@ -327,9 +391,9 @@ export function setupDraftSocket(io: Server) {
     socket.on("disconnect", () => {
       const user = socket.data.user;
       if (user) {
-        console.log(`[DraftSocket] Socket disconnected: ${socket.id} - User: ${user.username} (${user.userId})`);
+        logger.info('Socket disconnected', { socketId: socket.id, username: user.username, userId: user.userId, context: 'DraftSocket' });
       } else {
-        console.log(`[DraftSocket] Socket disconnected: ${socket.id}`);
+        logger.info('Socket disconnected', { socketId: socket.id, context: 'DraftSocket' });
       }
     });
   });
@@ -389,20 +453,38 @@ declare global {
 }
 
 /**
+ * Determine the optimal interval based on remaining time
+ * - > 60 seconds: Update every 10 seconds (low frequency)
+ * - <= 60 seconds: Update every 1 second (high frequency)
+ */
+function getTimerInterval(secondsRemaining: number): number {
+  if (secondsRemaining > 60) {
+    return 10000; // 10 seconds
+  } else {
+    return 1000; // 1 second
+  }
+}
+
+/**
  * Start periodic timer broadcasts for a draft
- * Broadcasts every 5 seconds to keep all clients synchronized
+ * Uses dynamic intervals based on remaining time for optimal performance
  */
 export async function startTimerBroadcast(io: Server, draftId: number) {
   const { getDraftById } = await import("../models/Draft");
   const pool = (await import("../config/database")).default;
 
-  const intervalId = setInterval(async () => {
+  let currentInterval: number | null = null;
+  let intervalId: NodeJS.Timeout;
+
+  const broadcastTimer = async () => {
     try {
       const draft = await getDraftById(draftId);
 
       if (!draft || draft.status !== "in_progress") {
-        console.log(`[TimerBroadcast] Draft ${draftId} is not in progress, stopping broadcast`);
-        clearInterval(intervalId);
+        logger.info('Draft not in progress, stopping timer broadcast', { draftId, context: 'TimerBroadcast' });
+        if (intervalId) {
+          clearInterval(intervalId);
+        }
         if (global.draftTimerIntervals) {
           delete global.draftTimerIntervals[draftId];
         }
@@ -417,24 +499,85 @@ export async function startTimerBroadcast(io: Server, draftId: number) {
       );
 
       if (turn.rows.length > 0 && turn.rows[0].pick_expiration) {
+        const deadline = new Date(turn.rows[0].pick_expiration);
+        const secondsRemaining = Math.max(0, Math.floor((deadline.getTime() - Date.now()) / 1000));
+
+        // Broadcast the timer update
         broadcastTimerUpdate(
           io,
           draftId,
-          new Date(turn.rows[0].pick_expiration),
+          deadline,
           draft.current_pick
         );
+
+        // Determine if we need to change the interval
+        const optimalInterval = getTimerInterval(secondsRemaining);
+
+        if (currentInterval !== optimalInterval) {
+          logger.info('Changing timer interval', {
+            draftId,
+            fromMs: currentInterval,
+            toMs: optimalInterval,
+            secondsRemaining,
+            context: 'TimerBroadcast'
+          });
+          currentInterval = optimalInterval;
+
+          // Clear the current interval and restart with new interval
+          clearInterval(intervalId);
+          intervalId = setInterval(broadcastTimer, optimalInterval);
+
+          // Update stored interval ID
+          if (global.draftTimerIntervals) {
+            global.draftTimerIntervals[draftId] = intervalId;
+          }
+        }
       }
 
     } catch (error) {
-      console.error("[TimerBroadcast] Error:", error);
+      logger.error('Timer broadcast error', { error, context: 'TimerBroadcast' });
     }
-  }, 5000); // Every 5 seconds
+  };
+
+  // Start with initial interval based on current time remaining
+  try {
+    const draft = await getDraftById(draftId);
+    const pool = (await import("../config/database")).default;
+
+    if (draft && draft.status === "in_progress") {
+      const turn = await pool.query(
+        `SELECT pick_expiration FROM draft_order
+         WHERE draft_id = $1 AND pick_number = $2`,
+        [draftId, draft.current_pick]
+      );
+
+      if (turn.rows.length > 0 && turn.rows[0].pick_expiration) {
+        const deadline = new Date(turn.rows[0].pick_expiration);
+        const secondsRemaining = Math.max(0, Math.floor((deadline.getTime() - Date.now()) / 1000));
+        currentInterval = getTimerInterval(secondsRemaining);
+        logger.info('Starting timer broadcast', {
+          draftId,
+          intervalMs: currentInterval,
+          secondsRemaining,
+          context: 'TimerBroadcast'
+        });
+      } else {
+        currentInterval = 10000; // Default to 10 seconds if no deadline
+      }
+    } else {
+      currentInterval = 10000; // Default to 10 seconds
+    }
+  } catch (error) {
+    logger.error('Error determining initial timer interval', { error, context: 'TimerBroadcast' });
+    currentInterval = 10000; // Default to 10 seconds on error
+  }
+
+  // Start the interval
+  intervalId = setInterval(broadcastTimer, currentInterval);
 
   // Store interval ID for cleanup
   global.draftTimerIntervals = global.draftTimerIntervals || {};
   global.draftTimerIntervals[draftId] = intervalId;
-
-  console.log(`[TimerBroadcast] Started timer broadcast for draft ${draftId}`);
 }
 
 /**
@@ -444,7 +587,7 @@ export function stopTimerBroadcast(draftId: number) {
   if (global.draftTimerIntervals?.[draftId]) {
     clearInterval(global.draftTimerIntervals[draftId]);
     delete global.draftTimerIntervals[draftId];
-    console.log(`[TimerBroadcast] Stopped timer broadcast for draft ${draftId}`);
+    logger.info('Stopped timer broadcast', { draftId, context: 'TimerBroadcast' });
   }
 }
 
@@ -467,7 +610,11 @@ export function emitDerbyStarted(
     timestamp: new Date(),
   });
 
-  console.log(`[DerbySocket] Derby started for draft ${draftId} with ${derbyData.total_participants} participants`);
+  logger.info('Derby started', {
+    draftId,
+    totalParticipants: derbyData.total_participants,
+    context: 'DerbySocket'
+  });
 }
 
 /**
@@ -491,7 +638,12 @@ export function emitDerbySelection(
     timestamp: new Date(),
   });
 
-  console.log(`[DerbySocket] Roster ${selectionData.roster_id} selected position ${selectionData.position_selected} in draft ${draftId}`);
+  logger.info('Derby selection made', {
+    draftId,
+    rosterId: selectionData.roster_id,
+    positionSelected: selectionData.position_selected,
+    context: 'DerbySocket'
+  });
 }
 
 /**
@@ -515,7 +667,12 @@ export function emitDerbyTurnChange(
     timestamp: new Date(),
   });
 
-  console.log(`[DerbySocket] Derby turn changed to roster ${turnData.roster_id} (${turnData.roster_name}) in draft ${draftId}`);
+  logger.info('Derby turn changed', {
+    draftId,
+    rosterId: turnData.roster_id,
+    rosterName: turnData.roster_name,
+    context: 'DerbySocket'
+  });
 }
 
 /**
@@ -537,5 +694,9 @@ export function emitDerbyCompleted(
     timestamp: new Date(),
   });
 
-  console.log(`[DerbySocket] Derby completed for draft ${draftId} with final order:`, finalOrder.map(r => `${r.roster_name}(${r.draft_position})`).join(', '));
+  logger.info('Derby completed', {
+    draftId,
+    finalOrder: finalOrder.map(r => `${r.roster_name}(${r.draft_position})`).join(', '),
+    context: 'DerbySocket'
+  });
 }

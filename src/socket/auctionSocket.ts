@@ -1,4 +1,5 @@
 import { Server, Socket } from "socket.io";
+import { throttle } from "lodash";
 import {
   createNomination,
   placeBid,
@@ -9,18 +10,77 @@ import {
   assignAuctionPlayersToRosters,
 } from "../models/Auction";
 import { getDraftById, completeDraft } from "../models/Draft";
+import { socketAuthMiddleware } from "../middleware/socketAuthMiddleware";
+import { setTransactionTimeouts } from "../utils/transactionTimeout";
+import {
+  isUserDraftParticipant,
+  doesUserOwnRoster,
+} from "../utils/draftAuthorization";
+import { logger } from "../config/logger";
 
 // Track active nomination timers (for when bids close)
 const nominationTimers = new Map<number, NodeJS.Timeout>();
 
+// Track bid timers (for when bidding window closes in regular auctions)
+const bidTimers = new Map<number, NodeJS.Timeout>();
+
+// Track bid timer tick intervals (for countdown updates)
+const bidTimerIntervals = new Map<number, NodeJS.Timeout>();
+
 // Track turn timers (for when it's someone's turn to nominate)
 const turnTimers = new Map<number, NodeJS.Timeout>();
 
+// Throttle bid placements per roster to prevent spam (200ms cooldown)
+const bidThrottlers = new Map<number, Function>();
+const BID_THROTTLE_MS = 200;
+
 export function setupAuctionSocket(io: Server) {
+  // Apply authentication middleware to all socket connections
+  io.use(socketAuthMiddleware);
+
   io.on("connection", (socket: Socket) => {
+    const user = socket.data.user;
+    if (!user) {
+      logger.error('Socket connected without user data', { socketId: socket.id, context: 'AuctionSocket' });
+      socket.disconnect();
+      return;
+    }
+
+    logger.info('Socket connected', { socketId: socket.id, username: user.username, userId: user.userId, context: 'AuctionSocket' });
+
     // Join auction room
     socket.on("join_auction", async (data: { draftId: number; rosterId?: number }) => {
+      const user = socket.data.user!;
+
       try {
+        // Verify user is a participant in this draft
+        const isParticipant = await isUserDraftParticipant(user.userId, data.draftId);
+        if (!isParticipant) {
+          logger.warn('User denied access to auction - not a participant', {
+            username: user.username,
+            userId: user.userId,
+            draftId: data.draftId,
+            context: 'AuctionSocket'
+          });
+          socket.emit("error", { message: "Access denied: You are not a participant in this draft" });
+          return;
+        }
+
+        // If rosterId provided, verify user owns the roster
+        if (data.rosterId) {
+          const ownsRoster = await doesUserOwnRoster(user.userId, data.rosterId, data.draftId);
+          if (!ownsRoster) {
+            logger.warn('User denied access to roster', {
+              username: user.username,
+              userId: user.userId,
+              rosterId: data.rosterId,
+              context: 'AuctionSocket'
+            });
+            socket.emit("error", { message: "Access denied: You do not own this roster" });
+            return;
+          }
+        }
+
         const room = `auction_${data.draftId}`;
         socket.join(room);
 
@@ -33,7 +93,7 @@ export function setupAuctionSocket(io: Server) {
         const nominations = await getActiveNominations(data.draftId);
         socket.emit("active_nominations", nominations);
       } catch (error: any) {
-        console.error("Error joining auction:", error);
+        logger.error('Error joining auction', { error, context: 'AuctionSocket' });
         socket.emit("error", { message: error.message });
       }
     });
@@ -46,7 +106,25 @@ export function setupAuctionSocket(io: Server) {
         playerId: string;
         nominatingRosterId: number;
       }) => {
+        const user = socket.data.user!;
+
         try {
+          // Verify user is a participant in this draft
+          const isParticipant = await isUserDraftParticipant(user.userId, data.draftId);
+          if (!isParticipant) {
+            console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied nominate access to draft ${data.draftId}`);
+            socket.emit("error", { message: "Access denied: You are not a participant in this draft" });
+            return;
+          }
+
+          // Verify user owns the nominating roster
+          const ownsRoster = await doesUserOwnRoster(user.userId, data.nominatingRosterId, data.draftId);
+          if (!ownsRoster) {
+            console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied nominate - does not own roster ${data.nominatingRosterId}`);
+            socket.emit("error", { message: "Access denied: You can only nominate players for your own roster" });
+            return;
+          }
+
           const draft = await getDraftById(data.draftId);
           if (!draft) {
             throw new Error("Draft not found");
@@ -55,6 +133,16 @@ export function setupAuctionSocket(io: Server) {
           // Check if auction type
           if (draft.draft_type !== "auction" && draft.draft_type !== "slow_auction") {
             throw new Error("Draft is not an auction type");
+          }
+
+          // For regular auction, check if it's this roster's turn
+          if (draft.draft_type === "auction") {
+            if (draft.current_roster_id && draft.current_roster_id !== data.nominatingRosterId) {
+              socket.emit("error", {
+                message: "It's not your turn to nominate",
+              });
+              return;
+            }
           }
 
           // For slow auction, check nominations per manager limit
@@ -76,10 +164,19 @@ export function setupAuctionSocket(io: Server) {
 
           // Calculate deadline based on draft type
           let deadline: Date | null = null;
+          let bidDeadline: Date | null = null;
+
           if (draft.draft_type === "slow_auction" && draft.nomination_timer_hours) {
             deadline = new Date(Date.now() + draft.nomination_timer_hours * 60 * 60 * 1000);
-          } else if (draft.draft_type === "auction" && draft.pick_time_seconds) {
-            deadline = new Date(Date.now() + draft.pick_time_seconds * 1000);
+          } else if (draft.draft_type === "auction") {
+            // For regular auctions, pick_time_seconds is for nomination deadline
+            if (draft.pick_time_seconds) {
+              deadline = new Date(Date.now() + draft.pick_time_seconds * 1000);
+            }
+            // Calculate bid deadline using bid_timer_seconds
+            if (draft.bid_timer_seconds) {
+              bidDeadline = new Date(Date.now() + draft.bid_timer_seconds * 1000);
+            }
           }
 
           const nomination = await createNomination({
@@ -87,14 +184,25 @@ export function setupAuctionSocket(io: Server) {
             player_id: data.playerId,
             nominating_roster_id: data.nominatingRosterId,
             deadline,
+            bid_deadline: bidDeadline,
           });
 
           // Broadcast to all in auction room
           const room = `auction_${data.draftId}`;
           io.to(room).emit("player_nominated", nomination);
 
-          // Start timer for this nomination
-          if (deadline) {
+          // For regular auctions, emit bid timer started event and schedule bid expiry
+          if (draft.draft_type === "auction" && bidDeadline) {
+            io.to(room).emit("bid_timer_started", {
+              nominationId: nomination.id,
+              bidDeadline: bidDeadline,
+            });
+
+            scheduleBidExpiry(io, nomination.id, data.draftId, bidDeadline);
+          }
+
+          // For slow auctions, start timer for nomination expiry
+          if (draft.draft_type === "slow_auction" && deadline) {
             scheduleNominationExpiry(io, nomination.id, data.draftId, deadline);
           }
         } catch (error: any) {
@@ -113,35 +221,72 @@ export function setupAuctionSocket(io: Server) {
         maxBid: number;
         draftId: number;
       }) => {
-        try {
-          // Get nomination to check if it's a slow auction (for timer reset)
-          const nomination = await getNominationById(data.nominationId);
-          if (!nomination) {
-            throw new Error("Nomination not found");
-          }
+        const rosterId = data.rosterId;
 
-          const draft = await getDraftById(nomination.draft_id);
-          if (!draft) {
-            throw new Error("Draft not found");
-          }
+        // Get or create throttled handler for this roster
+        if (!bidThrottlers.has(rosterId)) {
+          bidThrottlers.set(rosterId, throttle(async (bidData) => {
+            const user = socket.data.user!;
 
-          // Process bid with proxy logic
-          const result = await placeBid({
-            nomination_id: data.nominationId,
-            roster_id: data.rosterId,
-            max_bid: data.maxBid,
-          });
+            try {
+              // Verify user is a participant in this draft
+              const isParticipant = await isUserDraftParticipant(user.userId, bidData.draftId);
+              if (!isParticipant) {
+                console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied bid access to draft ${bidData.draftId}`);
+                socket.emit("error", { message: "Access denied: You are not a participant in this draft" });
+                return;
+              }
 
-          if (result.success) {
-            const room = `auction_${data.draftId}`;
+              // Verify user owns the bidding roster
+              const ownsRoster = await doesUserOwnRoster(user.userId, bidData.rosterId, bidData.draftId);
+              if (!ownsRoster) {
+                console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied bid - does not own roster ${bidData.rosterId}`);
+                socket.emit("error", { message: "Access denied: You can only place bids for your own roster" });
+                return;
+              }
+
+              // Get nomination to check if it's a slow auction (for timer reset)
+              const nomination = await getNominationById(bidData.nominationId);
+              if (!nomination) {
+                throw new Error("Nomination not found");
+              }
+
+              const draft = await getDraftById(nomination.draft_id);
+              if (!draft) {
+                throw new Error("Draft not found");
+              }
+
+              // For regular auctions, check if bid window is still open
+              // Note: We're using the nomination deadline field to store bid_deadline for now
+              if (draft.draft_type === "auction" && nomination.deadline) {
+                const now = new Date();
+                const bidDeadline = new Date(nomination.deadline);
+
+                if (now >= bidDeadline) {
+                  socket.emit("error", {
+                    message: "Bid window has closed for this nomination"
+                  });
+                  return;
+                }
+              }
+
+              // Process bid with proxy logic
+              const result = await placeBid({
+                nomination_id: bidData.nominationId,
+                roster_id: bidData.rosterId,
+                max_bid: bidData.maxBid,
+              });
+
+              if (result.success) {
+                const room = `auction_${bidData.draftId}`;
 
             // Get team name for the bidder
             const { getRosterTeamName } = await import("../models/Auction");
             const teamName = await getRosterTeamName(result.currentBid.roster_id);
 
-            // Broadcast bid update (only shows current winning bid, not max)
-            io.to(room).emit("bid_placed", {
-              nominationId: data.nominationId,
+                // Broadcast bid update (only shows current winning bid, not max)
+                io.to(room).emit("bid_placed", {
+                  nominationId: bidData.nominationId,
               bid: {
                 id: result.currentBid.id,
                 nomination_id: result.currentBid.nomination_id,
@@ -173,30 +318,38 @@ export function setupAuctionSocket(io: Server) {
               });
             }
 
-            // For slow auction, reset timer
-            if (draft.draft_type === "slow_auction" && draft.nomination_timer_hours) {
-              const newDeadline = new Date(
-                Date.now() + draft.nomination_timer_hours * 60 * 60 * 1000
-              );
+                // For slow auction, reset timer
+                if (draft.draft_type === "slow_auction" && draft.nomination_timer_hours) {
+                  const newDeadline = new Date(
+                    Date.now() + draft.nomination_timer_hours * 60 * 60 * 1000
+                  );
 
-              // Update nomination deadline in database
-              const { updateNominationDeadline } = await import("../models/Auction");
-              await updateNominationDeadline(data.nominationId, newDeadline);
+                  // Update nomination deadline in database
+                  const { updateNominationDeadline } = await import("../models/Auction");
+                  await updateNominationDeadline(bidData.nominationId, newDeadline);
 
-              // Reset timer
-              resetNominationTimer(io, data.nominationId, data.draftId, newDeadline);
+                  // Reset timer
+                  resetNominationTimer(io, bidData.nominationId, bidData.draftId, newDeadline);
 
-              // Broadcast deadline update
-              io.to(room).emit("nomination_deadline_updated", {
-                nominationId: data.nominationId,
-                deadline: newDeadline,
+                  // Broadcast deadline update
+                  io.to(room).emit("nomination_deadline_updated", {
+                    nominationId: bidData.nominationId,
+                    deadline: newDeadline,
+                  });
+                }
+              }
+            } catch (error: any) {
+              console.error("[AuctionSocket] Error placing bid:", error);
+              socket.emit("error", {
+                message: error.message || "Failed to place bid"
               });
             }
-          }
-        } catch (error: any) {
-          console.error("Error placing bid:", error);
-          socket.emit("error", { message: error.message });
+          }, BID_THROTTLE_MS, { leading: true, trailing: false }));
         }
+
+        // Execute throttled handler
+        const throttledHandler = bidThrottlers.get(rosterId)!;
+        throttledHandler(data);
       }
     );
 
@@ -204,6 +357,18 @@ export function setupAuctionSocket(io: Server) {
       socket.leave(`auction_${data.draftId}`);
       if (data.rosterId) {
         socket.leave(`roster_${data.rosterId}`);
+      }
+    });
+
+    /**
+     * Handle disconnection
+     */
+    socket.on("disconnect", () => {
+      const user = socket.data.user;
+      if (user) {
+        console.log(`[AuctionSocket] Socket disconnected: ${socket.id} - User: ${user.username} (${user.userId})`);
+      } else {
+        console.log(`[AuctionSocket] Socket disconnected: ${socket.id}`);
       }
     });
   });
@@ -235,6 +400,7 @@ export function scheduleNominationExpiry(
 async function processNominationExpiry(io: Server, nominationId: number, draftId: number) {
   const pool = (await import("../config/database")).default;
   const client = await pool.connect();
+    await setTransactionTimeouts(client);
 
   try {
     await client.query('BEGIN');
@@ -359,66 +525,11 @@ async function processNominationExpiry(io: Server, nominationId: number, draftId
             if (league) {
               await updateLeague(league.id, { status: "in_season" });
 
-              const startWeek = league.settings?.start_week || 1;
-              const playoffWeekStart = league.settings?.playoff_week_start || 15;
-
-              // Generate matchups if they don't exist
-              console.log(`[Auction] Checking/generating matchups...`);
-              const { generateMatchupsForWeek, getMatchupsByLeagueAndWeek } =
-                await import("../models/Matchup");
-
-              for (let week = startWeek; week < playoffWeekStart; week++) {
-                try {
-                  const existingMatchups = await getMatchupsByLeagueAndWeek(
-                    league.id,
-                    week
-                  );
-                  if (existingMatchups.length === 0) {
-                    console.log(`[Auction] Generating matchups for week ${week}...`);
-                    await generateMatchupsForWeek(league.id, week, league.season);
-                  }
-                } catch (error) {
-                  console.error(
-                    `[Auction] Failed to generate matchups for week ${week}:`,
-                    error
-                  );
-                }
-              }
-
-              // Calculate scores for all weeks
-              console.log(`[Auction] Calculating scores for all weeks...`);
-              const { updateMatchupScoresForWeek } = await import(
-                "../services/scoringService"
+              // Initialize season: generate matchups and calculate scores
+              const { initializeSeasonFromLeague } = await import(
+                "../services/draftCompletionService"
               );
-              const { finalizeWeekScores, recalculateAllRecords } = await import(
-                "../services/recordService"
-              );
-
-              for (let week = startWeek; week < playoffWeekStart; week++) {
-                try {
-                  console.log(`[Auction] Updating scores for week ${week}...`);
-                  await updateMatchupScoresForWeek(
-                    league.id,
-                    week,
-                    league.season,
-                    "regular"
-                  );
-                  await finalizeWeekScores(league.id, week, league.season, "regular");
-                } catch (error) {
-                  console.error(
-                    `[Auction] Failed to update scores for week ${week}:`,
-                    error
-                  );
-                }
-              }
-
-              // Recalculate all records
-              console.log(`[Auction] Recalculating all records...`);
-              try {
-                await recalculateAllRecords(league.id, league.season);
-              } catch (error) {
-                console.error(`[Auction] Failed to recalculate records:`, error);
-              }
+              await initializeSeasonFromLeague(league);
             }
           }
 
@@ -490,6 +601,276 @@ export function cancelNominationTimer(nominationId: number) {
     clearTimeout(existingTimer);
     nominationTimers.delete(nominationId);
   }
+}
+
+// Bid timer functions (for regular auctions - controls when bidding closes)
+
+export function scheduleBidExpiry(
+  io: Server,
+  nominationId: number,
+  draftId: number,
+  bidDeadline: Date
+) {
+  const delay = bidDeadline.getTime() - Date.now();
+
+  // Don't schedule if deadline has already passed
+  if (delay <= 0) {
+    processBidExpiry(io, nominationId, draftId);
+    return;
+  }
+
+  const timer = setTimeout(async () => {
+    await processBidExpiry(io, nominationId, draftId);
+  }, delay);
+
+  bidTimers.set(nominationId, timer);
+
+  // Start bid timer tick interval (emit every second)
+  startBidTimerTick(io, nominationId, draftId, bidDeadline);
+}
+
+function startBidTimerTick(
+  io: Server,
+  nominationId: number,
+  draftId: number,
+  bidDeadline: Date
+) {
+  // Clear existing interval if any
+  const existingInterval = bidTimerIntervals.get(nominationId);
+  if (existingInterval) {
+    clearInterval(existingInterval);
+  }
+
+  const room = `auction_${draftId}`;
+
+  // Emit tick every second
+  const interval = setInterval(() => {
+    const now = Date.now();
+    const timeRemaining = Math.max(0, Math.floor((bidDeadline.getTime() - now) / 1000));
+
+    io.to(room).emit("bid_timer_tick", {
+      nominationId,
+      timeRemaining,
+      bidDeadline: bidDeadline,
+    });
+
+    // Stop interval when time runs out
+    if (timeRemaining <= 0) {
+      clearInterval(interval);
+      bidTimerIntervals.delete(nominationId);
+    }
+  }, 1000);
+
+  bidTimerIntervals.set(nominationId, interval);
+}
+
+function stopBidTimerTick(nominationId: number) {
+  const existingInterval = bidTimerIntervals.get(nominationId);
+  if (existingInterval) {
+    clearInterval(existingInterval);
+    bidTimerIntervals.delete(nominationId);
+  }
+}
+
+async function processBidExpiry(io: Server, nominationId: number, draftId: number) {
+  const pool = (await import("../config/database")).default;
+  const client = await pool.connect();
+  await setTransactionTimeouts(client);
+
+  try {
+    await client.query('BEGIN');
+
+    // Lock the nomination to prevent concurrent completion
+    const nominationResult = await client.query(
+      'SELECT * FROM auction_nominations WHERE id = $1 FOR UPDATE',
+      [nominationId]
+    );
+
+    if (nominationResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      bidTimers.delete(nominationId);
+      return;
+    }
+
+    const nomination = nominationResult.rows[0];
+
+    // Check if still active
+    if (nomination.status !== "active") {
+      await client.query('ROLLBACK');
+      bidTimers.delete(nominationId);
+      return;
+    }
+
+    const room = `auction_${draftId}`;
+
+    // Emit bid window closed event
+    io.to(room).emit("bid_window_closed", {
+      nominationId,
+      playerId: nomination.player_id,
+    });
+
+    // Get highest bidder (within transaction)
+    const bidsResult = await client.query(
+      `SELECT ab.*,
+        COALESCE(r.settings->>'team_name', u.username) as team_name
+       FROM auction_bids ab
+       LEFT JOIN rosters r ON ab.roster_id = r.id
+       LEFT JOIN users u ON r.user_id = u.id
+       WHERE ab.nomination_id = $1
+       ORDER BY ab.max_bid DESC, ab.created_at ASC`,
+      [nominationId]
+    );
+
+    const bids = bidsResult.rows;
+
+    if (bids.length > 0) {
+      // Award to highest bidder
+      const winningBid = bids.find((b) => b.is_winning);
+      if (winningBid) {
+        // Mark all bids as not winning (final state)
+        await client.query(
+          `UPDATE auction_bids
+           SET is_winning = false
+           WHERE nomination_id = $1`,
+          [nominationId]
+        );
+
+        // Complete the nomination
+        await client.query(
+          `UPDATE auction_nominations
+           SET status = 'completed',
+               winning_roster_id = $2,
+               winning_bid = $3,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1`,
+          [nominationId, winningBid.roster_id, winningBid.bid_amount]
+        );
+
+        // Commit transaction
+        await client.query('COMMIT');
+
+        // Get team name for the winner (after commit)
+        const teamResult = await pool.query(
+          `SELECT COALESCE(r.settings->>'team_name', u.username) as team_name
+           FROM rosters r
+           LEFT JOIN users u ON r.user_id = u.id
+           WHERE r.id = $1`,
+          [winningBid.roster_id]
+        );
+        const teamName = teamResult.rows[0]?.team_name;
+
+        // Get player details (after commit)
+        const playerResult = await pool.query(
+          `SELECT p.full_name as player_name
+           FROM auction_nominations an
+           LEFT JOIN players p ON an.player_id = p.player_id
+           WHERE an.id = $1`,
+          [nominationId]
+        );
+        const playerName = playerResult.rows[0]?.player_name;
+
+        io.to(room).emit("player_won", {
+          nominationId,
+          playerId: nomination.player_id,
+          playerName: playerName,
+          winningRosterId: winningBid.roster_id,
+          teamName: teamName,
+          amount: winningBid.bid_amount,
+        });
+
+        // Update budgets for winner
+        const winnerBudget = await getRosterBudget(winningBid.roster_id, draftId);
+        io.to(`roster_${winningBid.roster_id}`).emit("budget_updated", {
+          roster_id: winningBid.roster_id,
+          budget: winnerBudget,
+        });
+
+        // Check if auction is complete
+        const complete = await isAuctionComplete(draftId);
+        if (complete) {
+          console.log(`[Auction] Draft ${draftId} is complete!`);
+
+          // Complete the draft
+          const updatedDraft = await completeDraft(draftId);
+
+          // Assign auction players to rosters
+          await assignAuctionPlayersToRosters(draftId);
+
+          // Update league status to 'in_season'
+          const draft = await getDraftById(draftId);
+          if (draft) {
+            const { getLeagueById } = await import("../models/League");
+            const { updateLeague } = await import("../models/League");
+            const league = await getLeagueById(draft.league_id);
+
+            if (league) {
+              await updateLeague(league.id, { status: "in_season" });
+
+              // Initialize season: generate matchups and calculate scores
+              const { initializeSeasonFromLeague } = await import(
+                "../services/draftCompletionService"
+              );
+              await initializeSeasonFromLeague(league);
+            }
+          }
+
+          // Emit completion status
+          io.to(room).emit("auction_completed", {
+            draft: updatedDraft,
+            timestamp: new Date(),
+          });
+        }
+      } else {
+        await client.query('ROLLBACK');
+      }
+    } else {
+      // No bids - mark as passed
+      await client.query(
+        `UPDATE auction_nominations
+         SET status = 'passed',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [nominationId]
+      );
+
+      await client.query('COMMIT');
+
+      // Get player details (after commit)
+      const playerResult = await pool.query(
+        `SELECT p.full_name as player_name
+         FROM auction_nominations an
+         LEFT JOIN players p ON an.player_id = p.player_id
+         WHERE an.id = $1`,
+        [nominationId]
+      );
+      const playerName = playerResult.rows[0]?.player_name;
+
+      io.to(room).emit("nomination_expired", {
+        nominationId,
+        playerId: nomination.player_id,
+        playerName: playerName,
+      });
+    }
+
+    bidTimers.delete(nominationId);
+    stopBidTimerTick(nominationId);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error("Error processing bid expiry:", error);
+    bidTimers.delete(nominationId);
+    stopBidTimerTick(nominationId);
+  } finally {
+    client.release();
+  }
+}
+
+export function cancelBidTimer(nominationId: number) {
+  const existingTimer = bidTimers.get(nominationId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+    bidTimers.delete(nominationId);
+  }
+  stopBidTimerTick(nominationId);
 }
 
 // Turn timer functions (for auto-nominating when it's someone's turn)
@@ -565,10 +946,19 @@ async function processTurnExpiry(io: Server, draftId: number, rosterId: number) 
 
     // Calculate deadline for the nomination
     let deadline: Date | null = null;
+    let bidDeadline: Date | null = null;
+
     if (draft.draft_type === "slow_auction" && draft.nomination_timer_hours) {
       deadline = new Date(Date.now() + draft.nomination_timer_hours * 60 * 60 * 1000);
-    } else if (draft.draft_type === "auction" && draft.pick_time_seconds) {
-      deadline = new Date(Date.now() + draft.pick_time_seconds * 1000);
+    } else if (draft.draft_type === "auction") {
+      // For regular auctions, pick_time_seconds is for nomination deadline
+      if (draft.pick_time_seconds) {
+        deadline = new Date(Date.now() + draft.pick_time_seconds * 1000);
+      }
+      // Calculate bid deadline using bid_timer_seconds
+      if (draft.bid_timer_seconds) {
+        bidDeadline = new Date(Date.now() + draft.bid_timer_seconds * 1000);
+      }
     }
 
     // Create the nomination
@@ -577,14 +967,25 @@ async function processTurnExpiry(io: Server, draftId: number, rosterId: number) 
       player_id: randomPlayer.player_id,
       nominating_roster_id: rosterId,
       deadline,
+      bid_deadline: bidDeadline,
     });
 
     // Broadcast to all in auction room
     const room = `auction_${draftId}`;
     io.to(room).emit("player_nominated", nomination);
 
-    // Start timer for this nomination to expire (for bids)
-    if (deadline) {
+    // For regular auctions, emit bid timer started event and schedule bid expiry
+    if (draft.draft_type === "auction" && bidDeadline) {
+      io.to(room).emit("bid_timer_started", {
+        nominationId: nomination.id,
+        bidDeadline: bidDeadline,
+      });
+
+      scheduleBidExpiry(io, nomination.id, draftId, bidDeadline);
+    }
+
+    // For slow auctions, start timer for nomination expiry
+    if (draft.draft_type === "slow_auction" && deadline) {
       scheduleNominationExpiry(io, nomination.id, draftId, deadline);
     }
 

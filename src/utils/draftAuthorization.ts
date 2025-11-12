@@ -45,14 +45,20 @@ export async function isUserDraftCommissioner(
         SELECT 1
         FROM leagues l
         INNER JOIN drafts d ON d.league_id = l.id
-        WHERE d.id = $1 AND l.commissioner_id = $2
+        WHERE d.id = $1 AND (l.settings->>'commissioner_id')::int = $2
       ) as is_commissioner
     `;
 
     const result = await pool.query(query, [draftId, userId]);
-    return result.rows[0]?.is_commissioner || false;
+    const isCommissioner = result.rows[0]?.is_commissioner || false;
+
+    if (!isCommissioner) {
+      console.debug(`[DraftAuth] User ${userId} is not commissioner of draft ${draftId}`);
+    }
+
+    return isCommissioner;
   } catch (error) {
-    console.error("[DraftAuth] Error checking draft commissioner:", error);
+    console.error("[DraftAuth] Error checking draft commissioner for user", userId, "draft", draftId, ":", error);
     return false;
   }
 }
@@ -80,9 +86,15 @@ export async function doesUserOwnRoster(
     `;
 
     const result = await pool.query(query, [draftId, rosterId, userId]);
-    return result.rows[0]?.owns_roster || false;
+    const ownsRoster = result.rows[0]?.owns_roster || false;
+
+    if (!ownsRoster) {
+      console.debug(`[DraftAuth] User ${userId} does not own roster ${rosterId} in draft ${draftId}`);
+    }
+
+    return ownsRoster;
   } catch (error) {
-    console.error("[DraftAuth] Error checking roster ownership:", error);
+    console.error("[DraftAuth] Error checking roster ownership for user", userId, "roster", rosterId, "draft", draftId, ":", error);
     return false;
   }
 }

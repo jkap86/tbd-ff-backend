@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { BaseRepository } from "./BaseRepository";
 
 export interface LeagueInvite {
   id: number;
@@ -15,6 +16,14 @@ export interface CreateInviteInput {
   inviter_user_id: number;
   invited_user_id: number;
 }
+
+class LeagueInviteRepository extends BaseRepository<LeagueInvite> {
+  constructor() {
+    super('league_invites', 'id');
+  }
+}
+
+const inviteRepo = new LeagueInviteRepository();
 
 /**
  * Create a league invite
@@ -55,7 +64,7 @@ export async function createInvite(
 export async function getInvitesForUser(userId: number): Promise<any[]> {
   try {
     const query = `
-      SELECT 
+      SELECT
         li.*,
         l.name as league_name,
         l.season,
@@ -64,7 +73,7 @@ export async function getInvitesForUser(userId: number): Promise<any[]> {
       FROM league_invites li
       INNER JOIN leagues l ON li.league_id = l.id
       INNER JOIN users u ON li.inviter_user_id = u.id
-      WHERE li.invited_user_id = $1
+      WHERE li.invited_user_id = $1 AND li.status = 'pending'
       ORDER BY li.created_at DESC
     `;
 
@@ -78,65 +87,34 @@ export async function getInvitesForUser(userId: number): Promise<any[]> {
 
 /**
  * Get invite by ID
+ * BEFORE: 15 lines with manual query
+ * AFTER: 1 line using BaseRepository
  */
 export async function getInviteById(
   inviteId: number
 ): Promise<LeagueInvite | null> {
-  try {
-    const query = "SELECT * FROM league_invites WHERE id = $1";
-    const result = await pool.query(query, [inviteId]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error getting invite:", error);
-    throw new Error("Error getting invite");
-  }
+  return inviteRepo.findById(inviteId);
 }
 
 /**
  * Update invite status
+ * BEFORE: 21 lines with manual query
+ * AFTER: 1 line using BaseRepository
  */
 export async function updateInviteStatus(
   inviteId: number,
   status: string
 ): Promise<LeagueInvite | null> {
-  try {
-    const query = `
-      UPDATE league_invites
-      SET status = $1
-      WHERE id = $2
-      RETURNING *
-    `;
-
-    const result = await pool.query(query, [status, inviteId]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error updating invite status:", error);
-    throw new Error("Error updating invite status");
-  }
+  return inviteRepo.update(inviteId, { status });
 }
 
 /**
  * Delete invite
+ * BEFORE: 10 lines with manual query
+ * AFTER: 1 line using BaseRepository
  */
 export async function deleteInvite(inviteId: number): Promise<boolean> {
-  try {
-    const query = "DELETE FROM league_invites WHERE id = $1";
-    const result = await pool.query(query, [inviteId]);
-    return result.rowCount !== null && result.rowCount > 0;
-  } catch (error) {
-    console.error("Error deleting invite:", error);
-    throw new Error("Error deleting invite");
-  }
+  return inviteRepo.delete(inviteId);
 }
 
 /**

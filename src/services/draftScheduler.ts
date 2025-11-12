@@ -1,8 +1,12 @@
 import cron from "node-cron";
 import pool from "../config/database";
 import { Draft, pauseDraft, updateDraft } from "../models/Draft";
-import { startAutoPickMonitoring, stopAutoPickMonitoring } from "./autoPickService";
+import { startAutoPickMonitoring } from "./autoPickService";
 import { withCronLogging } from "../utils/cronHelper";
+import { getLeagueById, updateLeague } from "../models/League";
+import { getDraftOrder, getRosterAtPosition } from "../models/DraftOrder";
+import { calculateCurrentRoster } from "../controllers/draftController";
+import { logger } from "../utils/logger";
 
 /**
  * Draft Scheduler Service
@@ -92,8 +96,9 @@ async function checkAndUpdateDraftStatuses(): Promise<void> {
 
           const updatedDraft = await pauseDraft(draft.id);
 
-          // Stop auto-pick monitoring when paused
-          stopAutoPickMonitoring(draft.id);
+          // Keep auto-pick monitoring running even when paused
+          // This allows autodraft and manual picks to continue working
+          // The autoPickService already handles paused status correctly
 
           // Emit status change via WebSocket (if io is available)
           if (ioInstance) {
@@ -148,6 +153,185 @@ async function checkAndUpdateDraftStatuses(): Promise<void> {
 }
 
 /**
+ * Check all drafts and auto-start those that have reached their scheduled time
+ */
+async function checkAndAutoStartDrafts(): Promise<void> {
+  await withCronLogging(
+    async () => {
+      // Get all drafts that should auto-start
+      const query = `
+        SELECT * FROM drafts
+        WHERE status = 'not_started'
+          AND auto_start = true
+          AND scheduled_start_time IS NOT NULL
+          AND scheduled_start_time <= NOW()
+      `;
+
+      const result = await pool.query(query);
+      const drafts: Draft[] = result.rows;
+
+      if (drafts.length > 0) {
+        logger.info(`Found ${drafts.length} draft(s) ready to auto-start`);
+      }
+
+      for (const draft of drafts) {
+        logger.info(`Auto-starting draft ${draft.id} (scheduled for ${draft.scheduled_start_time})`);
+
+        try {
+          // Get league info
+          const league = await getLeagueById(draft.league_id);
+          if (!league) {
+            console.error(`[DraftScheduler] League ${draft.league_id} not found for draft ${draft.id}`);
+            continue;
+          }
+
+          // Handle auction drafts
+          if (draft.draft_type === "auction" || draft.draft_type === "slow_auction") {
+            // Get first roster for turn tracking using draft order
+            const draftOrder = await getDraftOrder(draft.id);
+            let firstRosterId = null;
+
+            if (draftOrder.length > 0) {
+              // Use draft order (sorted by draft_position)
+              const orderedRosters = draftOrder.sort((a, b) => a.draft_position - b.draft_position);
+              firstRosterId = orderedRosters[0].roster_id;
+            } else {
+              console.error(`[DraftScheduler] No draft order found for auction draft ${draft.id}`);
+              continue;
+            }
+
+            // Start the auction draft
+            const updateQuery = `
+              UPDATE drafts
+              SET status = 'in_progress',
+                  started_at = CURRENT_TIMESTAMP,
+                  current_roster_id = $1,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = $2
+              RETURNING *
+            `;
+            const updateResult = await pool.query(updateQuery, [firstRosterId, draft.id]);
+            const updatedDraft = updateResult.rows[0];
+
+            // Update league status to 'drafting'
+            await updateLeague(league.id, { status: "drafting" });
+
+            // Emit draft status change via WebSocket
+            if (ioInstance) {
+              ioInstance.to(`draft_${draft.id}`).emit("status_changed", {
+                status: "in_progress",
+                draft: updatedDraft,
+                timestamp: new Date(),
+              });
+
+              ioInstance.to(`draft_${draft.id}`).emit("draft_started", {
+                draft: updatedDraft,
+              });
+            }
+
+            // For regular auctions (not slow), start turn timer
+            if (draft.draft_type === "auction" && firstRosterId) {
+              // Dynamically import to avoid circular dependencies
+              const { scheduleTurnTimer } = await import("../socket/auctionSocket");
+              scheduleTurnTimer(ioInstance, draft.id, firstRosterId, draft.pick_time_seconds);
+            }
+
+            console.log(`[DraftScheduler] Successfully auto-started auction draft ${draft.id}`);
+          }
+          // Handle snake/linear drafts
+          else if (draft.draft_type === "snake" || draft.draft_type === "linear") {
+            // Check draft order
+            const draftOrder = await getDraftOrder(draft.id);
+            if (draftOrder.length === 0) {
+              console.error(`[DraftScheduler] Draft order not set for draft ${draft.id}`);
+              continue;
+            }
+
+            // Calculate first roster to pick
+            const totalRosters = league.total_rosters || draftOrder.length;
+            const { draftPosition } = calculateCurrentRoster(
+              1,
+              totalRosters,
+              draft.draft_type,
+              draft.third_round_reversal
+            );
+
+            const firstRosterId = await getRosterAtPosition(draft.id, draftPosition);
+
+            // Set pick deadline for first pick
+            const pickDeadline = new Date();
+            if (draft.timer_mode === 'chess') {
+              // Chess timer mode: Set reasonable buffer
+              pickDeadline.setSeconds(pickDeadline.getSeconds() + 300); // 5 min buffer
+            } else {
+              // Traditional mode: Use standard pick time
+              pickDeadline.setSeconds(pickDeadline.getSeconds() + draft.pick_time_seconds);
+            }
+
+            // Update draft_order with deadline for first pick
+            await pool.query(
+              `UPDATE draft_order
+               SET pick_expiration = $1, pick_number = $2
+               WHERE draft_id = $3 AND roster_id = $4`,
+              [pickDeadline, 1, draft.id, firstRosterId]
+            );
+
+            // Start the draft
+            const updateQuery = `
+              UPDATE drafts
+              SET status = 'in_progress',
+                  started_at = CURRENT_TIMESTAMP,
+                  current_pick = 1,
+                  current_round = 1,
+                  current_roster_id = $1,
+                  pick_deadline = $2,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = $3
+              RETURNING *
+            `;
+            const updateResult = await pool.query(updateQuery, [firstRosterId, pickDeadline, draft.id]);
+            const updatedDraft = updateResult.rows[0];
+
+            // Update league status to 'drafting'
+            await updateLeague(league.id, { status: "drafting" });
+
+            // Start auto-pick monitoring
+            startAutoPickMonitoring(draft.id);
+
+            // Emit draft status change via WebSocket
+            if (ioInstance) {
+              // Dynamically import to avoid circular dependencies
+              const { startTimerBroadcast } = await import("../socket/draftSocket");
+              startTimerBroadcast(ioInstance, draft.id);
+
+              ioInstance.to(`draft_${draft.id}`).emit("status_changed", {
+                status: "in_progress",
+                draft: updatedDraft,
+                timestamp: new Date(),
+              });
+
+              ioInstance.to(`draft_${draft.id}`).emit("draft_started", {
+                draft: updatedDraft,
+                deadline: pickDeadline.toISOString(),
+              });
+            }
+
+            console.log(`[DraftScheduler] Successfully auto-started ${draft.draft_type} draft ${draft.id}`);
+          }
+
+          // Check if draft should be immediately auto-paused
+          await checkAndAutoPauseDraft(draft.id);
+        } catch (error: any) {
+          console.error(`[DraftScheduler] Error auto-starting draft ${draft.id}:`, error);
+        }
+      }
+    },
+    'Draft Auto-Start Check',
+    { maxAttempts: 2, baseDelayMs: 1000 }
+  );
+}
+
+/**
  * Check and auto-pause a single draft immediately (e.g., when draft starts)
  */
 export async function checkAndAutoPauseDraft(draftId: number): Promise<void> {
@@ -177,8 +361,9 @@ export async function checkAndAutoPauseDraft(draftId: number): Promise<void> {
 
       const updatedDraft = await pauseDraft(draftId);
 
-      // Stop auto-pick monitoring when paused
-      stopAutoPickMonitoring(draftId);
+      // Keep auto-pick monitoring running even when paused
+      // This allows autodraft and manual picks to continue working
+      // The autoPickService already handles paused status correctly
 
       // Emit status change via WebSocket (if io is available)
       if (ioInstance) {
@@ -198,7 +383,7 @@ export async function checkAndAutoPauseDraft(draftId: number): Promise<void> {
  * Start the draft scheduler
  */
 export function startDraftScheduler(io?: any): void {
-  console.log("[DraftScheduler] Starting draft scheduler (checking every minute)");
+  logger.info("Draft scheduler initialized - checking every minute for auto-start and pause/resume");
 
   // Store io instance if provided
   if (io) {
@@ -206,6 +391,11 @@ export function startDraftScheduler(io?: any): void {
   }
 
   cron.schedule(SCHEDULE, async () => {
+    // Check for drafts that should auto-start
+    await checkAndAutoStartDrafts();
+
+    // Check for drafts that should auto-pause/resume
     await checkAndUpdateDraftStatuses();
   });
 }
+

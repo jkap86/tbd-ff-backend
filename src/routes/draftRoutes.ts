@@ -25,6 +25,9 @@ import {
   createDerby,
   selectDerbyPosition,
   skipDerbyTurn,
+  randomizeDerby,
+  pauseDerby,
+  resumeDerby,
 } from "../controllers/derbyController";
 import { authenticate } from "../middleware/authMiddleware";
 
@@ -79,19 +82,32 @@ router.get("/:draftId/chat", authenticate, getChatMessagesHandler);
 router.get("/:draftId/health", getDraftHealthHandler);
 
 // Derby routes
+// IMPORTANT: Specific routes (create, start, select, skip, randomize) must come BEFORE generic GET
+// Otherwise "/:draftId/derby/randomize" matches "/:draftId/derby" with randomize as a query param
+
 // POST /api/drafts/:draftId/derby/create - Create derby for draft (protected)
 router.post("/:draftId/derby/create", authenticate, createDerby);
 
 // POST /api/drafts/:draftId/derby/start - Start derby (protected)
 router.post("/:draftId/derby/start", authenticate, startDerby);
 
-// GET /api/drafts/:draftId/derby - Get derby status (protected)
-router.get("/:draftId/derby", authenticate, getDerbyStatus);
+// POST /api/drafts/:draftId/derby/randomize - Randomize derby order (protected, commissioner only)
+router.post("/:draftId/derby/randomize", authenticate, randomizeDerby);
 
 // POST /api/drafts/:draftId/derby/select - Select draft position (protected)
 router.post("/:draftId/derby/select", authenticate, selectDerbyPosition);
 
 // POST /api/drafts/:draftId/derby/skip - Skip current turn (protected, commissioner only)
 router.post("/:draftId/derby/skip", authenticate, skipDerbyTurn);
+
+// POST /api/drafts/:draftId/derby/pause - Pause derby timer (protected, commissioner only)
+router.post("/:draftId/derby/pause", authenticate, pauseDerby);
+
+// POST /api/drafts/:draftId/derby/resume - Resume derby timer (protected, commissioner only)
+router.post("/:draftId/derby/resume", authenticate, resumeDerby);
+
+// GET /api/drafts/:draftId/derby - Get derby status (protected)
+// This MUST come after all specific /derby/* routes to avoid matching them
+router.get("/:draftId/derby", authenticate, getDerbyStatus);
 
 export default router;

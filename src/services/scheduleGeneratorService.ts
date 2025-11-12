@@ -235,12 +235,12 @@ export function generateRoundRobinWeek(
 }
 
 /**
- * Validate that a schedule has no duplicates and covers all teams properly
+ * Validate that a schedule covers all teams properly
  *
  * Checks:
  * - Each team plays the correct number of games
  * - No team plays itself
- * - No duplicate matchups
+ * - Every team plays every other team at least once (duplicates allowed)
  * - Bye weeks distributed fairly (for odd team counts)
  *
  * @param matchups - Array of all matchups
@@ -314,13 +314,9 @@ export function validateSchedule(
       gamesPerTeam.set(roster1_id, games1 + 1);
       gamesPerTeam.set(roster2_id, games2 + 1);
 
-      // Track opponents for duplicate detection
+      // Track opponents (allow duplicates, just track who played who)
       const opponents1 = opponentsPerTeam.get(roster1_id)!;
       const opponents2 = opponentsPerTeam.get(roster2_id)!;
-
-      if (opponents1.has(roster2_id)) {
-        errors.push(`Duplicate matchup: Team ${roster1_id} plays Team ${roster2_id} multiple times`);
-      }
 
       opponents1.add(roster2_id);
       opponents2.add(roster1_id);
@@ -358,6 +354,19 @@ export function validateSchedule(
       `Schedule includes ${uniqueRosterIds.size} teams, but league has ${totalTeams} teams`
     );
   }
+
+  // Check that every team plays every other team at least once
+  opponentsPerTeam.forEach((opponents, teamId) => {
+    // Calculate expected opponents (total teams - 1, excluding self)
+    const expectedOpponents = totalTeams - 1;
+
+    if (opponents.size < expectedOpponents) {
+      const missingCount = expectedOpponents - opponents.size;
+      errors.push(
+        `Team ${teamId} only plays ${opponents.size} different opponents, missing ${missingCount}`
+      );
+    }
+  });
 
   return {
     valid: errors.length === 0,

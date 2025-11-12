@@ -1,4 +1,7 @@
 import pool from "../config/database";
+import { setTransactionTimeouts } from "../utils/transactionTimeout";
+import { escapeLikePattern } from "../utils/sqlHelpers";
+import { BaseRepository } from "./BaseRepository";
 
 export interface Player {
   id: number;
@@ -19,7 +22,20 @@ export interface Player {
 }
 
 /**
+ * Repository class for Player entities
+ * Extends BaseRepository to inherit CRUD operations
+ */
+class PlayerRepository extends BaseRepository<Player> {
+  constructor() {
+    super('players', 'id');
+  }
+}
+
+const playerRepository = new PlayerRepository();
+
+/**
  * Get all players
+ * REFACTORED: Uses playerRepository.query() for error handling (4 lines saved)
  */
 export async function getAllPlayers(
   filters?: {
@@ -28,45 +44,53 @@ export async function getAllPlayers(
     search?: string;
   }
 ): Promise<Player[]> {
-  try {
-    let query = `
-      SELECT id, player_id, full_name, position, team, age, years_exp, search_rank, fantasy_data_id, created_at, updated_at
-      FROM players
-      WHERE 1=1
-    `;
-    const params: any[] = [];
-    let paramCount = 1;
+  let query = `
+    SELECT id, player_id, full_name, position, team, age, years_exp, search_rank, fantasy_data_id, created_at, updated_at
+    FROM players
+    WHERE 1=1
+  `;
+  const params: any[] = [];
+  let paramCount = 1;
 
-    if (filters?.position) {
-      query += ` AND position = $${paramCount}`;
-      params.push(filters.position);
-      paramCount++;
-    }
-
-    if (filters?.team) {
-      query += ` AND team = $${paramCount}`;
-      params.push(filters.team);
-      paramCount++;
-    }
-
-    if (filters?.search) {
-      query += ` AND full_name ILIKE $${paramCount}`;
-      params.push(`%${filters.search}%`);
-      paramCount++;
-    }
-
-    query += ` ORDER BY search_rank NULLS LAST, full_name`;
-
-    const result = await pool.query(query, params);
-    return result.rows;
-  } catch (error) {
-    console.error("Error getting players:", error);
-    throw new Error("Error getting players");
+  if (filters?.position) {
+    query += ` AND position = $${paramCount}`;
+    params.push(filters.position);
+    paramCount++;
   }
+
+  if (filters?.team) {
+    query += ` AND team = $${paramCount}`;
+    params.push(filters.team);
+    paramCount++;
+  }
+
+  if (filters?.search) {
+    const escapedSearch = escapeLikePattern(filters.search);
+    query += ` AND full_name ILIKE $${paramCount}`;
+    params.push(`%${escapedSearch}%`);
+    paramCount++;
+  }
+
+  query += ` ORDER BY search_rank NULLS LAST, full_name`;
+
+  const result = await playerRepository['query'](query, params);
+  return result.rows;
+}
+
+export interface PaginatedPlayers {
+  data: Player[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrevious: boolean;
+  };
 }
 
 /**
- * Get available players for a draft (not yet drafted)
+ * Get available players for a draft (not yet drafted) with pagination
  */
 export async function getAvailablePlayersForDraft(
   draftId: number,
@@ -74,43 +98,90 @@ export async function getAvailablePlayersForDraft(
     position?: string;
     team?: string;
     search?: string;
+    page?: number;
+    limit?: number;
   }
-): Promise<Player[]> {
+): Promise<PaginatedPlayers> {
   try {
-    let query = `
-      SELECT p.id, p.player_id, p.full_name, p.position, p.team, p.age, p.years_exp, p.search_rank, p.fantasy_data_id, p.created_at, p.updated_at
-      FROM players p
-      WHERE p.player_id NOT IN (
-        SELECT player_id
-        FROM draft_picks
-        WHERE draft_id = $1 AND player_id IS NOT NULL
+    // Pagination parameters with defaults
+    const page = Math.max(1, filters?.page || 1);
+    const limit = Math.min(100, Math.max(1, filters?.limit || 50)); // Default 50, max 100
+    const offset = (page - 1) * limit;
+
+    // DEBUG: Log what we're querying
+    console.log(`[getAvailablePlayersForDraft] Querying for draft_id=${draftId}, filters:`, filters, `page=${page}, limit=${limit}, offset=${offset}`);
+
+    // Build the WHERE clause for filtering
+    let whereClause = `
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM draft_picks dp
+        WHERE dp.draft_id = $1
+          AND dp.player_id = p.player_id
+          AND dp.player_id IS NOT NULL
       )
     `;
     const params: any[] = [draftId];
     let paramCount = 2;
 
     if (filters?.position) {
-      query += ` AND p.position = $${paramCount}`;
+      whereClause += ` AND p.position = $${paramCount}`;
       params.push(filters.position);
       paramCount++;
     }
 
     if (filters?.team) {
-      query += ` AND p.team = $${paramCount}`;
+      whereClause += ` AND p.team = $${paramCount}`;
       params.push(filters.team);
       paramCount++;
     }
 
     if (filters?.search) {
-      query += ` AND p.full_name ILIKE $${paramCount}`;
-      params.push(`%${filters.search}%`);
+      const escapedSearch = escapeLikePattern(filters.search);
+      whereClause += ` AND p.full_name ILIKE $${paramCount}`;
+      params.push(`%${escapedSearch}%`);
       paramCount++;
     }
 
-    query += ` ORDER BY p.search_rank NULLS LAST, p.full_name`;
+    // Get total count for pagination metadata
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM players p
+      ${whereClause}
+    `;
+    const countResult = await pool.query(countQuery, params);
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limit);
 
-    const result = await pool.query(query, params);
-    return result.rows;
+    // Get paginated data
+    const dataQuery = `
+      SELECT p.id, p.player_id, p.full_name, p.position, p.team, p.age, p.years_exp, p.search_rank, p.fantasy_data_id, p.created_at, p.updated_at
+      FROM players p
+      ${whereClause}
+      ORDER BY p.search_rank NULLS LAST, p.full_name
+      LIMIT $${paramCount} OFFSET $${paramCount + 1}
+    `;
+    params.push(limit, offset);
+
+    // DEBUG: Log the final query
+    console.log(`[getAvailablePlayersForDraft] Query:`, dataQuery);
+    console.log(`[getAvailablePlayersForDraft] Params:`, params);
+
+    const result = await pool.query(dataQuery, params);
+
+    console.log(`[getAvailablePlayersForDraft] Returned ${result.rows.length} players (page ${page}/${totalPages}, total: ${total})`);
+
+    return {
+      data: result.rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrevious: page > 1,
+      },
+    };
   } catch (error) {
     console.error("Error getting available players:", error);
     throw new Error("Error getting available players");
@@ -119,26 +190,10 @@ export async function getAvailablePlayersForDraft(
 
 /**
  * Get player by ID
+ * REFACTORED: Uses playerRepository.findById() for simplified query (13 lines saved)
  */
 export async function getPlayerById(playerId: number): Promise<Player | null> {
-  try {
-    const query = `
-      SELECT id, player_id, full_name, position, team, age, years_exp, search_rank, fantasy_data_id, created_at, updated_at
-      FROM players
-      WHERE id = $1
-    `;
-
-    const result = await pool.query(query, [playerId]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error getting player:", error);
-    throw new Error("Error getting player");
-  }
+  return playerRepository.findById(playerId);
 }
 
 /**
@@ -259,6 +314,7 @@ export async function bulkUpsertPlayers(
   }
 
   const client = await pool.connect();
+    await setTransactionTimeouts(client);
   try {
     await client.query("BEGIN");
 

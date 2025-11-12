@@ -5,68 +5,56 @@ import {
   getChatMessagesSince,
 } from "../models/DraftChatMessage";
 import { getDraftById } from "../models/Draft";
+import { BaseController } from "./BaseController";
 
-/**
- * Send a chat message
- * POST /api/drafts/:draftId/chat
- */
-export async function sendChatMessageHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const { draftId } = req.params;
+// Before: 100 lines
+// After: 83 lines
+// Lines saved: 17
+
+class ChatController extends BaseController {
+  /**
+   * Send a chat message
+   * POST /api/drafts/:draftId/chat
+   */
+  sendChatMessage = this.asyncHandler(async (
+    req: Request,
+    res: Response
+  ) => {
+    const draftId = this.validateId(req.params.draftId, "Draft ID");
     const { user_id, message, message_type = "chat", metadata = {} } = req.body;
 
-    if (!user_id || !message) {
-      res.status(400).json({
-        success: false,
-        message: "user_id and message are required",
-      });
-      return;
+    // Validate required fields
+    const validated = this.validateRequiredFields(req.body, ['user_id', 'message']);
+    if (!validated) {
+      return this.respondBadRequest(res, "user_id and message are required");
     }
 
     // Verify draft exists
-    const draft = await getDraftById(parseInt(draftId));
+    const draft = await getDraftById(draftId);
     if (!draft) {
-      res.status(404).json({
-        success: false,
-        message: "Draft not found",
-      });
-      return;
+      return this.respondNotFound(res, "Draft not found");
     }
 
     const chatMessage = await createChatMessage({
-      draft_id: parseInt(draftId),
+      draft_id: draftId,
       user_id,
       message,
       message_type,
       metadata,
     });
 
-    res.status(201).json({
-      success: true,
-      data: chatMessage,
-    });
-  } catch (error: any) {
-    console.error("Error sending chat message:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error sending chat message",
-    });
-  }
-}
+    this.respondCreated(res, chatMessage);
+  });
 
-/**
- * Get chat messages for a draft
- * GET /api/drafts/:draftId/chat
- */
-export async function getChatMessagesHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const { draftId } = req.params;
+  /**
+   * Get chat messages for a draft
+   * GET /api/drafts/:draftId/chat
+   */
+  getChatMessages = this.asyncHandler(async (
+    req: Request,
+    res: Response
+  ) => {
+    const draftId = this.validateId(req.params.draftId, "Draft ID");
     const { limit = 100, since } = req.query;
 
     let messages;
@@ -74,26 +62,22 @@ export async function getChatMessagesHandler(
     if (since) {
       // Get messages since a specific timestamp
       messages = await getChatMessagesSince(
-        parseInt(draftId),
+        draftId,
         new Date(since as string)
       );
     } else {
       // Get recent messages
       messages = await getChatMessagesWithDetails(
-        parseInt(draftId),
+        draftId,
         parseInt(limit as string)
       );
     }
 
-    res.status(200).json({
-      success: true,
-      data: messages,
-    });
-  } catch (error: any) {
-    console.error("Error getting chat messages:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error getting chat messages",
-    });
-  }
+    this.respondSuccess(res, messages);
+  });
 }
+
+const controller = new ChatController();
+
+export const sendChatMessageHandler = controller.sendChatMessage;
+export const getChatMessagesHandler = controller.getChatMessages;

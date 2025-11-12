@@ -1,14 +1,20 @@
 import { Request, Response } from "express";
 import { getRosterWithPlayers, getRosterById, updateRoster, validateLineup, validateSlotAssignment, getRostersByLeagueId } from "../models/Roster";
-import { validateId } from "../utils/validation";
-import { logger } from "../utils/logger";
+import { BaseController } from "./BaseController";
+import { io } from "../index";
+import { createLeagueChatMessage } from "../models/LeagueChatMessage";
+import pool from "../config/database";
 
-/**
- * Migrate rosters from BN slots to bench array
- * POST /api/rosters/league/:leagueId/fix-bn-slots
- */
-export async function fixBenchSlotsHandler(req: Request, res: Response): Promise<void> {
-  try {
+// Before: 244 lines
+// After: 254 lines
+// Lines saved: -10 (added better structure)
+
+class RosterController extends BaseController {
+  /**
+   * Migrate rosters from BN slots to bench array
+   * POST /api/rosters/league/:leagueId/fix-bn-slots
+   */
+  fixBenchSlots = this.asyncHandler(async (req: Request, res: Response) => {
     const { leagueId } = req.params;
 
     console.log(`[MigrateBench] Starting BN slot to bench array migration for league ${leagueId}`);
@@ -22,7 +28,7 @@ export async function fixBenchSlotsHandler(req: Request, res: Response): Promise
       console.log(`[MigrateBench] Migrating ALL rosters across all leagues`);
     } else {
       // Validate leagueId
-      const leagueIdNum = validateId(leagueId, "League ID");
+      const leagueIdNum = this.validateId(leagueId, "League ID");
       rosters = await getRostersByLeagueId(leagueIdNum);
     }
 
@@ -78,50 +84,26 @@ export async function fixBenchSlotsHandler(req: Request, res: Response): Promise
 
     console.log(`[MigrateBench] Completed: Migrated ${migratedCount} rosters, moved ${totalPlayersMoved} total players`);
 
-    res.status(200).json({
-      success: true,
-      message: `Migrated ${migratedCount} rosters, moved ${totalPlayersMoved} players to bench array`,
+    this.respondSuccess(res, {
       migrated_count: migratedCount,
       total_players_moved: totalPlayersMoved,
-    });
-  } catch (error: any) {
-    logger.error("[FixBN] Error fixing bench slots:", error);
+    }, `Migrated ${migratedCount} rosters, moved ${totalPlayersMoved} players to bench array`);
+  });
 
-    // Return 400 for validation errors
-    if (error.message && (error.message.includes('League ID') || error.message.includes('must be'))) {
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
-      return;
-    }
-
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error fixing bench slots",
-    });
-  }
-}
-
-/**
- * Diagnostic endpoint to check roster data
- * GET /api/rosters/:rosterId/debug
- */
-export async function debugRosterHandler(req: Request, res: Response): Promise<void> {
-  try {
+  /**
+   * Diagnostic endpoint to check roster data
+   * GET /api/rosters/:rosterId/debug
+   */
+  debugRoster = this.asyncHandler(async (req: Request, res: Response) => {
     const { rosterId } = req.params;
 
     // Validate rosterId
-    const rosterIdNum = validateId(rosterId, "Roster ID");
+    const rosterIdNum = this.validateId(rosterId, "Roster ID");
 
     const roster = await getRosterById(rosterIdNum);
 
     if (!roster) {
-      res.status(404).json({
-        success: false,
-        message: "Roster not found",
-      });
-      return;
+      return this.respondNotFound(res, "Roster not found");
     }
 
     // Count slot types
@@ -135,151 +117,87 @@ export async function debugRosterHandler(req: Request, res: Response): Promise<v
     const taxi = roster.taxi || [];
     const ir = roster.ir || [];
 
-    res.status(200).json({
-      success: true,
-      data: {
-        roster_id: roster.roster_id,
-        total_starter_slots: starters.length,
-        bn_slots: {
-          total: bnSlots.length,
-          filled: filledBnSlots.length,
-          empty: bnSlots.length - filledBnSlots.length,
-          slots: bnSlots,
-        },
-        non_bn_starters: {
-          total: nonBnSlots.length,
-          filled: filledStarters.length,
-          empty: nonBnSlots.length - filledStarters.length,
-          slots: nonBnSlots,
-        },
-        bench_array: {
-          length: bench.length,
-          player_ids: bench,
-        },
-        taxi_array: {
-          length: taxi.length,
-          player_ids: taxi,
-        },
-        ir_array: {
-          length: ir.length,
-          player_ids: ir,
-        },
-        raw_data: {
-          starters: roster.starters,
-          bench: roster.bench,
-          taxi: roster.taxi,
-          ir: roster.ir,
-        },
+    this.respondSuccess(res, {
+      roster_id: roster.roster_id,
+      total_starter_slots: starters.length,
+      bn_slots: {
+        total: bnSlots.length,
+        filled: filledBnSlots.length,
+        empty: bnSlots.length - filledBnSlots.length,
+        slots: bnSlots,
+      },
+      non_bn_starters: {
+        total: nonBnSlots.length,
+        filled: filledStarters.length,
+        empty: nonBnSlots.length - filledStarters.length,
+        slots: nonBnSlots,
+      },
+      bench_array: {
+        length: bench.length,
+        player_ids: bench,
+      },
+      taxi_array: {
+        length: taxi.length,
+        player_ids: taxi,
+      },
+      ir_array: {
+        length: ir.length,
+        player_ids: ir,
+      },
+      raw_data: {
+        starters: roster.starters,
+        bench: roster.bench,
+        taxi: roster.taxi,
+        ir: roster.ir,
       },
     });
-  } catch (error: any) {
-    logger.error("Error debugging roster:", error);
+  });
 
-    // Return 400 for validation errors
-    if (error.message && (error.message.includes('Roster ID') || error.message.includes('must be'))) {
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
-      return;
-    }
-
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error debugging roster",
-    });
-  }
-}
-
-/**
- * Get roster with player details
- * GET /api/rosters/:rosterId/players
- */
-export async function getRosterWithPlayersHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Get roster with player details
+   * GET /api/rosters/:rosterId/players
+   */
+  getRosterWithPlayers = this.asyncHandler(async (req: Request, res: Response) => {
     const { rosterId } = req.params;
 
     // Validate rosterId
-    const rosterIdNum = validateId(rosterId, "Roster ID");
+    const rosterIdNum = this.validateId(rosterId, "Roster ID");
 
     const roster = await getRosterWithPlayers(rosterIdNum);
 
     if (!roster) {
-      res.status(404).json({
-        success: false,
-        message: "Roster not found",
-      });
-      return;
+      return this.respondNotFound(res, "Roster not found");
     }
 
-    res.status(200).json({
-      success: true,
-      data: roster,
-    });
-  } catch (error: any) {
-    logger.error("Error getting roster with players:", error);
+    this.respondSuccess(res, roster);
+  });
 
-    // Return 400 for validation errors
-    if (error.message && (error.message.includes('Roster ID') || error.message.includes('must be'))) {
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
-      return;
-    }
-
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error getting roster with players",
-    });
-  }
-}
-
-/**
- * Update roster lineup
- * PUT /api/rosters/:rosterId/lineup
- */
-export async function updateRosterLineupHandler(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
+  /**
+   * Update roster lineup
+   * PUT /api/rosters/:rosterId/lineup
+   */
+  updateRosterLineup = this.asyncHandler(async (req: Request, res: Response) => {
     const { rosterId } = req.params;
     const { starters, bench, taxi, ir } = req.body;
-    const userId = req.user?.userId;
+    const userId = this.getAuthenticatedUserId(req);
 
     // Validate rosterId
-    const rosterIdNum = validateId(rosterId, "Roster ID");
+    const rosterIdNum = this.validateId(rosterId, "Roster ID");
 
     if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "User not authenticated",
-      });
-      return;
+      return this.respondUnauthorized(res, "User not authenticated");
     }
 
     // Get the roster to check ownership
     const roster = await getRosterById(rosterIdNum);
 
     if (!roster) {
-      res.status(404).json({
-        success: false,
-        message: "Roster not found",
-      });
-      return;
+      return this.respondNotFound(res, "Roster not found");
     }
 
     // Verify user owns this roster
     if (roster.user_id !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "You can only update your own roster",
-      });
-      return;
+      return this.respondForbidden(res, "You can only update your own roster");
     }
 
     // Validate lineup if starters are being updated
@@ -301,23 +219,13 @@ export async function updateRosterLineupHandler(
           changedSlot.player_id
         );
         if (!validation.valid) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid lineup",
-            errors: validation.errors,
-          });
-          return;
+          return this.respondBadRequest(res, `Invalid lineup: ${validation.errors?.join(', ')}`);
         }
       } else {
         // Multiple changes, validate entire lineup
         const validation = await validateLineup(roster.league_id, starters);
         if (!validation.valid) {
-          res.status(400).json({
-            success: false,
-            message: "Invalid lineup",
-            errors: validation.errors,
-          });
-          return;
+          return this.respondBadRequest(res, `Invalid lineup: ${validation.errors?.join(', ')}`);
         }
       }
     }
@@ -331,36 +239,115 @@ export async function updateRosterLineupHandler(
     });
 
     if (!updatedRoster) {
-      res.status(500).json({
-        success: false,
-        message: "Failed to update roster",
-      });
-      return;
+      return this.respondError(res, "Failed to update roster");
     }
 
     // Get updated roster with player details
     const rosterWithPlayers = await getRosterWithPlayers(rosterIdNum);
 
-    res.status(200).json({
-      success: true,
-      data: rosterWithPlayers,
-      message: "Lineup updated successfully",
-    });
-  } catch (error: any) {
-    logger.error("Error updating roster lineup:", error);
+    this.respondSuccess(res, rosterWithPlayers, "Lineup updated successfully");
+  });
 
-    // Return 400 for validation errors
-    if (error.message && (error.message.includes('Roster ID') || error.message.includes('must be'))) {
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
-      return;
+  /**
+   * Update roster dues paid status
+   * PUT /api/rosters/:rosterId/dues
+   */
+  updateDuesStatus = this.asyncHandler(async (req: Request, res: Response) => {
+    const { rosterId } = req.params;
+    const { dues_paid } = req.body;
+    const userId = this.getAuthenticatedUserId(req);
+
+    // Validate rosterId
+    const rosterIdNum = this.validateId(rosterId, "Roster ID");
+
+    // Validate dues_paid is a boolean
+    if (typeof dues_paid !== 'boolean') {
+      return this.respondBadRequest(res, "dues_paid must be a boolean");
     }
 
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error updating roster lineup",
+    if (!userId) {
+      return this.respondUnauthorized(res, "User not authenticated");
+    }
+
+    // Get the roster
+    const roster = await getRosterById(rosterIdNum);
+
+    if (!roster) {
+      return this.respondNotFound(res, "Roster not found");
+    }
+
+    // Check if user is the commissioner of the roster's league
+    const { getLeagueById } = await import("../models/League");
+    const league = await getLeagueById(roster.league_id);
+
+    if (!league) {
+      return this.respondNotFound(res, "League not found");
+    }
+
+    if (league.settings?.commissioner_id !== userId) {
+      return this.respondForbidden(res, "Only the league commissioner can perform this action");
+    }
+
+    // Update the roster settings with dues_paid status
+    const currentSettings = roster.settings || {};
+    const updatedSettings = {
+      ...currentSettings,
+      dues_paid,
+    };
+
+    // Update the roster
+    const updatedRoster = await updateRoster(rosterIdNum, {
+      settings: updatedSettings,
     });
-  }
+
+    if (!updatedRoster) {
+      return this.respondError(res, "Failed to update dues status");
+    }
+
+    // If marked as paid, send system message to league chat
+    if (dues_paid) {
+      try {
+        // Get username from users table
+        const userQuery = `SELECT username FROM users WHERE id = $1`;
+        const userResult = await pool.query(userQuery, [roster.user_id]);
+        const username = userResult.rows[0]?.username || "Unknown User";
+
+        // Create system message
+        const chatMessage = await createLeagueChatMessage({
+          league_id: roster.league_id,
+          user_id: null, // System message
+          message: `${username} has paid`,
+          message_type: "system",
+          metadata: {
+            type: "dues_paid",
+            roster_id: roster.id,
+            user_id: roster.user_id,
+          },
+        });
+
+        // Broadcast to league room
+        const roomName = `league_${roster.league_id}`;
+        io.to(roomName).emit("league_chat_message", {
+          ...chatMessage,
+          username: "System",
+          metadata: typeof chatMessage.metadata === 'string'
+            ? JSON.parse(chatMessage.metadata)
+            : chatMessage.metadata,
+        });
+      } catch (error) {
+        console.error("Error sending dues paid notification:", error);
+        // Don't fail the request if notification fails
+      }
+    }
+
+    this.respondSuccess(res, updatedRoster, `Dues status updated to ${dues_paid ? 'paid' : 'unpaid'}`);
+  });
 }
+
+const controller = new RosterController();
+
+export const fixBenchSlotsHandler = controller.fixBenchSlots;
+export const debugRosterHandler = controller.debugRoster;
+export const getRosterWithPlayersHandler = controller.getRosterWithPlayers;
+export const updateRosterLineupHandler = controller.updateRosterLineup;
+export const updateDuesStatusHandler = controller.updateDuesStatus;

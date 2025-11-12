@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getRosterWithPlayersHandler, updateRosterLineupHandler, fixBenchSlotsHandler, debugRosterHandler } from "../controllers/rosterController";
+import { getRosterWithPlayersHandler, updateRosterLineupHandler, fixBenchSlotsHandler, debugRosterHandler, updateDuesStatusHandler } from "../controllers/rosterController";
 import { authenticate } from "../middleware/authMiddleware";
 import {
   requireRosterOwnership,
@@ -20,6 +20,8 @@ router.get("/:rosterId/players", authenticate, getRosterWithPlayersHandler);
 // Update roster lineup (must own roster)
 router.put("/:rosterId/lineup", authenticate, requireRosterOwnership, updateRosterLineupHandler);
 
+// Update roster dues paid status (commissioner only - checked in controller)
+router.put("/:rosterId/dues", authenticate, updateDuesStatusHandler);
 
 // GET /api/rosters/:id/trades - Get all trades for a roster
 router.get("/:id/trades", authenticate, getRosterTradesController);

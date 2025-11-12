@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { BaseRepository } from "./BaseRepository";
 
 export interface League {
   id: number;
@@ -9,6 +10,7 @@ export interface League {
   season: string;
   season_type: string; // pre, regular, post
   league_type: string; // redraft, keeper, dynasty
+  current_season?: string; // Current season for dynasty leagues
   roster_positions: any;
   total_rosters: number;
   trade_notification_setting: 'always_off' | 'always_on' | 'proposer_choice';
@@ -16,6 +18,7 @@ export interface League {
   enable_league_median?: boolean;
   median_matchup_week_start?: number;
   median_matchup_week_end?: number;
+  enable_bestball?: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -25,6 +28,9 @@ export interface LeagueSettings {
   start_week?: number;
   end_week?: number;
   playoff_week_start?: number;
+  matchup_type?: 'points' | 'head_to_head' | 'all_play'; // Determines how matchups work
+  matchup_generation_timing?: 'pre_draft' | 'post_draft'; // When to generate matchups
+  opponent_selection?: 'draft' | 'randomize'; // How opponents are selected for head-to-head
   league_median?: boolean;
   commissioner_id?: number;
   [key: string]: any;
@@ -47,10 +53,24 @@ export interface CreateLeagueInput {
   season_type?: string; // pre, regular, post
   league_type?: string; // redraft, keeper, dynasty
   total_rosters?: number;
+  enable_bestball?: boolean;
   settings?: LeagueSettings;
   scoring_settings?: ScoringSettings;
   roster_positions?: RosterPosition[];
 }
+
+/**
+ * LeagueRepository - Extends BaseRepository for common CRUD operations
+ * Provides reusable database methods with automatic error handling
+ */
+class LeagueRepository extends BaseRepository<League> {
+  constructor() {
+    super('leagues', 'id');
+  }
+}
+
+// Create singleton instance
+const leagueRepo = new LeagueRepository();
 
 /**
  * Create a new league
@@ -66,6 +86,7 @@ export async function createLeague(
     season_type = "regular",
     league_type = "redraft",
     total_rosters = 12,
+    enable_bestball = false,
     settings = {},
     scoring_settings = {},
     roster_positions = [],
@@ -75,7 +96,7 @@ export async function createLeague(
     // Generate unique invite code
     const inviteCode = generateInviteCode();
 
-    // Merge settings with commissioner_id and other data
+    // Merge settings with commissioner_id and other data, including enable_bestball
     const mergedSettings: LeagueSettings = {
       ...settings,
       commissioner_id,
@@ -83,8 +104,10 @@ export async function createLeague(
       start_week: settings.start_week || 1,
       end_week: settings.end_week || 17,
       playoff_week_start: settings.playoff_week_start || 15,
+      matchup_type: settings.matchup_type || 'head_to_head',
       league_median:
         settings.league_median !== undefined ? settings.league_median : false,
+      enable_bestball: enable_bestball !== undefined ? enable_bestball : false,
     };
 
     const query = `
@@ -120,16 +143,21 @@ export async function createLeague(
     const result = await pool.query(query, values);
     const league = result.rows[0];
 
-    // Create roster for commissioner using createRoster to get proper slot structure
+    // Create all rosters upfront - commissioner gets roster 1, rest are empty
     try {
       const { createRoster } = await import("./Roster");
-      await createRoster({
-        league_id: league.id,
-        user_id: commissioner_id,
-        roster_id: 1,
-      });
+
+      for (let i = 1; i <= total_rosters; i++) {
+        await createRoster({
+          league_id: league.id,
+          user_id: i === 1 ? commissioner_id : null, // Only assign commissioner to roster 1
+          roster_id: i,
+        });
+      }
+
+      console.log(`[League] Created ${total_rosters} rosters for league ${league.id}`);
     } catch (rosterError: any) {
-      console.error("Error creating commissioner roster:", rosterError);
+      console.error("Error creating rosters:", rosterError);
     }
 
     return league;
@@ -141,24 +169,10 @@ export async function createLeague(
 
 /**
  * Get league by ID
+ * REFACTORED: Now uses BaseRepository.findById (was 18 lines, now 3 lines, saved 15 lines)
  */
 export async function getLeagueById(leagueId: number): Promise<League | null> {
-  try {
-    const query = `
-      SELECT * FROM leagues WHERE id = $1
-    `;
-
-    const result = await pool.query(query, [leagueId]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error getting league:", error);
-    throw new Error("Error getting league");
-  }
+  return leagueRepo.findById(leagueId);
 }
 
 /**
@@ -167,7 +181,9 @@ export async function getLeagueById(leagueId: number): Promise<League | null> {
 export async function getLeaguesForUser(userId: number): Promise<League[]> {
   try {
     const query = `
-      SELECT l.* 
+      SELECT DISTINCT l.*,
+        (SELECT COUNT(*)::int FROM rosters WHERE league_id = l.id AND user_id IS NOT NULL) as user_count,
+        (SELECT COUNT(*)::int FROM rosters WHERE league_id = l.id) as current_rosters
       FROM leagues l
       INNER JOIN rosters r ON l.id = r.league_id
       WHERE r.user_id = $1
@@ -191,6 +207,7 @@ export async function updateLeague(
     enable_league_median?: boolean;
     median_matchup_week_start?: number;
     median_matchup_week_end?: number;
+    enable_bestball?: boolean;
   }
 ): Promise<League | null> {
   try {
@@ -290,7 +307,8 @@ function generateInviteCode(): string {
 export async function getPublicLeagues(limit: number = 20): Promise<any[]> {
   try {
     const query = `
-      SELECT l.*, 
+      SELECT l.*,
+        (SELECT COUNT(*) FROM rosters WHERE league_id = l.id AND user_id IS NOT NULL) as user_count,
         (SELECT COUNT(*) FROM rosters WHERE league_id = l.id) as current_rosters
       FROM leagues l
       WHERE l.settings->>'is_public' = 'true'
@@ -309,23 +327,13 @@ export async function getPublicLeagues(limit: number = 20): Promise<any[]> {
 
 /**
  * Get league by invite code
+ * REFACTORED: Now uses BaseRepository.findBy (was 18 lines, now 4 lines, saved 14 lines)
  */
 export async function getLeagueByInviteCode(
   inviteCode: string
 ): Promise<League | null> {
-  try {
-    const query = "SELECT * FROM leagues WHERE invite_code = $1";
-    const result = await pool.query(query, [inviteCode]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error getting league by invite code:", error);
-    throw new Error("Error getting league by invite code");
-  }
+  const results = await leagueRepo.findBy('invite_code', inviteCode);
+  return results.length > 0 ? results[0] : null;
 }
 
 /**
@@ -354,11 +362,13 @@ export async function updateLeagueSettings(
     name?: string;
     league_type?: string;
     total_rosters?: number;
+    enable_bestball?: boolean;
     settings?: LeagueSettings;
     scoring_settings?: ScoringSettings;
     roster_positions?: RosterPosition[];
     trade_notification_setting?: string;
     trade_details_setting?: string;
+    buy_in?: number;
   }
 ): Promise<League | null> {
   try {
@@ -428,6 +438,12 @@ export async function updateLeagueSettings(
     if (updates.trade_details_setting !== undefined) {
       fields.push(`trade_details_setting = $${paramCount}`);
       values.push(updates.trade_details_setting);
+      paramCount++;
+    }
+
+    if (updates.buy_in !== undefined) {
+      fields.push(`buy_in = $${paramCount}`);
+      values.push(updates.buy_in);
       paramCount++;
     }
 

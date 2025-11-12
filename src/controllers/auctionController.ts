@@ -9,6 +9,9 @@ import {
 import { getDraftById, completeDraft, updateDraft } from "../models/Draft";
 import { getLeagueById, updateLeague } from "../models/League";
 import { validatePositiveInteger } from "../utils/validation";
+import { setTransactionTimeouts } from "../utils/transactionTimeout";
+import { DB_ERROR_CODES } from "../config/constants";
+import { escapeLikePattern } from "../utils/sqlHelpers";
 
 // POST /api/drafts/:id/nominate
 export async function nominatePlayerHandler(req: Request, res: Response) {
@@ -17,6 +20,7 @@ export async function nominatePlayerHandler(req: Request, res: Response) {
 
   try {
     await client.query('BEGIN');
+    await setTransactionTimeouts(client);
 
     let draftId: number;
     try {
@@ -53,9 +57,10 @@ export async function nominatePlayerHandler(req: Request, res: Response) {
         .json({ error: "Draft is not an auction draft type" });
     }
 
-    if (draft.status !== "in_progress") {
+    if (draft.status !== "in_progress" && draft.status !== "paused") {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: "Draft is not in progress" });
+      console.log(`[NominatePlayer] Draft ${draftId} nomination rejected - status: ${draft.status}, expected: in_progress or paused`);
+      return res.status(400).json({ error: `Draft is not in progress (current status: ${draft.status})` });
     }
 
     // Verify player is not already nominated/won in this draft
@@ -202,6 +207,16 @@ export async function nominatePlayerHandler(req: Request, res: Response) {
     return res.status(201).json(nomination);
   } catch (error: any) {
     await client.query('ROLLBACK');
+
+    // Handle timeout errors
+    if (error.code === DB_ERROR_CODES.STATEMENT_TIMEOUT) {
+      console.error('[Transaction] Statement timeout in nominatePlayer');
+      return res.status(503).json({
+        error: 'Operation timed out, please try again',
+        code: 'TIMEOUT'
+      });
+    }
+
     console.error("Error nominating player:", error);
     return res.status(500).json({ error: error.message });
   } finally {
@@ -216,6 +231,7 @@ export async function placeBidHandler(req: Request, res: Response) {
 
   try {
     await client.query('BEGIN');
+    await setTransactionTimeouts(client);
 
     const draftId = parseInt(req.params.id);
     const { nomination_id, roster_id, max_bid } = req.body;
@@ -477,6 +493,16 @@ export async function placeBidHandler(req: Request, res: Response) {
     return res.status(200).json(result);
   } catch (error: any) {
     await client.query('ROLLBACK');
+
+    // Handle timeout errors
+    if (error.code === DB_ERROR_CODES.STATEMENT_TIMEOUT) {
+      console.error('[Transaction] Statement timeout in placeBid');
+      return res.status(503).json({
+        error: 'Operation timed out, please try again',
+        code: 'TIMEOUT'
+      });
+    }
+
     console.error("Error placing bid:", error);
     return res.status(400).json({ error: error.message });
   } finally {
@@ -735,7 +761,7 @@ export async function completeAuctionHandler(req: Request, res: Response) {
         .json({ error: "Draft is not an auction draft type" });
     }
 
-    if (draft.status !== "in_progress") {
+    if (draft.status !== "in_progress" && draft.status !== "paused") {
       return res.status(400).json({ error: "Draft is not in progress" });
     }
 
@@ -752,66 +778,11 @@ export async function completeAuctionHandler(req: Request, res: Response) {
     if (league) {
       await updateLeague(league.id, { status: "in_season" });
 
-      const startWeek = league.settings?.start_week || 1;
-      const playoffWeekStart = league.settings?.playoff_week_start || 15;
-
-      // Generate matchups if they don't exist
-      console.log(`[CompleteAuction] Checking/generating matchups...`);
-      const { generateMatchupsForWeek } = await import("../models/Matchup");
-      const { getMatchupsByLeagueAndWeek } = await import("../models/Matchup");
-
-      for (let week = startWeek; week < playoffWeekStart; week++) {
-        try {
-          const existingMatchups = await getMatchupsByLeagueAndWeek(
-            league.id,
-            week
-          );
-          if (existingMatchups.length === 0) {
-            console.log(`[CompleteAuction] Generating matchups for week ${week}...`);
-            await generateMatchupsForWeek(league.id, week, league.season);
-          }
-        } catch (error) {
-          console.error(
-            `[CompleteAuction] Failed to generate matchups for week ${week}:`,
-            error
-          );
-        }
-      }
-
-      // Calculate scores for all weeks
-      console.log(`[CompleteAuction] Calculating scores for all weeks...`);
-      const { updateMatchupScoresForWeek } = await import(
-        "../services/scoringService"
+      // Initialize season: generate matchups and calculate scores
+      const { initializeSeasonFromLeague } = await import(
+        "../services/draftCompletionService"
       );
-      const { finalizeWeekScores, recalculateAllRecords } = await import(
-        "../services/recordService"
-      );
-
-      for (let week = startWeek; week < playoffWeekStart; week++) {
-        try {
-          console.log(`[CompleteAuction] Updating scores for week ${week}...`);
-          await updateMatchupScoresForWeek(
-            league.id,
-            week,
-            league.season,
-            "regular"
-          );
-          await finalizeWeekScores(league.id, week, league.season, "regular");
-        } catch (error) {
-          console.error(
-            `[CompleteAuction] Failed to update scores for week ${week}:`,
-            error
-          );
-        }
-      }
-
-      // Recalculate all records
-      console.log(`[CompleteAuction] Recalculating all records...`);
-      try {
-        await recalculateAllRecords(league.id, league.season);
-      } catch (error) {
-        console.error(`[CompleteAuction] Failed to recalculate records:`, error);
-      }
+      await initializeSeasonFromLeague(league);
     }
 
     return res.status(200).json({
@@ -1015,8 +986,9 @@ export async function getAvailablePlayersHandler(req: Request, res: Response) {
     }
 
     if (search) {
+      const escapedSearch = escapeLikePattern(search as string);
       query += ` AND (p.first_name ILIKE $${paramIndex} OR p.last_name ILIKE $${paramIndex})`;
-      params.push(`%${search}%`);
+      params.push(`%${escapedSearch}%`);
       paramIndex++;
     }
 

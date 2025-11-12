@@ -1,4 +1,6 @@
 import pool from "../config/database";
+import { setTransactionTimeouts } from "../utils/transactionTimeout";
+import { BaseRepository } from "./BaseRepository";
 
 export interface Draft {
   id: number;
@@ -14,23 +16,40 @@ export interface Draft {
   rounds: number;
   timer_mode: "traditional" | "chess";
   team_time_budget_seconds: number | null;
+  // Scheduling fields
+  scheduled_start_time: Date | null;
+  auto_start: boolean;
+  // Derby-specific fields
+  derby_enabled: boolean;
+  derby_time_limit_seconds: number | null;
+  derby_timeout_behavior: "auto" | "skip";
+  derby_skipped_user_time_limit_seconds: number | null;
   // Auction-specific fields
   starting_budget: number;
   min_bid: number;
   bid_increment: number;
   nominations_per_manager: number;
   nomination_timer_hours: number | null;
+  bid_timer_seconds: number;
   reserve_budget_per_slot: boolean;
-  // Derby-specific fields
-  derby_enabled: boolean;
-  derby_time_limit_seconds: number | null;
-  derby_timeout_behavior: string | null;
   started_at: Date | null;
   completed_at: Date | null;
   settings: any;
   created_at: Date;
   updated_at: Date;
 }
+
+/**
+ * Repository class for Draft entities
+ * Extends BaseRepository to inherit CRUD operations
+ */
+class DraftRepository extends BaseRepository<Draft> {
+  constructor() {
+    super('drafts', 'id');
+  }
+}
+
+const draftRepository = new DraftRepository();
 
 /**
  * Create a new draft
@@ -43,17 +62,22 @@ export async function createDraft(draftData: {
   rounds?: number;
   timer_mode?: "traditional" | "chess";
   team_time_budget_seconds?: number;
+  // Scheduling settings
+  scheduled_start_time?: Date;
+  auto_start?: boolean;
   // Auction-specific settings
   starting_budget?: number;
   min_bid?: number;
   bid_increment?: number;
   nominations_per_manager?: number;
   nomination_timer_hours?: number;
+  bid_timer_seconds?: number;
   reserve_budget_per_slot?: boolean;
   // Derby-specific settings
   derby_enabled?: boolean;
   derby_time_limit_seconds?: number;
   derby_timeout_behavior?: string;
+  derby_skipped_user_time_limit_seconds?: number;
   settings?: any;
 }): Promise<Draft> {
   try {
@@ -71,12 +95,14 @@ export async function createDraft(draftData: {
       INSERT INTO drafts (
         league_id, draft_type, third_round_reversal, pick_time_seconds,
         rounds, timer_mode, team_time_budget_seconds,
+        scheduled_start_time, auto_start,
         starting_budget, min_bid, bid_increment, nominations_per_manager,
-        nomination_timer_hours, reserve_budget_per_slot,
+        nomination_timer_hours, bid_timer_seconds, reserve_budget_per_slot,
         derby_enabled, derby_time_limit_seconds, derby_timeout_behavior,
+        derby_skipped_user_time_limit_seconds,
         settings
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
       RETURNING *
     `;
 
@@ -88,15 +114,19 @@ export async function createDraft(draftData: {
       draftData.rounds || 15,
       timerMode,
       timeBudget || null,
+      draftData.scheduled_start_time || null,
+      draftData.auto_start || false,
       draftData.starting_budget || 200,
       draftData.min_bid || 1,
       draftData.bid_increment || 1,
       draftData.nominations_per_manager || 3,
       draftData.nomination_timer_hours || null,
+      draftData.bid_timer_seconds || 30,
       draftData.reserve_budget_per_slot || false,
       draftData.derby_enabled || false,
       draftData.derby_time_limit_seconds || null,
       draftData.derby_timeout_behavior || 'auto',
+      draftData.derby_skipped_user_time_limit_seconds || null,
       JSON.stringify(draftData.settings || {}),
     ]);
 
@@ -120,42 +150,21 @@ export async function createDraft(draftData: {
 
 /**
  * Get draft by ID
+ * REFACTORED: Uses draftRepository.findById() for simplified query (13 lines saved)
  */
 export async function getDraftById(draftId: number): Promise<Draft | null> {
-  try {
-    const query = `SELECT * FROM drafts WHERE id = $1`;
-    const result = await pool.query(query, [draftId]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error getting draft:", error);
-    throw new Error("Error getting draft");
-  }
+  return draftRepository.findById(draftId);
 }
 
 /**
  * Get draft by league ID
+ * REFACTORED: Uses draftRepository.findBy() for simplified query (13 lines saved)
  */
 export async function getDraftByLeagueId(
   leagueId: number
 ): Promise<Draft | null> {
-  try {
-    const query = `SELECT * FROM drafts WHERE league_id = $1`;
-    const result = await pool.query(query, [leagueId]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    console.error("Error getting draft by league:", error);
-    throw new Error("Error getting draft by league");
-  }
+  const results = await draftRepository.findBy('league_id', leagueId);
+  return results.length > 0 ? results[0] : null;
 }
 
 /**
@@ -362,57 +371,120 @@ async function autoPopulateStarters(
 
     const assignedPlayerIds = new Set<string>();
 
-    // Fill starter slots (in order of draft position, which is playerIds order)
-    // PRIORITIZE: Exact position matches first, then FLEX positions
-    for (const playerId of playerIds) {
-      const playerPosition = playersMap[playerId];
-      if (!playerPosition) continue;
+    // Helper: Get eligible positions for a player
+    const getEligiblePositions = (playerPosition: string): string[] => {
+      const eligible: string[] = [playerPosition]; // Always eligible for exact position match
 
-      // Helper function to check if player can fill a FLEX slot
-      const canFillFlexSlot = (slotPos: string): boolean => {
-        // Check FLEX positions
-        if (slotPos === "FLEX" && ["RB", "WR", "TE"].includes(playerPosition))
-          return true;
-        if (
-          slotPos === "SUPER_FLEX" &&
-          ["QB", "RB", "WR", "TE"].includes(playerPosition)
-        )
-          return true;
-        if (slotPos === "WRT" && ["WR", "RB", "TE"].includes(playerPosition))
-          return true;
-        if (slotPos === "REC_FLEX" && ["WR", "TE"].includes(playerPosition))
-          return true;
-        if (
-          slotPos === "IDP_FLEX" &&
-          ["DL", "LB", "DB"].includes(playerPosition)
-        )
-          return true;
-
-        return false;
-      };
-
-      // First, try to find an EXACT position match
-      let slotIndex = starters.findIndex((slot) => {
-        if (slot.player_id !== null) return false;
-        const slotPos = slot.slot.replace(/\d+$/, "");
-        return playerPosition === slotPos; // Exact match only
-      });
-
-      // If no exact match, then try FLEX positions
-      if (slotIndex === -1) {
-        slotIndex = starters.findIndex((slot) => {
-          if (slot.player_id !== null) return false;
-          const slotPos = slot.slot.replace(/\d+$/, "");
-          return canFillFlexSlot(slotPos); // FLEX match
-        });
+      // Add FLEX eligibility
+      if (["RB", "WR", "TE"].includes(playerPosition)) {
+        eligible.push("FLEX", "WRT");
+      }
+      if (["QB", "RB", "WR", "TE"].includes(playerPosition)) {
+        eligible.push("SUPER_FLEX");
+      }
+      if (["WR", "TE"].includes(playerPosition)) {
+        eligible.push("REC_FLEX");
+      }
+      if (["DL", "LB", "DB"].includes(playerPosition)) {
+        eligible.push("IDP_FLEX");
       }
 
-      if (slotIndex !== -1) {
-        starters[slotIndex].player_id = playerId;
-        assignedPlayerIds.add(playerId);
-        console.log(
-          `[AutoPopulate] Assigned player ${playerId} (${playerPosition}) to slot ${starters[slotIndex].slot}`
-        );
+      return eligible;
+    };
+
+    // Helper: Check if player can fill a slot
+    const canFillSlot = (playerId: string, slotPos: string): boolean => {
+      const playerPosition = playersMap[playerId];
+      if (!playerPosition) {
+        console.log(`[AutoPopulate] WARNING: No position found for player ${playerId}`);
+        return false;
+      }
+
+      const eligiblePositions = getEligiblePositions(playerPosition);
+      const canFill = eligiblePositions.includes(slotPos);
+
+      // Extra validation: QB can ONLY go in QB or SUPER_FLEX
+      if (playerPosition === "QB" && !["QB", "SUPER_FLEX"].includes(slotPos)) {
+        console.log(`[AutoPopulate] BLOCKED: QB ${playerId} cannot fill ${slotPos}`);
+        return false;
+      }
+
+      // Validate non-QB cannot go in QB slot
+      if (slotPos === "QB" && playerPosition !== "QB") {
+        console.log(`[AutoPopulate] BLOCKED: ${playerPosition} player ${playerId} cannot fill QB slot`);
+        return false;
+      }
+
+      return canFill;
+    };
+
+    // Helper: Get slot restrictiveness score (lower = more restrictive)
+    const getSlotRestrictiveness = (slotPos: string): number => {
+      // Single-position slots are most restrictive
+      if (["QB", "RB", "WR", "TE", "K", "DEF", "DL", "LB", "DB"].includes(slotPos)) {
+        return 1;
+      }
+      // Multi-position FLEX slots are less restrictive (ordered by flexibility)
+      if (slotPos === "REC_FLEX") return 2; // WR, TE
+      if (slotPos === "WRT") return 3; // WR, RB, TE
+      if (slotPos === "FLEX") return 4; // RB, WR, TE
+      if (slotPos === "IDP_FLEX") return 5; // DL, LB, DB
+      if (slotPos === "SUPER_FLEX") return 6; // QB, RB, WR, TE
+
+      // Unknown slot types default to very flexible
+      return 99;
+    };
+
+    // Sort slots by restrictiveness (most restrictive first)
+    const sortedSlots = [...starters].sort((a, b) => {
+      const aPos = a.slot.replace(/\d+$/, "");
+      const bPos = b.slot.replace(/\d+$/, "");
+      const aScore = getSlotRestrictiveness(aPos);
+      const bScore = getSlotRestrictiveness(bPos);
+
+      // If same restrictiveness, maintain original order
+      if (aScore === bScore) {
+        return starters.indexOf(a) - starters.indexOf(b);
+      }
+
+      return aScore - bScore;
+    });
+
+    // NEW ALGORITHM: Fill most restrictive slots first
+    // For each slot (most restrictive to least):
+    //   - Find all unassigned players that fit
+    //   - Pick the one drafted earliest (earliest in playerIds array)
+    console.log(`[AutoPopulate] Starting slot assignment with ${playerIds.length} players`);
+    console.log(`[AutoPopulate] Players map:`, JSON.stringify(playersMap, null, 2));
+
+    for (const slot of sortedSlots) {
+      const slotPos = slot.slot.replace(/\d+$/, "");
+
+      console.log(`[AutoPopulate] Filling slot ${slot.slot} (${slotPos}, restrictiveness: ${getSlotRestrictiveness(slotPos)})`);
+
+      // Find all unassigned players that can fill this slot
+      const eligiblePlayers = playerIds.filter(
+        (playerId) => !assignedPlayerIds.has(playerId) && canFillSlot(playerId, slotPos)
+      );
+
+      console.log(`[AutoPopulate]   Found ${eligiblePlayers.length} eligible players:`, eligiblePlayers.map(id => `${id}(${playersMap[id]})`).join(', '));
+
+      if (eligiblePlayers.length > 0) {
+        // Pick the first one (earliest draft pick)
+        const selectedPlayer = eligiblePlayers[0];
+        const playerPosition = playersMap[selectedPlayer];
+
+        // Find the slot in the original starters array and assign
+        const slotIndex = starters.findIndex((s) => s.slot === slot.slot);
+        if (slotIndex !== -1) {
+          starters[slotIndex].player_id = selectedPlayer;
+          assignedPlayerIds.add(selectedPlayer);
+          console.log(
+            `[AutoPopulate] ✓ Assigned player ${selectedPlayer} (${playerPosition}) to slot ${starters[slotIndex].slot}`
+          );
+        }
+      } else {
+        console.log(`[AutoPopulate]   No eligible players for slot ${slot.slot}`);
       }
     }
 
@@ -572,6 +644,7 @@ export async function assignDraftedPlayersToRosters(draftId: number): Promise<vo
  */
 export async function resetDraft(draftId: number): Promise<Draft> {
   const client = await pool.connect();
+    await setTransactionTimeouts(client);
   try {
     await client.query("BEGIN");
 
@@ -594,6 +667,10 @@ export async function resetDraft(draftId: number): Promise<Draft> {
     await client.query("DELETE FROM draft_chat_messages WHERE draft_id = $1", [
       draftId,
     ]);
+
+    // Reset derby if it exists (delete selections, reset to pending)
+    const { resetDraftDerby } = await import("./DraftDerby");
+    await resetDraftDerby(draftId);
 
     // Reset draft to not_started
     const query = `
@@ -629,13 +706,8 @@ export async function resetDraft(draftId: number): Promise<Draft> {
 
 /**
  * Delete draft
+ * REFACTORED: Uses draftRepository.delete() for simplified query (8 lines saved)
  */
 export async function deleteDraft(draftId: number): Promise<void> {
-  try {
-    const query = `DELETE FROM drafts WHERE id = $1`;
-    await pool.query(query, [draftId]);
-  } catch (error) {
-    console.error("Error deleting draft:", error);
-    throw new Error("Error deleting draft");
-  }
+  await draftRepository.delete(draftId);
 }

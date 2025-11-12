@@ -3,10 +3,13 @@ import { getLeagueById } from "../models/League";
 import { getRosterById } from "../models/Roster";
 import { getTrade } from "../models/Trade";
 import pool from "../config/database";
+import { createAuthMiddleware, createOrAuthMiddleware } from "./authFactory";
+import { ApiResponse } from "../utils/ApiResponse";
 
 /**
  * Check if user has system-wide admin privileges
  * Used for global operations like data sync, recalculations, etc.
+ * Note: This is kept as a custom function since it doesn't follow the resource-based pattern
  */
 export async function requireAdmin(
   req: Request,
@@ -18,18 +21,15 @@ export async function requireAdmin(
     const isAdmin = req.user?.isAdmin;
 
     if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "Authentication required",
-      });
+      ApiResponse.unauthorized(res, "Authentication required");
       return;
     }
 
     if (!isAdmin) {
-      res.status(403).json({
-        success: false,
-        message: "Admin privileges required. This operation is restricted to system administrators.",
-      });
+      ApiResponse.forbidden(
+        res,
+        "Admin privileges required. This operation is restricted to system administrators."
+      );
       return;
     }
 
@@ -37,224 +37,60 @@ export async function requireAdmin(
     next();
   } catch (error: any) {
     console.error("Authorization error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Authorization check failed",
-    });
+    ApiResponse.error(res, "Authorization check failed");
   }
 }
 
 /**
  * Check if user is commissioner of a league
  */
-export async function requireCommissioner(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const leagueId = parseInt(req.params.leagueId || req.body.leagueId);
-    const userId = req.user?.userId;
-
-    if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "Authentication required",
-      });
-      return;
-    }
-
-    if (!leagueId || isNaN(leagueId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid league ID",
-      });
-      return;
-    }
-
+export const requireCommissioner = createAuthMiddleware({
+  check: async (userId, leagueId) => {
     const league = await getLeagueById(leagueId);
-
-    if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found",
-      });
-      return;
-    }
-
-    // Extract commissioner_id from league settings
-    const commissionerId = league.settings?.commissioner_id;
-
-    if (commissionerId !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "Only the league commissioner can perform this action",
-      });
-      return;
-    }
-
-    // User is commissioner, proceed
-    next();
-  } catch (error: any) {
-    console.error("Authorization error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Authorization check failed",
-    });
-  }
-}
+    if (!league) return false;
+    return league.settings?.commissioner_id === userId;
+  },
+  errorMessage: "Only the league commissioner can perform this action",
+  resourceName: "League ID",
+});
 
 /**
  * Check if user is a member of a league
  */
-export async function requireLeagueMember(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const leagueId = parseInt(req.params.leagueId || req.body.leagueId || req.params.id);
-    const userId = req.user?.userId;
-
-    if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "Authentication required",
-      });
-      return;
-    }
-
-    if (!leagueId || isNaN(leagueId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid league ID",
-      });
-      return;
-    }
-
-    // Check if user has a roster in this league
+export const requireLeagueMember = createAuthMiddleware({
+  check: async (userId, leagueId) => {
     const query = `
       SELECT COUNT(*) as count
       FROM rosters
       WHERE league_id = $1 AND user_id = $2
     `;
-
     const result = await pool.query(query, [leagueId, userId]);
-    const isMember = parseInt(result.rows[0].count) > 0;
-
-    if (!isMember) {
-      res.status(403).json({
-        success: false,
-        message: "You are not a member of this league",
-      });
-      return;
-    }
-
-    // User is member, proceed
-    next();
-  } catch (error: any) {
-    console.error("Authorization error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Authorization check failed",
-    });
-  }
-}
+    return parseInt(result.rows[0].count) > 0;
+  },
+  errorMessage: "You are not a member of this league",
+  resourceName: "League ID",
+});
 
 /**
  * Check if user owns a specific roster
  */
-export async function requireRosterOwnership(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const rosterId = parseInt(req.params.rosterId || req.params.id || req.body.rosterId);
-    const userId = req.user?.userId;
-
-    if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "Authentication required",
-      });
-      return;
-    }
-
-    if (!rosterId || isNaN(rosterId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid roster ID",
-      });
-      return;
-    }
-
+export const requireRosterOwnership = createAuthMiddleware({
+  check: async (userId, rosterId) => {
     const roster = await getRosterById(rosterId);
-
-    if (!roster) {
-      res.status(404).json({
-        success: false,
-        message: "Roster not found",
-      });
-      return;
-    }
-
-    if (roster.user_id !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "You do not own this roster",
-      });
-      return;
-    }
-
-    // User owns roster, proceed
-    next();
-  } catch (error: any) {
-    console.error("Authorization error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Authorization check failed",
-    });
-  }
-}
+    if (!roster) return false;
+    return roster.user_id === userId;
+  },
+  errorMessage: "You do not own this roster",
+  resourceName: "Roster ID",
+});
 
 /**
  * Check if user is involved in a trade (proposer or receiver)
  */
-export async function requireTradeParticipant(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const tradeId = parseInt(req.params.tradeId || req.params.id || req.body.tradeId);
-    const userId = req.user?.userId;
-
-    if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "Authentication required",
-      });
-      return;
-    }
-
-    if (!tradeId || isNaN(tradeId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid trade ID",
-      });
-      return;
-    }
-
+export const requireTradeParticipant = createAuthMiddleware({
+  check: async (userId, tradeId) => {
     const trade = await getTrade(tradeId);
-
-    if (!trade) {
-      res.status(404).json({
-        success: false,
-        message: "Trade not found",
-      });
-      return;
-    }
+    if (!trade) return false;
 
     // Get rosters involved in trade
     const result = await pool.query(
@@ -263,88 +99,38 @@ export async function requireTradeParticipant(
     );
 
     const participantUserIds = result.rows.map((row) => row.user_id);
-
-    if (!participantUserIds.includes(userId)) {
-      res.status(403).json({
-        success: false,
-        message: "You are not a participant in this trade",
-      });
-      return;
-    }
-
-    // User is participant, proceed
-    next();
-  } catch (error: any) {
-    console.error("Authorization error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Authorization check failed",
-    });
-  }
-}
+    return participantUserIds.includes(userId);
+  },
+  errorMessage: "You are not a participant in this trade",
+  resourceName: "Trade ID",
+});
 
 /**
  * Check if user is commissioner OR owner of the roster
  * Useful for operations that either role can perform
  */
-export async function requireCommissionerOrRosterOwner(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const rosterId = parseInt(req.params.rosterId || req.params.id || req.body.rosterId);
-    const userId = req.user?.userId;
-
-    if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "Authentication required",
-      });
-      return;
-    }
-
-    if (!rosterId || isNaN(rosterId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid roster ID",
-      });
-      return;
-    }
-
-    const roster = await getRosterById(rosterId);
-
-    if (!roster) {
-      res.status(404).json({
-        success: false,
-        message: "Roster not found",
-      });
-      return;
-    }
-
-    // Check if user owns the roster
-    if (roster.user_id === userId) {
-      next();
-      return;
-    }
-
-    // Check if user is league commissioner
-    const league = await getLeagueById(roster.league_id);
-    if (league && league.settings?.commissioner_id === userId) {
-      next();
-      return;
-    }
-
-    // User is neither owner nor commissioner
-    res.status(403).json({
-      success: false,
-      message: "You must be the roster owner or league commissioner",
-    });
-  } catch (error: any) {
-    console.error("Authorization error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Authorization check failed",
-    });
-  }
-}
+export const requireCommissionerOrRosterOwner = createOrAuthMiddleware(
+  [
+    {
+      // Check if user owns the roster
+      check: async (userId, rosterId) => {
+        const roster = await getRosterById(rosterId);
+        if (!roster) return false;
+        return roster.user_id === userId;
+      },
+      resourceName: "Roster ID",
+    },
+    {
+      // Check if user is league commissioner
+      check: async (userId, rosterId) => {
+        const roster = await getRosterById(rosterId);
+        if (!roster) return false;
+        const league = await getLeagueById(roster.league_id);
+        if (!league) return false;
+        return league.settings?.commissioner_id === userId;
+      },
+      resourceName: "Roster ID",
+    },
+  ],
+  "You must be the roster owner or league commissioner"
+);

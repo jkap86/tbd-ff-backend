@@ -28,6 +28,7 @@ export interface LeagueSettings {
   start_week?: number;
   end_week?: number;
   playoff_week_start?: number;
+  matchup_type?: 'points' | 'head_to_head' | 'all_play'; // Determines how matchups work
   league_median?: boolean;
   commissioner_id?: number;
   [key: string]: any;
@@ -101,6 +102,7 @@ export async function createLeague(
       start_week: settings.start_week || 1,
       end_week: settings.end_week || 17,
       playoff_week_start: settings.playoff_week_start || 15,
+      matchup_type: settings.matchup_type || 'head_to_head',
       league_median:
         settings.league_median !== undefined ? settings.league_median : false,
       enable_bestball: enable_bestball !== undefined ? enable_bestball : false,

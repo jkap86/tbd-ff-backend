@@ -7,6 +7,7 @@ import {
   getMatchupsByLeague,
   generateMatchupsForWeek,
   deleteMatchupsForWeek,
+  deleteMatchupsForLeague,
   getMatchupDetails,
   getMatchupDetailsWithScores,
 } from "../models/Matchup";
@@ -272,6 +273,22 @@ class MatchupController extends BaseController {
       end_week: endWeek,
     }, result.message);
   });
+
+  /**
+   * DELETE /api/matchups/league/:leagueId
+   * Delete all matchups for a league (Commissioner only)
+   */
+  deleteAllMatchupsForLeague = this.asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const leagueIdNum = this.validateId(req.params.leagueId, "League ID");
+
+    console.log(`[DeleteMatchups] Deleting all matchups for league ${leagueIdNum}...`);
+
+    await deleteMatchupsForLeague(leagueIdNum);
+
+    console.log(`[DeleteMatchups] Successfully deleted all matchups for league ${leagueIdNum}`);
+
+    this.respondSuccess(res, null, "Successfully deleted all matchups");
+  });
 }
 
 /**
@@ -316,3 +333,4 @@ export const getMatchupDetailsHandler = controller.getMatchupDetailsHandler;
 export const getMatchupScoresHandler = controller.getMatchupScoresHandler;
 export const recalculateRecordsHandler = controller.recalculateRecordsHandler;
 export const generateFullSeasonMatchups = controller.generateFullSeasonMatchups;
+export const deleteAllMatchupsForLeague = controller.deleteAllMatchupsForLeague;

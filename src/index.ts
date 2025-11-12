@@ -26,6 +26,7 @@ import { setupMatchupSocket } from "./socket/matchupSocket";
 import { setupWaiverSocket } from "./socket/waiverSocket";
 import { setupTradeSocket } from "./socket/tradeSocket";
 import { setupAuctionSocket } from "./socket/auctionSocket";
+import { setupOpponentSelectionDraftSocket } from "./socket/opponentSelectionDraftSocket";
 import { stopAllAutoPickMonitoring } from "./services/autoPickService";
 import { startScoreScheduler, stopScoreScheduler } from "./services/scoreScheduler";
 import { startLiveScoreUpdates, stopLiveScoreUpdates } from "./services/liveScoreService";
@@ -48,6 +49,7 @@ import keeperRoutes from "./routes/keeperRoutes";
 import dynastyRoutes from "./routes/dynastyRoutes";
 import draftPickTradeRoutes from "./routes/draftPickTradeRoutes";
 import notificationRoutes from "./routes/notificationRoutes";
+import opponentSelectionDraftRoutes from "./routes/opponentSelectionDraftRoutes";
 import { globalApiLimiter } from "./middleware/rateLimiter";
 import { requestIdMiddleware } from "./middleware/requestId";
 import pool from "./config/database";
@@ -188,6 +190,7 @@ setupMatchupSocket(io);
 setupWaiverSocket(io);
 setupTradeSocket(io);
 setupAuctionSocket(io);
+setupOpponentSelectionDraftSocket(io);
 
 // Make io available globally for controllers
 export { io };
@@ -287,6 +290,7 @@ v1Router.use("/", keeperRoutes);
 v1Router.use("/", dynastyRoutes);
 v1Router.use("/", draftPickTradeRoutes);
 v1Router.use("/notifications", notificationRoutes);
+v1Router.use("/opponent-selection-drafts", opponentSelectionDraftRoutes);
 
 // Protected route example (to test authentication)
 v1Router.get("/profile", authenticate, (req: Request, res: Response) => {

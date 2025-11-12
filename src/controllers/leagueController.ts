@@ -13,6 +13,10 @@ import {
   getRostersByLeagueId,
   getNextRosterId,
 } from "../models/Roster";
+import {
+  randomizeOpponentSelectionOrder,
+  getOpponentSelectionOrderWithDetails,
+} from "../models/OpponentSelectionOrder";
 import { leagueBusinessService } from "../services/leagueBusinessService";
 import { BaseController } from "./BaseController";
 
@@ -1143,6 +1147,55 @@ if (!league) {
       })),
     });
   });
+
+  /**
+   * Get opponent selection order for a league
+   * GET /api/leagues/:leagueId/opponent-selection-order
+   */
+  getOpponentSelectionOrder = this.asyncHandler(async (req: Request, res: Response) => {
+    const leagueId = this.validateId(req.params.leagueId, "League ID");
+
+    // Get the opponent selection order with details
+    const orderWithDetails = await getOpponentSelectionOrderWithDetails(leagueId);
+
+    this.respondSuccess(res, orderWithDetails);
+  });
+
+  /**
+   * Randomize opponent selection order for a league
+   * POST /api/leagues/:leagueId/randomize-opponent-selection-order
+   */
+  randomizeOpponentSelectionOrder = this.asyncHandler(async (req: Request, res: Response) => {
+    const leagueId = this.validateId(req.params.leagueId, "League ID");
+    const userId = this.getAuthenticatedUserId(req);
+
+    // Get league and verify it exists
+    const league = await getLeagueById(leagueId);
+    if (!league) {
+      return this.respondNotFound(res, "League not found");
+    }
+
+    // Verify user is commissioner
+    const commissionerId = league.settings?.commissioner_id;
+    if (!commissionerId || commissionerId !== userId) {
+      return this.respondForbidden(res, "Only the commissioner can randomize opponent selection order");
+    }
+
+    // Get all rosters for the league
+    const rosters = await getRostersByLeagueId(leagueId);
+    if (rosters.length === 0) {
+      return this.respondBadRequest(res, "No rosters found for this league");
+    }
+
+    // Randomize the opponent selection order
+    const rosterIds = rosters.map(r => r.id);
+    await randomizeOpponentSelectionOrder(leagueId, rosterIds);
+
+    // Get the randomized order with details
+    const orderWithDetails = await getOpponentSelectionOrderWithDetails(leagueId);
+
+    this.respondSuccess(res, orderWithDetails, "Opponent selection order randomized successfully");
+  });
 }
 
 const controller = new LeagueController();
@@ -1161,3 +1214,5 @@ export const resetLeagueHandler = controller.resetLeague;
 export const deleteLeagueHandler = controller.deleteLeague;
 export const generateInviteLinkHandler = controller.generateInviteLink;
 export const getPublicLeagueInfoHandler = controller.getPublicLeagueInfo;
+export const getOpponentSelectionOrderHandler = controller.getOpponentSelectionOrder;
+export const randomizeOpponentSelectionOrderHandler = controller.randomizeOpponentSelectionOrder;

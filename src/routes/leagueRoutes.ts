@@ -21,6 +21,8 @@ import { getLeagueStatsHandler } from "../controllers/leagueController";
 import { resetLeagueHandler } from "../controllers/leagueController";
 import { deleteLeagueHandler } from "../controllers/leagueController";
 import { generateInviteLinkHandler } from "../controllers/leagueController";
+import { getOpponentSelectionOrderHandler } from "../controllers/leagueController";
+import { randomizeOpponentSelectionOrderHandler } from "../controllers/leagueController";
 import { getDraftByLeagueHandler } from "../controllers/draftController";
 import {
   sendLeagueChatMessageHandler,
@@ -135,6 +137,28 @@ router.get("/:leagueId/chat/unread-count", authenticate, requireLeagueMember, ge
  * POST /api/leagues/:leagueId/reset
  */
 router.post("/:leagueId/reset", authenticate, requireCommissioner, resetLeagueHandler);
+
+/**
+ * Get opponent selection order
+ * GET /api/leagues/:leagueId/opponent-selection-order
+ */
+router.get(
+  "/:leagueId/opponent-selection-order",
+  authenticate,
+  requireLeagueMember,
+  getOpponentSelectionOrderHandler
+);
+
+/**
+ * Randomize opponent selection order
+ * POST /api/leagues/:leagueId/randomize-opponent-selection-order
+ */
+router.post(
+  "/:leagueId/randomize-opponent-selection-order",
+  authenticate,
+  requireCommissioner,
+  randomizeOpponentSelectionOrderHandler
+);
 
 /**
  * Delete a league (commissioner only)

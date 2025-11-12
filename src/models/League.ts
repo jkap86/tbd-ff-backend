@@ -29,6 +29,8 @@ export interface LeagueSettings {
   end_week?: number;
   playoff_week_start?: number;
   matchup_type?: 'points' | 'head_to_head' | 'all_play'; // Determines how matchups work
+  matchup_generation_timing?: 'pre_draft' | 'post_draft'; // When to generate matchups
+  opponent_selection?: 'draft' | 'randomize'; // How opponents are selected for head-to-head
   league_median?: boolean;
   commissioner_id?: number;
   [key: string]: any;

@@ -1,7 +1,6 @@
 import pool from '../config/database';
 import { updatePlayerInjuryStatus } from '../models/Player';
-
-const API_TIMEOUT = 30000; // 30 seconds
+import { API_TIMEOUT } from '../config/sleeper';
 
 /**
  * Sync injury data from Sleeper API

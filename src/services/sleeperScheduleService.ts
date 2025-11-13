@@ -1,7 +1,7 @@
 import axios from "axios";
+import { API_TIMEOUT } from "../config/sleeper";
 
 const SLEEPER_GRAPHQL_URL = "https://sleeper.com/graphql";
-const API_TIMEOUT = 30000; // 30 seconds
 
 interface GameSchedule {
   game_id: string;

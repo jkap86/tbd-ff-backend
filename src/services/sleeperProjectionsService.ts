@@ -1,8 +1,6 @@
 import axios from "axios";
 import { PlayerStats } from "../models/PlayerStats";
-
-const SLEEPER_API_BASE = "https://api.sleeper.com";
-const API_TIMEOUT = 30000; // 30 seconds
+import { SLEEPER_API_BASE, API_TIMEOUT } from "../config/sleeper";
 
 interface SleeperProjections {
   [playerId: string]: {

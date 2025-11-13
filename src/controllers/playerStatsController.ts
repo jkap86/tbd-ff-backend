@@ -6,8 +6,7 @@ import { Request, Response } from "express";
 import axios from "axios";
 import { statsCache, projectionsCache } from "../services/statsPreloader";
 import { BaseController } from "./BaseController";
-
-const SLEEPER_API_BASE = "https://api.sleeper.com";
+import { SLEEPER_API_BASE } from "../config/sleeper";
 
 class PlayerStatsController extends BaseController {
   /**

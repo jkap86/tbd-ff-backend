@@ -1,7 +1,6 @@
 import axios from "axios";
 import pool from "../config/database";
-
-const SLEEPER_API_BASE = "https://api.sleeper.app/v1";
+import { SLEEPER_API_BASE } from "../config/sleeper";
 
 interface SleeperProjection {
   player_id: string;

@@ -1,15 +1,13 @@
 import cron from "node-cron";
 import axios from "axios";
 import NodeCache from "node-cache";
+import { SLEEPER_API_BASE, API_TIMEOUT } from "../config/sleeper";
 
 /**
  * Stats Preloader Service
  * Precomputes and caches aggregated player stats/projections in the background
  * to ensure instant API responses
  */
-
-const SLEEPER_API_BASE = "https://api.sleeper.com";
-const API_TIMEOUT = 30000; // 30 seconds
 
 // Cache references (same instances used by playerStatsController)
 // Export these so the controller can import them

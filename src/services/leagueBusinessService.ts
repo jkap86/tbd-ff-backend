@@ -29,12 +29,14 @@ export class LeagueBusinessService {
       // Create the league
       const league = await createLeague(leagueData);
 
-      // Only auto-generate matchups if opponent_selection is not set to 'draft'
-      // When using opponent selection draft, matchups will be created through the draft process
+      // Only auto-generate matchups if opponent_selection is not set
+      // When opponent_selection is set (either 'draft' or 'randomize'), matchups should be:
+      // - 'draft': Created through the opponent selection draft process
+      // - 'randomize': Created when commissioner clicks the randomize button
       const opponentSelection = leagueData.settings?.opponent_selection;
 
-      if (opponentSelection !== 'draft') {
-        // Auto-generate matchups for all regular season weeks
+      if (!opponentSelection) {
+        // Auto-generate matchups for all regular season weeks (legacy behavior)
         const startWeek = leagueData.settings?.start_week || 1;
         const playoffWeekStart = leagueData.settings?.playoff_week_start || 15;
         const { generateMatchupsForWeek } = await import("../models/Matchup");
@@ -59,7 +61,7 @@ export class LeagueBusinessService {
         }
       } else {
         console.log(
-          `[LeagueBusinessService] Skipping auto-generation of matchups - league uses opponent selection draft`
+          `[LeagueBusinessService] Skipping auto-generation of matchups - opponent_selection is '${opponentSelection}'`
         );
       }
 

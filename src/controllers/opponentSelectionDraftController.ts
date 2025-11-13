@@ -14,10 +14,14 @@ import { getLeagueById } from "../models/League";
 class OpponentSelectionDraftController extends BaseController {
   /**
    * Create opponent selection draft
+   * POST /api/opponent-selection-drafts (body: { league_id, time_limit_seconds })
    * POST /api/opponent-selection-drafts/league/:leagueId/create
    */
   createDraft = this.asyncHandler(async (req: Request, res: Response) => {
-    const leagueId = this.validateId(req.params.leagueId, "League ID");
+    // Support both URL param and body-based league ID
+    const leagueId = req.params.leagueId
+      ? this.validateId(req.params.leagueId, "League ID")
+      : this.validateId(req.body.league_id, "League ID");
     const userId = this.getAuthenticatedUserId(req);
 
     // Verify league exists and user is commissioner
@@ -37,8 +41,8 @@ class OpponentSelectionDraftController extends BaseController {
       return this.respondBadRequest(res, "Opponent selection draft already exists for this league");
     }
 
-    // Create draft
-    const timeLimitSeconds = req.body.timeLimitSeconds || 120;
+    // Create draft - support both camelCase and snake_case
+    const timeLimitSeconds = req.body.time_limit_seconds || req.body.timeLimitSeconds || 120;
     const draft = await createOpponentSelectionDraft(leagueId, timeLimitSeconds);
 
     this.respondCreated(res, draft, "Opponent selection draft created successfully");
@@ -52,8 +56,10 @@ class OpponentSelectionDraftController extends BaseController {
     const leagueId = this.validateId(req.params.leagueId, "League ID");
 
     const draft = await getOpponentSelectionDraftByLeague(leagueId);
+
+    // Return null if no draft exists (not an error - just hasn't been created yet)
     if (!draft) {
-      return this.respondNotFound(res, "Opponent selection draft not found");
+      return this.respondSuccess(res, null, "No draft found for this league");
     }
 
     // Get picks
@@ -72,6 +78,7 @@ class OpponentSelectionDraftController extends BaseController {
   /**
    * Start opponent selection draft
    * POST /api/opponent-selection-drafts/:draftId/start
+   * Body: { first_roster_id: number }
    */
   startDraft = this.asyncHandler(async (req: Request, res: Response) => {
     const draftId = this.validateId(req.params.draftId, "Draft ID");
@@ -98,18 +105,25 @@ class OpponentSelectionDraftController extends BaseController {
       return this.respondBadRequest(res, "Draft has already been started");
     }
 
-    // Get selection order to determine first picker
-    const selectionOrder = await getOpponentSelectionOrder(draft.league_id);
-    if (selectionOrder.length === 0) {
-      return this.respondBadRequest(res, "No selection order set");
+    // Get first roster ID from body or determine from selection order
+    let firstRosterId = req.body.first_roster_id;
+
+    if (!firstRosterId) {
+      // Get selection order to determine first picker
+      const selectionOrder = await getOpponentSelectionOrder(draft.league_id);
+      if (selectionOrder.length === 0) {
+        return this.respondBadRequest(res, "No selection order set");
+      }
+
+      const firstPicker = selectionOrder.find(order => order.selection_position === 1);
+      if (!firstPicker) {
+        return this.respondBadRequest(res, "Could not determine first picker");
+      }
+
+      firstRosterId = firstPicker.roster_id;
     }
 
-    const firstPicker = selectionOrder.find(order => order.selection_position === 1);
-    if (!firstPicker) {
-      return this.respondBadRequest(res, "Could not determine first picker");
-    }
-
-    const updatedDraft = await startOpponentSelectionDraft(draftId, firstPicker.roster_id);
+    const updatedDraft = await startOpponentSelectionDraft(draftId, firstRosterId);
 
     this.respondSuccess(res, updatedDraft, "Draft started successfully");
   });

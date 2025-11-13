@@ -15,7 +15,19 @@ import {
 const router = Router();
 
 /**
- * Create opponent selection draft
+ * Create opponent selection draft (simple route)
+ * POST /api/opponent-selection-drafts
+ * Body: { league_id: number, time_limit_seconds: number }
+ */
+router.post(
+  "/",
+  authenticate,
+  requireCommissioner,
+  createOpponentSelectionDraftHandler
+);
+
+/**
+ * Create opponent selection draft (legacy route)
  * POST /api/opponent-selection-drafts/league/:leagueId/create
  */
 router.post(

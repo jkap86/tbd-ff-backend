@@ -29,28 +29,40 @@ export class LeagueBusinessService {
       // Create the league
       const league = await createLeague(leagueData);
 
-      // Auto-generate matchups for all regular season weeks
-      const startWeek = leagueData.settings?.start_week || 1;
-      const playoffWeekStart = leagueData.settings?.playoff_week_start || 15;
-      const { generateMatchupsForWeek } = await import("../models/Matchup");
+      // Only auto-generate matchups if opponent_selection is not set
+      // When opponent_selection is set (either 'draft' or 'randomize'), matchups should be:
+      // - 'draft': Created through the opponent selection draft process
+      // - 'randomize': Created when commissioner clicks the randomize button
+      const opponentSelection = leagueData.settings?.opponent_selection;
 
-      console.log(
-        `[LeagueBusinessService] Auto-generating matchups for weeks ${startWeek} to ${playoffWeekStart - 1}...`
-      );
+      if (!opponentSelection) {
+        // Auto-generate matchups for all regular season weeks (legacy behavior)
+        const startWeek = leagueData.settings?.start_week || 1;
+        const playoffWeekStart = leagueData.settings?.playoff_week_start || 15;
+        const { generateMatchupsForWeek } = await import("../models/Matchup");
 
-      for (let week = startWeek; week < playoffWeekStart; week++) {
-        try {
-          await generateMatchupsForWeek(league.id, week, leagueData.season);
-          console.log(
-            `[LeagueBusinessService] Generated matchups for week ${week}`
-          );
-        } catch (error) {
-          console.error(
-            `[LeagueBusinessService] Failed to generate matchups for week ${week}:`,
-            error
-          );
-          // Continue with other weeks even if one fails
+        console.log(
+          `[LeagueBusinessService] Auto-generating matchups for weeks ${startWeek} to ${playoffWeekStart - 1}...`
+        );
+
+        for (let week = startWeek; week < playoffWeekStart; week++) {
+          try {
+            await generateMatchupsForWeek(league.id, week, leagueData.season);
+            console.log(
+              `[LeagueBusinessService] Generated matchups for week ${week}`
+            );
+          } catch (error) {
+            console.error(
+              `[LeagueBusinessService] Failed to generate matchups for week ${week}:`,
+              error
+            );
+            // Continue with other weeks even if one fails
+          }
         }
+      } else {
+        console.log(
+          `[LeagueBusinessService] Skipping auto-generation of matchups - opponent_selection is '${opponentSelection}'`
+        );
       }
 
       await client.query("COMMIT");

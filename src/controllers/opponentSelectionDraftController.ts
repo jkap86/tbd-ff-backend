@@ -56,8 +56,10 @@ class OpponentSelectionDraftController extends BaseController {
     const leagueId = this.validateId(req.params.leagueId, "League ID");
 
     const draft = await getOpponentSelectionDraftByLeague(leagueId);
+
+    // Return null if no draft exists (not an error - just hasn't been created yet)
     if (!draft) {
-      return this.respondNotFound(res, "Opponent selection draft not found");
+      return this.respondSuccess(res, null, "No draft found for this league");
     }
 
     // Get picks

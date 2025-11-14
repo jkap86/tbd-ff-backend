@@ -35,7 +35,7 @@ export const submitWaiverClaimValidator = [
   body('bid_amount')
     .isInt({ min: 0, max: 10000 })
     .withMessage('Bid amount must be between 0 and 10000')
-    .custom((value, { req }) => {
+    .custom((value) => {
       if (value < 0) {
         throw new Error('Bid amount cannot be negative');
       }

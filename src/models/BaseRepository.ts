@@ -1,5 +1,6 @@
 import { Pool, QueryResult, QueryResultRow } from "pg";
 import pool from "../config/database";
+import { logger } from "../config/logger";
 
 /**
  * Abstract base repository class providing generic CRUD operations
@@ -50,7 +51,7 @@ export abstract class BaseRepository<T> {
     try {
       return await this.pool.query<R>(query, params);
     } catch (error) {
-      console.error(`Database query error in ${this.tableName}:`, error);
+      logger.error(`Database query error in ${this.tableName}`, { error, query, params });
       throw new Error(`Database operation failed for ${this.tableName}`);
     }
   }
@@ -68,6 +69,19 @@ export abstract class BaseRepository<T> {
   }
 
   /**
+   * Validates that a column name is safe for use in SQL queries
+   * Prevents SQL injection by allowing only alphanumeric characters, underscores, and dots
+   *
+   * @param column - The column name to validate
+   * @returns true if valid, false otherwise
+   */
+  protected isValidColumnName(column: string): boolean {
+    // Allow only alphanumeric characters, underscores, dots (for table.column), and spaces (for DESC/ASC)
+    const validPattern = /^[a-zA-Z0-9_.\s]+$/;
+    return validPattern.test(column);
+  }
+
+  /**
    * Find all records in the table
    *
    * @param orderBy - Optional ORDER BY clause (e.g., 'created_at DESC')
@@ -76,6 +90,10 @@ export abstract class BaseRepository<T> {
   async findAll(orderBy?: string): Promise<T[]> {
     let query = `SELECT * FROM ${this.tableName}`;
     if (orderBy) {
+      // Validate ORDER BY to prevent SQL injection
+      if (!this.isValidColumnName(orderBy)) {
+        throw new Error(`Invalid ORDER BY clause: ${orderBy}`);
+      }
       query += ` ORDER BY ${orderBy}`;
     }
     const result = await this.query(query);
@@ -147,8 +165,17 @@ export abstract class BaseRepository<T> {
    * @returns Array of matching records
    */
   async findBy(column: string, value: any, orderBy?: string): Promise<T[]> {
+    // Validate column name to prevent SQL injection
+    if (!this.isValidColumnName(column)) {
+      throw new Error(`Invalid column name: ${column}`);
+    }
+
     let query = `SELECT * FROM ${this.tableName} WHERE ${column} = $1`;
     if (orderBy) {
+      // Validate ORDER BY to prevent SQL injection
+      if (!this.isValidColumnName(orderBy)) {
+        throw new Error(`Invalid ORDER BY clause: ${orderBy}`);
+      }
       query += ` ORDER BY ${orderBy}`;
     }
     const result = await this.query(query, [value]);
@@ -165,6 +192,11 @@ export abstract class BaseRepository<T> {
   async count(whereClause?: string, params?: any[]): Promise<number> {
     let query = `SELECT COUNT(*) as count FROM ${this.tableName}`;
     if (whereClause) {
+      // Validate WHERE clause to prevent SQL injection
+      // WHERE clauses should use parameterized queries ($1, $2, etc.)
+      if (!this.isValidColumnName(whereClause)) {
+        throw new Error(`Invalid WHERE clause: ${whereClause}`);
+      }
       query += ` WHERE ${whereClause}`;
     }
     const result = await this.query<{ count: string }>(query, params);

@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 
 export interface RosterPayment {
   id: number;
@@ -66,7 +67,7 @@ export async function getByLeagueId(
     const result = await pool.query(query, values);
     return result.rows;
   } catch (error: any) {
-    console.error("Error getting roster payments by league:", error);
+    logger.error("Error getting roster payments by league:", { error });
     throw new Error("Error getting roster payments by league");
   }
 }
@@ -96,7 +97,7 @@ export async function getByRosterId(
     const result = await pool.query(query, values);
     return result.rows;
   } catch (error: any) {
-    console.error("Error getting roster payments by roster:", error);
+    logger.error("Error getting roster payments by roster:", { error });
     throw new Error("Error getting roster payments by roster");
   }
 }
@@ -118,7 +119,7 @@ export async function getByUserId(userId: number): Promise<any[]> {
     const result = await pool.query(query, [userId]);
     return result.rows;
   } catch (error: any) {
-    console.error("Error getting roster payments by user:", error);
+    logger.error("Error getting roster payments by user:", { error });
     throw new Error("Error getting roster payments by user");
   }
 }
@@ -176,7 +177,7 @@ export async function create(
     const result = await pool.query(query, values);
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error creating roster payment:", error);
+    logger.error("Error creating roster payment:", { error });
 
     // Handle unique constraint violation
     if (error.code === "23505") {
@@ -260,7 +261,7 @@ export async function update(
 
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error updating roster payment:", error);
+    logger.error("Error updating roster payment:", { error });
     throw new Error("Error updating roster payment");
   }
 }
@@ -309,7 +310,7 @@ export async function getPaymentStatus(
       count_overdue: parseInt(row.count_overdue),
     };
   } catch (error: any) {
-    console.error("Error getting payment status:", error);
+    logger.error("Error getting payment status:", { error });
     throw new Error("Error getting payment status");
   }
 }
@@ -328,7 +329,7 @@ export async function getById(id: number): Promise<RosterPayment | null> {
 
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error getting roster payment by ID:", error);
+    logger.error("Error getting roster payment by ID:", { error });
     throw new Error("Error getting roster payment by ID");
   }
 }
@@ -354,7 +355,7 @@ export async function getByRosterAndSeason(
 
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error getting roster payment by roster and season:", error);
+    logger.error("Error getting roster payment by roster and season:", { error });
     throw new Error("Error getting roster payment by roster and season");
   }
 }
@@ -368,7 +369,7 @@ export async function deleteById(id: number): Promise<boolean> {
     const result = await pool.query(query, [id]);
     return result.rows.length > 0;
   } catch (error: any) {
-    console.error("Error deleting roster payment:", error);
+    logger.error("Error deleting roster payment:", { error });
     throw new Error("Error deleting roster payment");
   }
 }
@@ -394,7 +395,7 @@ export async function markAsOverdue(id: number): Promise<RosterPayment | null> {
 
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error marking payment as overdue:", error);
+    logger.error("Error marking payment as overdue:", { error });
     throw new Error("Error marking payment as overdue");
   }
 }
@@ -447,7 +448,7 @@ export async function recordPayment(
 
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error recording payment:", error);
+    logger.error("Error recording payment:", { error });
     throw new Error("Error recording payment");
   }
 }

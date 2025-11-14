@@ -112,7 +112,12 @@ export function setupAuctionSocket(io: Server) {
           // Verify user is a participant in this draft
           const isParticipant = await isUserDraftParticipant(user.userId, data.draftId);
           if (!isParticipant) {
-            console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied nominate access to draft ${data.draftId}`);
+            logger.warn("User denied nominate access to draft", {
+              username: user.username,
+              user_id: user.userId,
+              draft_id: data.draftId,
+              context: 'AuctionSocket'
+            });
             socket.emit("error", { message: "Access denied: You are not a participant in this draft" });
             return;
           }
@@ -120,7 +125,12 @@ export function setupAuctionSocket(io: Server) {
           // Verify user owns the nominating roster
           const ownsRoster = await doesUserOwnRoster(user.userId, data.nominatingRosterId, data.draftId);
           if (!ownsRoster) {
-            console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied nominate - does not own roster ${data.nominatingRosterId}`);
+            logger.warn("User denied nominate access - does not own roster", {
+              username: user.username,
+              user_id: user.userId,
+              roster_id: data.nominatingRosterId,
+              context: 'AuctionSocket'
+            });
             socket.emit("error", { message: "Access denied: You can only nominate players for your own roster" });
             return;
           }
@@ -206,7 +216,7 @@ export function setupAuctionSocket(io: Server) {
             scheduleNominationExpiry(io, nomination.id, data.draftId, deadline);
           }
         } catch (error: any) {
-          console.error("Error nominating player:", error);
+          logger.error("Error nominating player", { error, context: 'AuctionSocket' });
           socket.emit("error", { message: error.message });
         }
       }
@@ -232,7 +242,12 @@ export function setupAuctionSocket(io: Server) {
               // Verify user is a participant in this draft
               const isParticipant = await isUserDraftParticipant(user.userId, bidData.draftId);
               if (!isParticipant) {
-                console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied bid access to draft ${bidData.draftId}`);
+                logger.warn("User denied bid access to draft", {
+                  username: user.username,
+                  user_id: user.userId,
+                  draft_id: bidData.draftId,
+                  context: 'AuctionSocket'
+                });
                 socket.emit("error", { message: "Access denied: You are not a participant in this draft" });
                 return;
               }
@@ -240,7 +255,12 @@ export function setupAuctionSocket(io: Server) {
               // Verify user owns the bidding roster
               const ownsRoster = await doesUserOwnRoster(user.userId, bidData.rosterId, bidData.draftId);
               if (!ownsRoster) {
-                console.log(`[AuctionSocket] User ${user.username} (${user.userId}) denied bid - does not own roster ${bidData.rosterId}`);
+                logger.warn("User denied bid access - does not own roster", {
+                  username: user.username,
+                  user_id: user.userId,
+                  roster_id: bidData.rosterId,
+                  context: 'AuctionSocket'
+                });
                 socket.emit("error", { message: "Access denied: You can only place bids for your own roster" });
                 return;
               }
@@ -339,7 +359,7 @@ export function setupAuctionSocket(io: Server) {
                 }
               }
             } catch (error: any) {
-              console.error("[AuctionSocket] Error placing bid:", error);
+              logger.error("Error placing bid", { error, context: 'AuctionSocket' });
               socket.emit("error", {
                 message: error.message || "Failed to place bid"
               });
@@ -366,9 +386,9 @@ export function setupAuctionSocket(io: Server) {
     socket.on("disconnect", () => {
       const user = socket.data.user;
       if (user) {
-        console.log(`[AuctionSocket] Socket disconnected: ${socket.id} - User: ${user.username} (${user.userId})`);
+        logger.info("Socket disconnected", { socket_id: socket.id, username: user.username, user_id: user.userId, context: 'AuctionSocket' });
       } else {
-        console.log(`[AuctionSocket] Socket disconnected: ${socket.id}`);
+        logger.info("Socket disconnected", { socket_id: socket.id, context: 'AuctionSocket' });
       }
     });
   });
@@ -507,7 +527,7 @@ async function processNominationExpiry(io: Server, nominationId: number, draftId
         // Check if auction is complete
         const complete = await isAuctionComplete(draftId);
         if (complete) {
-          console.log(`[Auction] Draft ${draftId} is complete!`);
+          logger.info("Draft is complete", { draft_id: draftId, context: 'AuctionSocket' });
 
           // Complete the draft
           const updatedDraft = await completeDraft(draftId);
@@ -574,7 +594,7 @@ async function processNominationExpiry(io: Server, nominationId: number, draftId
     nominationTimers.delete(nominationId);
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error("Error processing nomination expiry:", error);
+    logger.error("Error processing nomination expiry", { error, context: 'AuctionSocket' });
     nominationTimers.delete(nominationId);
   } finally {
     client.release();
@@ -788,7 +808,7 @@ async function processBidExpiry(io: Server, nominationId: number, draftId: numbe
         // Check if auction is complete
         const complete = await isAuctionComplete(draftId);
         if (complete) {
-          console.log(`[Auction] Draft ${draftId} is complete!`);
+          logger.info("Draft is complete", { draft_id: draftId, context: 'AuctionSocket' });
 
           // Complete the draft
           const updatedDraft = await completeDraft(draftId);
@@ -856,7 +876,7 @@ async function processBidExpiry(io: Server, nominationId: number, draftId: numbe
     stopBidTimerTick(nominationId);
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error("Error processing bid expiry:", error);
+    logger.error("Error processing bid expiry", { error, context: 'AuctionSocket' });
     bidTimers.delete(nominationId);
     stopBidTimerTick(nominationId);
   } finally {
@@ -894,12 +914,12 @@ export function scheduleTurnTimer(
   }, delay);
 
   turnTimers.set(draftId, timer);
-  console.log(`[TurnTimer] Scheduled turn timer for draft ${draftId}, roster ${rosterId}, ${pickTimeSeconds}s`);
+  logger.info("Scheduled turn timer for draft", { draft_id: draftId, roster_id: rosterId, seconds: pickTimeSeconds, context: 'AuctionSocket' });
 }
 
 async function processTurnExpiry(io: Server, draftId: number, rosterId: number) {
   try {
-    console.log(`[TurnTimer] Turn expired for draft ${draftId}, roster ${rosterId}`);
+    logger.info("Turn expired for draft", { draft_id: draftId, roster_id: rosterId, context: 'AuctionSocket' });
 
     const draft = await getDraftById(draftId);
     if (!draft || draft.status !== "in_progress") {
@@ -909,7 +929,7 @@ async function processTurnExpiry(io: Server, draftId: number, rosterId: number) 
 
     // Check if it's still this roster's turn
     if (draft.current_roster_id !== rosterId) {
-      console.log(`[TurnTimer] Turn has changed, skipping auto-nomination`);
+      logger.info("Turn has changed, skipping auto-nomination", { draft_id: draftId, context: 'AuctionSocket' });
       turnTimers.delete(draftId);
       return;
     }
@@ -934,7 +954,7 @@ async function processTurnExpiry(io: Server, draftId: number, rosterId: number) 
     const availablePlayers = availablePlayersResult.rows;
 
     if (availablePlayers.length === 0) {
-      console.log(`[TurnTimer] No available players, skipping auto-nomination`);
+      logger.info("No available players, skipping auto-nomination", { draft_id: draftId, context: 'AuctionSocket' });
       turnTimers.delete(draftId);
       return;
     }
@@ -942,7 +962,7 @@ async function processTurnExpiry(io: Server, draftId: number, rosterId: number) 
     // Pick a random player from available players
     const randomPlayer = availablePlayers[Math.floor(Math.random() * availablePlayers.length)];
 
-    console.log(`[TurnTimer] Auto-nominating player ${randomPlayer.player_id} for roster ${rosterId}`);
+    logger.info("Auto-nominating player for roster", { player_id: randomPlayer.player_id, roster_id: rosterId, context: 'AuctionSocket' });
 
     // Calculate deadline for the nomination
     let deadline: Date | null = null;
@@ -1011,7 +1031,7 @@ async function processTurnExpiry(io: Server, draftId: number, rosterId: number) 
 
     turnTimers.delete(draftId);
   } catch (error) {
-    console.error("Error processing turn expiry:", error);
+    logger.error("Error processing turn expiry", { error, context: 'AuctionSocket' });
     turnTimers.delete(draftId);
   }
 }
@@ -1022,5 +1042,5 @@ export function cancelTurnTimer(draftId: number) {
     clearTimeout(existingTimer);
     turnTimers.delete(draftId);
   }
-  console.log(`[TurnTimer] Cancelled turn timer for draft ${draftId}`);
+  logger.info("Cancelled turn timer for draft", { draft_id: draftId, context: 'AuctionSocket' });
 }

@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 
 export interface PlayerStats {
   id: number;
@@ -216,7 +217,7 @@ export async function upsertPlayerStats(
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error upserting player stats:", error);
+    logger.error("Error upserting player stats:", { error });
     throw new Error("Error upserting player stats");
   }
 }
@@ -239,7 +240,7 @@ export async function getPlayerStatsByWeek(
     const result = await pool.query(query, [playerId, week, season, seasonType]);
     return result.rows.length > 0 ? result.rows[0] : null;
   } catch (error) {
-    console.error("Error getting player stats:", error);
+    logger.error("Error getting player stats:", { error });
     throw new Error("Error getting player stats");
   }
 }
@@ -275,7 +276,7 @@ export async function getMultiplePlayersStatsByWeek(
     const result = await pool.query(query, [playerIds, week, season, seasonType]);
     return result.rows;
   } catch (error) {
-    console.error("Error getting multiple players stats:", error);
+    logger.error("Error getting multiple players stats:", { error });
     throw new Error("Error getting multiple players stats");
   }
 }
@@ -298,7 +299,7 @@ export async function getPlayerSeasonStats(
     const result = await pool.query(query, [playerId, season, seasonType]);
     return result.rows;
   } catch (error) {
-    console.error("Error getting player season stats:", error);
+    logger.error("Error getting player season stats:", { error });
     throw new Error("Error getting player season stats");
   }
 }

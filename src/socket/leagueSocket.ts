@@ -5,6 +5,7 @@ import { getRostersByLeagueId } from "../models/Roster";
 import { socketAuthMiddleware } from "../middleware/socketAuthMiddleware";
 import { isUserLeagueMember } from "../utils/leagueAuthorization";
 import { notifyLeagueChat } from "../services/notificationHelpers";
+import { logger } from "../config/logger";
 import validator from "validator";
 
 /**
@@ -22,12 +23,12 @@ export function setupLeagueSocket(io: Server) {
   io.on("connection", (socket: Socket) => {
     const user = socket.data.user;
     if (!user) {
-      console.error(`[LeagueSocket] Socket connected without user data: ${socket.id}`);
+      logger.error("Socket connected without user data", { socket_id: socket.id, context: 'LeagueSocket' });
       socket.disconnect();
       return;
     }
 
-    console.log(`[LeagueSocket] Socket connected: ${socket.id} - User: ${user.username} (${user.userId})`);
+    logger.info("Socket connected", { socket_id: socket.id, username: user.username, user_id: user.userId, context: 'LeagueSocket' });
 
     /**
      * Join a league room
@@ -39,7 +40,12 @@ export function setupLeagueSocket(io: Server) {
       try {
         // Verify the authenticated user matches the user_id in the request
         if (user.userId !== user_id) {
-          console.log(`[LeagueSocket] User ${user.username} (${user.userId}) attempted to join league as different user ${user_id}`);
+          logger.warn("User attempted to join league as different user", {
+            authenticated_user: user.username,
+            authenticated_user_id: user.userId,
+            requested_user_id: user_id,
+            context: 'LeagueSocket'
+          });
           socket.emit("error", { message: "Access denied: User ID mismatch" });
           return;
         }
@@ -54,7 +60,12 @@ export function setupLeagueSocket(io: Server) {
         // Verify user is a member of this league
         const isMember = await isUserLeagueMember(user.userId, league_id);
         if (!isMember) {
-          console.log(`[LeagueSocket] User ${user.username} (${user.userId}) denied access to league ${league_id} - not a member`);
+          logger.warn("User denied access to league - not a member", {
+            username: user.username,
+            user_id: user.userId,
+            league_id,
+            context: 'LeagueSocket'
+          });
           socket.emit("error", { message: "Access denied: You are not a member of this league" });
           return;
         }
@@ -63,7 +74,7 @@ export function setupLeagueSocket(io: Server) {
         const roomName = `league_${league_id}`;
         socket.join(roomName);
 
-        console.log(`[LeagueSocket] User ${username} (${user_id}) joined league ${league_id}`);
+        logger.info("User joined league", { username, user_id, league_id, context: 'LeagueSocket' });
 
         // Notify others in the room
         socket.to(roomName).emit("user_joined_league", {
@@ -78,7 +89,7 @@ export function setupLeagueSocket(io: Server) {
           message: `Joined league ${league_id}`,
         });
       } catch (error) {
-        console.error("[LeagueSocket] Error joining league:", error);
+        logger.error("Error joining league", { error, context: 'LeagueSocket' });
         socket.emit("error", { message: "Error joining league" });
       }
     });
@@ -92,7 +103,12 @@ export function setupLeagueSocket(io: Server) {
 
       // Verify the authenticated user matches the user_id in the request
       if (user.userId !== user_id) {
-        console.log(`[LeagueSocket] User ${user.username} (${user.userId}) attempted to leave league as different user ${user_id}`);
+        logger.warn("User attempted to leave league as different user", {
+          authenticated_user: user.username,
+          authenticated_user_id: user.userId,
+          requested_user_id: user_id,
+          context: 'LeagueSocket'
+        });
         socket.emit("error", { message: "Access denied: User ID mismatch" });
         return;
       }
@@ -100,7 +116,7 @@ export function setupLeagueSocket(io: Server) {
       const roomName = `league_${league_id}`;
       socket.leave(roomName);
 
-      console.log(`[LeagueSocket] User ${username} (${user_id}) left league ${league_id}`);
+      logger.info("User left league", { username, user_id, league_id, context: 'LeagueSocket' });
 
       // Notify others in the room
       socket.to(roomName).emit("user_left_league", {
@@ -131,7 +147,12 @@ export function setupLeagueSocket(io: Server) {
 
         // Verify the authenticated user matches the user_id in the request
         if (user.userId !== user_id) {
-          console.log(`[LeagueSocket] User ${user.username} (${user.userId}) attempted to send chat as different user ${user_id}`);
+          logger.warn("User attempted to send chat as different user", {
+            authenticated_user: user.username,
+            authenticated_user_id: user.userId,
+            requested_user_id: user_id,
+            context: 'LeagueSocket'
+          });
           socket.emit("error", { message: "Access denied: User ID mismatch" });
           return;
         }
@@ -139,7 +160,12 @@ export function setupLeagueSocket(io: Server) {
         // Verify user is a member of this league
         const isMember = await isUserLeagueMember(user.userId, league_id);
         if (!isMember) {
-          console.log(`[LeagueSocket] User ${user.username} (${user.userId}) denied chat access to league ${league_id}`);
+          logger.warn("User denied chat access to league", {
+            username: user.username,
+            user_id: user.userId,
+            league_id,
+            context: 'LeagueSocket'
+          });
           socket.emit("error", { message: "Access denied: You are not a member of this league" });
           return;
         }
@@ -187,10 +213,10 @@ export function setupLeagueSocket(io: Server) {
             );
           })
           .catch((error) => {
-            console.error("[LeagueSocket] Error sending chat notifications:", error);
+            logger.error("Error sending chat notifications", { error, context: 'LeagueSocket' });
           });
       } catch (error) {
-        console.error("[LeagueSocket] Error sending league chat message:", error);
+        logger.error("Error sending league chat message", { error, context: 'LeagueSocket' });
         socket.emit("error", { message: "Error sending message" });
       }
     });
@@ -201,9 +227,9 @@ export function setupLeagueSocket(io: Server) {
     socket.on("disconnect", () => {
       const user = socket.data.user;
       if (user) {
-        console.log(`[LeagueSocket] Socket disconnected: ${socket.id} - User: ${user.username} (${user.userId})`);
+        logger.info("Socket disconnected", { socket_id: socket.id, username: user.username, user_id: user.userId, context: 'LeagueSocket' });
       } else {
-        console.log(`[LeagueSocket] Socket disconnected: ${socket.id}`);
+        logger.info("Socket disconnected", { socket_id: socket.id, context: 'LeagueSocket' });
       }
     });
   });

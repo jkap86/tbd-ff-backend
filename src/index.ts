@@ -306,7 +306,7 @@ v1Router.get("/profile", authenticate, (req: Request, res: Response) => {
 // Diagnostic logging endpoint (no auth required for debugging) - MUST be before v1Router
 app.post("/api/v1/diagnostic/log", (req: Request, res: Response) => {
   const { message, data } = req.body;
-  console.log(`[DIAGNOSTIC] ${message}`, data ? JSON.stringify(data) : '');
+  logger.info(`[DIAGNOSTIC] ${message}`, data ? JSON.stringify(data) : '');
   res.json({ success: true });
 });
 

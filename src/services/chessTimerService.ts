@@ -4,6 +4,7 @@ import {
   updateRosterTimeRemaining
 } from "../models/DraftOrder";
 import { io } from "../index";
+import { logger } from "../utils/logger";
 
 /**
  * Map to track when each pick started (draftId -> timestamp)
@@ -23,7 +24,7 @@ const activeMonitors: Map<number, NodeJS.Timeout> = new Map();
 export function startChessTimer(draftId: number): void {
   const now = new Date();
   pickStartTimes.set(draftId, now);
-  console.log(`[ChessTimer] Started timer for draft ${draftId} at ${now.toISOString()}`);
+  logger.info(`[ChessTimer] Started timer for draft ${draftId} at ${now.toISOString()}`);
 }
 
 /**
@@ -39,7 +40,7 @@ export async function pauseChessTimer(
     const startTime = pickStartTimes.get(draftId);
 
     if (!startTime) {
-      console.warn(`[ChessTimer] No start time found for draft ${draftId}, assuming 0 seconds used`);
+      logger.warn(`[ChessTimer] No start time found for draft ${draftId}, assuming 0 seconds used`);
       return 0;
     }
 
@@ -48,7 +49,7 @@ export async function pauseChessTimer(
     const elapsedMs = now.getTime() - startTime.getTime();
     const elapsedSeconds = Math.floor(elapsedMs / 1000);
 
-    console.log(`[ChessTimer] Pausing timer for draft ${draftId}, roster ${rosterId}: ${elapsedSeconds}s elapsed`);
+    logger.info(`[ChessTimer] Pausing timer for draft ${draftId}, roster ${rosterId}: ${elapsedSeconds}s elapsed`);
 
     // Update the roster's time remaining in the database
     await updateRosterTimeRemaining(draftId, rosterId, elapsedSeconds);
@@ -64,7 +65,7 @@ export async function pauseChessTimer(
 
     return elapsedSeconds;
   } catch (error) {
-    console.error(`[ChessTimer] Error pausing chess timer:`, error);
+    logger.error(`[ChessTimer] Error pausing chess timer:`, error);
     throw error;
   }
 }
@@ -108,7 +109,7 @@ export async function getRosterTimeRemainingLive(
 
     return realTimeRemaining;
   } catch (error) {
-    console.error(`[ChessTimer] Error getting roster time remaining:`, error);
+    logger.error(`[ChessTimer] Error getting roster time remaining:`, error);
     return null;
   }
 }
@@ -131,12 +132,12 @@ export async function hasRosterTimedOut(
     const hasTimedOut = timeRemaining <= 0;
 
     if (hasTimedOut) {
-      console.log(`[ChessTimer] Roster ${rosterId} in draft ${draftId} has TIMED OUT (0s remaining)`);
+      logger.info(`[ChessTimer] Roster ${rosterId} in draft ${draftId} has TIMED OUT (0s remaining)`);
     }
 
     return hasTimedOut;
   } catch (error) {
-    console.error(`[ChessTimer] Error checking roster timeout:`, error);
+    logger.error(`[ChessTimer] Error checking roster timeout:`, error);
     return false;
   }
 }
@@ -167,7 +168,7 @@ export async function startChessTimerMonitoring(draftId: number): Promise<void> 
     // Stop any existing monitoring
     stopChessTimerMonitoring(draftId);
 
-    console.log(`[ChessTimer] Starting monitoring for draft ${draftId}`);
+    logger.info(`[ChessTimer] Starting monitoring for draft ${draftId}`);
 
     // Check every second and emit updates
     const interval = setInterval(async () => {
@@ -176,7 +177,7 @@ export async function startChessTimerMonitoring(draftId: number): Promise<void> 
 
         // Stop monitoring if draft is no longer in progress
         if (!draft || draft.status !== "in_progress") {
-          console.log(`[ChessTimer] Draft ${draftId} is not in progress, stopping monitoring`);
+          logger.info(`[ChessTimer] Draft ${draftId} is not in progress, stopping monitoring`);
           stopChessTimerMonitoring(draftId);
           return;
         }
@@ -203,7 +204,7 @@ export async function startChessTimerMonitoring(draftId: number): Promise<void> 
 
         // Check for timeout (will be handled by autopick service)
         if (timeRemaining <= 0) {
-          console.log(`[ChessTimer] Roster ${currentRosterId} has run out of time!`);
+          logger.info(`[ChessTimer] Roster ${currentRosterId} has run out of time!`);
           // Note: Actual auto-pick logic should be handled by autoPickService
           // We just emit the timeout event here
           io.to(`draft_${draftId}`).emit("chess_timer_timeout", {
@@ -213,13 +214,13 @@ export async function startChessTimerMonitoring(draftId: number): Promise<void> 
           });
         }
       } catch (error) {
-        console.error(`[ChessTimer] Error in monitoring loop for draft ${draftId}:`, error);
+        logger.error(`[ChessTimer] Error in monitoring loop for draft ${draftId}:`, error);
       }
     }, 1000); // Update every second
 
     activeMonitors.set(draftId, interval);
   } catch (error) {
-    console.error(`[ChessTimer] Error starting monitoring for draft ${draftId}:`, error);
+    logger.error(`[ChessTimer] Error starting monitoring for draft ${draftId}:`, error);
     throw error;
   }
 }
@@ -233,13 +234,13 @@ export function stopChessTimerMonitoring(draftId: number): void {
   if (interval) {
     clearInterval(interval);
     activeMonitors.delete(draftId);
-    console.log(`[ChessTimer] Stopped monitoring for draft ${draftId}`);
+    logger.info(`[ChessTimer] Stopped monitoring for draft ${draftId}`);
   }
 
   // Also clear pick start time if exists
   if (pickStartTimes.has(draftId)) {
     pickStartTimes.delete(draftId);
-    console.log(`[ChessTimer] Cleared pick start time for draft ${draftId}`);
+    logger.info(`[ChessTimer] Cleared pick start time for draft ${draftId}`);
   }
 }
 
@@ -247,7 +248,7 @@ export function stopChessTimerMonitoring(draftId: number): void {
  * Stop all chess timer monitoring (called on server shutdown)
  */
 export function stopAllChessTimerMonitoring(): void {
-  console.log(`[ChessTimer] Stopping all chess timer monitoring (${activeMonitors.size} active)`);
+  logger.info(`[ChessTimer] Stopping all chess timer monitoring (${activeMonitors.size} active)`);
 
   for (const draftId of activeMonitors.keys()) {
     stopChessTimerMonitoring(draftId);
@@ -256,7 +257,7 @@ export function stopAllChessTimerMonitoring(): void {
   // Clear all pick start times
   pickStartTimes.clear();
 
-  console.log(`[ChessTimer] All chess timer monitoring stopped`);
+  logger.info(`[ChessTimer] All chess timer monitoring stopped`);
 }
 
 /**

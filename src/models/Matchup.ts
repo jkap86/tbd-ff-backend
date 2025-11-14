@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { BaseRepository } from "./BaseRepository";
 
 export type PlayoffRound =
@@ -122,7 +123,7 @@ export async function createMatchup(matchupData: {
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error creating matchup:", error);
+    logger.error("Error creating matchup:", { error });
     throw new Error("Error creating matchup");
   }
 }
@@ -154,7 +155,7 @@ export async function getMatchupsByLeagueAndWeek(
     const result = await pool.query(query, [leagueId, week]);
     return result.rows;
   } catch (error) {
-    console.error("Error getting matchups:", error);
+    logger.error("Error getting matchups:", { error });
     throw new Error("Error getting matchups");
   }
 }
@@ -185,7 +186,7 @@ export async function getMatchupsByLeague(
     const result = await pool.query(query, [leagueId]);
     return result.rows;
   } catch (error) {
-    console.error("Error getting matchups:", error);
+    logger.error("Error getting matchups:", { error });
     throw new Error("Error getting matchups");
   }
 }
@@ -242,7 +243,7 @@ export async function getMatchupDetails(matchupId: number): Promise<any> {
       roster2: roster2Data,
     };
   } catch (error) {
-    console.error("Error getting matchup details:", error);
+    logger.error("Error getting matchup details:", { error });
     throw new Error("Error getting matchup details");
   }
 }
@@ -288,18 +289,18 @@ export async function getMatchupDetailsWithScores(
     // Get roster 1 bench players from the roster
     const roster1Data = await getRosterWithPlayers(matchup.roster1_id);
 
-    console.log(`[MatchupScores] Loading scores for week ${matchup.week}, season ${matchup.season}`);
+    logger.info(`[MatchupScores] Loading scores for week ${matchup.week}, season ${matchup.season}`);
 
     // Fetch projections as fallback
     const projections = await fetchSleeperProjections(matchup.season, matchup.week, "regular");
-    console.log(`[MatchupScores] Fetched projections for ${Object.keys(projections).length} players`);
-    console.log(`[MatchupScores] Sample projection keys:`, Object.keys(projections).slice(0, 5));
+    logger.info(`[MatchupScores] Fetched projections for ${Object.keys(projections).length} players`);
+    logger.info(`[MatchupScores] Sample projection keys:`, Object.keys(projections).slice(0, 5));
 
     // Calculate scores for roster 1 starters (from weekly lineup)
     if (roster1Lineup && roster1Lineup.starters) {
       for (const slot of roster1Lineup.starters) {
         if (slot.player && slot.player.id) {
-          console.log(`[MatchupScores] Processing player ${slot.player.full_name}, DB player_id: ${slot.player.player_id}, DB id: ${slot.player.id}`);
+          logger.info(`[MatchupScores] Processing player ${slot.player.full_name}, DB player_id: ${slot.player.player_id}, DB id: ${slot.player.id}`);
 
           const stats = await getPlayerStatsByWeek(
             slot.player.id,
@@ -310,24 +311,24 @@ export async function getMatchupDetailsWithScores(
 
           if (stats) {
             // Use actual stats if available
-            console.log(`[MatchupScores] Player ${slot.player.full_name}: Using actual stats`);
+            logger.info(`[MatchupScores] Player ${slot.player.full_name}: Using actual stats`);
             slot.player.stats = stats;
             slot.player.fantasy_points = calculateFantasyPoints(stats, scoringSettings);
-            console.log(`[MatchupScores] ${slot.player.full_name} scored ${slot.player.fantasy_points} points`);
+            logger.info(`[MatchupScores] ${slot.player.full_name} scored ${slot.player.fantasy_points} points`);
           } else {
             // Use projections as fallback - convert to stats format and calculate
-            console.log(`[MatchupScores] Looking up projection for player_id: ${slot.player.player_id}`);
+            logger.info(`[MatchupScores] Looking up projection for player_id: ${slot.player.player_id}`);
             const projection = projections[slot.player.player_id];
             if (projection) {
-              console.log(`[MatchupScores] Player ${slot.player.full_name} (${slot.player.player_id}): Using projected stats`);
-              console.log(`[MatchupScores] Raw projection data:`, projection);
+              logger.info(`[MatchupScores] Player ${slot.player.full_name} (${slot.player.player_id}): Using projected stats`);
+              logger.info(`[MatchupScores] Raw projection data:`, projection);
               const projectedStats = convertSleeperProjectionToStats(
                 projection,
                 slot.player.id,
                 matchup.week,
                 matchup.season
               );
-              console.log(`[MatchupScores] Converted stats:`, {
+              logger.debug(`[MatchupScores] Converted stats:`, {
                 pass_yd: projectedStats.passing_yards,
                 pass_td: projectedStats.passing_touchdowns,
                 rush_yd: projectedStats.rushing_yards,
@@ -336,12 +337,12 @@ export async function getMatchupDetailsWithScores(
                 rec_yd: projectedStats.receiving_yards,
                 rec_td: projectedStats.receiving_touchdowns
               });
-              console.log(`[MatchupScores] Scoring settings:`, scoringSettings);
+              logger.info(`[MatchupScores] Scoring settings:`, scoringSettings);
               slot.player.fantasy_points = calculateFantasyPoints(projectedStats as any, scoringSettings);
               slot.player.is_projection = true;
-              console.log(`[MatchupScores] ${slot.player.full_name} projected ${slot.player.fantasy_points} points using league scoring`);
+              logger.info(`[MatchupScores] ${slot.player.full_name} projected ${slot.player.fantasy_points} points using league scoring`);
             } else {
-              console.log(`[MatchupScores] Player ${slot.player.full_name} (${slot.player.player_id}): No stats or projections available`);
+              logger.info(`[MatchupScores] Player ${slot.player.full_name} (${slot.player.player_id}): No stats or projections available`);
               slot.player.fantasy_points = 0;
             }
           }
@@ -477,7 +478,7 @@ export async function getMatchupDetailsWithScores(
       roster2: roster2Data,
     };
   } catch (error) {
-    console.error("Error getting matchup details with scores:", error);
+    logger.error("Error getting matchup details with scores:", { error });
     throw new Error("Error getting matchup details with scores");
   }
 }
@@ -575,7 +576,7 @@ export async function generateMatchupsForWeek(
     // Auto-populate weekly lineups from default roster for all rosters
     const { getOrCreateWeeklyLineup, updateWeeklyLineup } = await import("./WeeklyLineup");
 
-    console.log(`[GenerateMatchups] Auto-populating weekly lineups for week ${week}...`);
+    logger.info(`[GenerateMatchups] Auto-populating weekly lineups for week ${week}...`);
 
     for (const roster of rosters) {
       // Get or create weekly lineup
@@ -588,7 +589,7 @@ export async function generateMatchupsForWeek(
           return !slotName.startsWith('BN');
         });
         await updateWeeklyLineup(roster.id, week, season, nonBenchStarters);
-        console.log(`[GenerateMatchups] Copied ${nonBenchStarters.length} starters (excluding BN) to week ${week} for roster ${roster.id}`);
+        logger.info(`[GenerateMatchups] Copied ${nonBenchStarters.length} starters (excluding BN) to week ${week} for roster ${roster.id}`);
       }
     }
 
@@ -597,7 +598,7 @@ export async function generateMatchupsForWeek(
     const rosterIds = rosters.map((r) => r.id);
     const weekMatchups = generateRoundRobinWeek(rosterIds, weekOffset);
 
-    console.log(`[GenerateMatchups] Using round-robin for week ${week} (offset ${weekOffset}): Generated ${weekMatchups.length} matchups`);
+    logger.info(`[GenerateMatchups] Using round-robin for week ${week} (offset ${weekOffset}): Generated ${weekMatchups.length} matchups`);
 
     // Create matchups in database
     for (const matchupData of weekMatchups) {
@@ -614,7 +615,7 @@ export async function generateMatchupsForWeek(
 
     return matchups;
   } catch (error) {
-    console.error("Error generating matchups:", error);
+    logger.error("Error generating matchups:", { error });
     throw new Error("Error generating matchups");
   }
 }
@@ -646,5 +647,5 @@ export async function deleteMatchupsForLeague(leagueId: number): Promise<void> {
   `;
 
   await matchupRepository['query'](query, [leagueId]);
-  console.log(`[Matchup] Deleted all matchups for league ${leagueId}`);
+  logger.info(`[Matchup] Deleted all matchups for league ${leagueId}`);
 }

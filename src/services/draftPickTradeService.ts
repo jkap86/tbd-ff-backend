@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../utils/logger";
 
 export interface DraftPickTrade {
   id: number;
@@ -71,7 +72,7 @@ export async function proposeTrade(tradeData: ProposeDraftPickTradeInput): Promi
     const result = await pool.query(query, values);
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error proposing draft pick trade:", error);
+    logger.error("Error proposing draft pick trade:", error);
     throw error;
   }
 }
@@ -135,7 +136,7 @@ export async function acceptTrade(tradeId: number, acceptingRosterId: number): P
     return updateResult.rows[0];
   } catch (error: any) {
     await client.query('ROLLBACK');
-    console.error("Error accepting draft pick trade:", error);
+    logger.error("Error accepting draft pick trade:", error);
     throw error;
   } finally {
     client.release();
@@ -180,7 +181,7 @@ export async function declineTrade(tradeId: number, decliningRosterId: number): 
 
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error declining draft pick trade:", error);
+    logger.error("Error declining draft pick trade:", error);
     throw error;
   }
 }
@@ -223,7 +224,7 @@ export async function getTradeablePicksByRoster(
     const result = await pool.query(query, [rosterId, leagueId, season]);
     return result.rows.filter(r => r.tradeable);
   } catch (error: any) {
-    console.error("Error getting tradeable picks:", error);
+    logger.error("Error getting tradeable picks:", error);
     throw error;
   }
 }
@@ -251,7 +252,7 @@ export async function getTradesByLeague(leagueId: number): Promise<DraftPickTrad
     const result = await pool.query(query, [leagueId]);
     return result.rows;
   } catch (error: any) {
-    console.error("Error getting trades by league:", error);
+    logger.error("Error getting trades by league:", error);
     throw error;
   }
 }

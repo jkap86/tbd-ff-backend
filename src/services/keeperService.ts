@@ -1,5 +1,6 @@
 import pool from "../config/database";
 import { isKeeperEligible } from "./dynastyService";
+import { logger } from "../utils/logger";
 
 export interface KeeperSelection {
   id: number;
@@ -101,7 +102,7 @@ export async function removeKeeper(rosterId: number, playerId: string, season: s
 
     return result.rowCount !== null && result.rowCount > 0;
   } catch (error: any) {
-    console.error("Error removing keeper:", error);
+    logger.error("Error removing keeper:", error);
     throw error;
   }
 }
@@ -122,7 +123,7 @@ export async function getKeepersByRoster(rosterId: number, season: string): Prom
     const result = await pool.query(query, [rosterId, season]);
     return result.rows;
   } catch (error: any) {
-    console.error("Error getting keepers by roster:", error);
+    logger.error("Error getting keepers by roster:", error);
     throw error;
   }
 }
@@ -145,7 +146,7 @@ export async function getKeepersByLeague(leagueId: number, season: string): Prom
     const result = await pool.query(query, [leagueId, season]);
     return result.rows;
   } catch (error: any) {
-    console.error("Error getting keepers by league:", error);
+    logger.error("Error getting keepers by league:", error);
     throw error;
   }
 }
@@ -195,7 +196,7 @@ export async function validateKeeperRules(
       errors
     };
   } catch (error: any) {
-    console.error("Error validating keeper rules:", error);
+    logger.error("Error validating keeper rules:", error);
     return {
       valid: false,
       errors: [error.message || "Failed to validate keeper rules"]

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { BaseController } from "./BaseController";
+import { logger } from "../config/logger";
 import {
   getActiveNominations,
   getBidsForNomination,
@@ -268,7 +269,7 @@ class AuctionController extends BaseController {
       return this.respondBadRequest(res, "Draft is not in progress");
     }
 
-    console.log(`[CompleteAuction] Manually completing auction draft ${draftId}`);
+    logger.info(`[CompleteAuction] Manually completing auction draft`, { draft_id: draftId });
 
     // Complete the draft
     const updatedDraft = await completeDraft(draftId);
@@ -530,7 +531,7 @@ class AuctionController extends BaseController {
 
       if (draft.status !== "in_progress" && draft.status !== "paused") {
         await client.query('ROLLBACK');
-        console.log(`[NominatePlayer] Draft ${draftId} nomination rejected - status: ${draft.status}, expected: in_progress or paused`);
+        logger.info(`[NominatePlayer] Draft nomination rejected`, { draft_id: draftId, status: draft.status });
         return res.status(400).json({ error: `Draft is not in progress (current status: ${draft.status})` });
       }
 
@@ -672,7 +673,7 @@ class AuctionController extends BaseController {
           }
         }
       } catch (socketError) {
-        console.error('Socket/turn handling failed:', socketError);
+        logger.error('Socket/turn handling failed:', socketError);
       }
 
       return res.status(201).json(nomination);
@@ -681,14 +682,14 @@ class AuctionController extends BaseController {
 
       // Handle timeout errors
       if (error.code === DB_ERROR_CODES.STATEMENT_TIMEOUT) {
-        console.error('[Transaction] Statement timeout in nominatePlayer');
+        logger.error('[Transaction] Statement timeout in nominatePlayer');
         return res.status(503).json({
           error: 'Operation timed out, please try again',
           code: 'TIMEOUT'
         });
       }
 
-      console.error("Error nominating player:", error);
+      logger.error("Error nominating player:", error);
       return res.status(500).json({ error: error.message });
     } finally {
       client.release();
@@ -913,7 +914,7 @@ class AuctionController extends BaseController {
       }
 
       // CRITICAL: Revalidate budget before committing to prevent race condition
-      console.log('[Auction] Revalidating budget before commit...');
+      logger.info('[Auction] Revalidating budget before commit...');
       const revalidation = await client.query(
         `SELECT
            COALESCE(SUM(CASE WHEN an.status = 'completed' THEN an.winning_bid ELSE 0 END), 0) as spent,
@@ -928,10 +929,10 @@ class AuctionController extends BaseController {
       const finalActive = parseInt(revalidation.rows[0].active || '0');
       const finalAvailable = startingBudget - finalSpent - finalActive - reserved;
 
-      console.log(`[Auction] Revalidation - spent: ${finalSpent}, active: ${finalActive}, available: ${finalAvailable}`);
+      logger.info(`[Auction] Revalidation results`, { spent: finalSpent, active: finalActive, available: finalAvailable });
 
       if (result.currentBid.bidAmount > finalAvailable) {
-        console.log(`[Auction] Budget exceeded on revalidation - bid: ${result.currentBid.bidAmount}, available: ${finalAvailable}`);
+        logger.warn(`[Auction] Budget exceeded on revalidation`, { bid_amount: result.currentBid.bidAmount, available: finalAvailable });
         await client.query('ROLLBACK');
         client.release();
         return res.status(400).json({
@@ -943,7 +944,7 @@ class AuctionController extends BaseController {
         });
       }
 
-      console.log('[Auction] Budget revalidation passed, committing transaction');
+      logger.info('[Auction] Budget revalidation passed, committing transaction');
       // Commit transaction
       await client.query('COMMIT');
 
@@ -961,7 +962,7 @@ class AuctionController extends BaseController {
         };
         io.to(room).emit("bid_placed", bidWithTeamName);
       } catch (socketError) {
-        console.error('Socket emit failed:', socketError);
+        logger.error('Socket emit failed:', socketError);
       }
 
       return res.status(200).json(result);
@@ -970,14 +971,14 @@ class AuctionController extends BaseController {
 
       // Handle timeout errors
       if (error.code === DB_ERROR_CODES.STATEMENT_TIMEOUT) {
-        console.error('[Transaction] Statement timeout in placeBid');
+        logger.error('[Transaction] Statement timeout in placeBid');
         return res.status(503).json({
           error: 'Operation timed out, please try again',
           code: 'TIMEOUT'
         });
       }
 
-      console.error("Error placing bid:", error);
+      logger.error("Error placing bid:", error);
       return res.status(400).json({ error: error.message });
     } finally {
       client.release();

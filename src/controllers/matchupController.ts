@@ -18,7 +18,7 @@ import { generateFullSeasonSchedule } from "../services/scheduleGeneratorService
 import { getLeagueById } from "../models/League";
 import { getOrCreateWeeklyLineup, updateWeeklyLineup } from "../models/WeeklyLineup";
 import { getRostersByLeagueId } from "../models/Roster";
-import { logger } from "../utils/logger";
+import { logger } from "../config/logger";
 import { BaseController } from "./BaseController";
 
 // Simple in-memory cache for last update times
@@ -123,15 +123,15 @@ class MatchupController extends BaseController {
     }
 
     // First, sync stats from Sleeper
-    console.log(`Syncing stats for week ${weekNum}...`);
+    logger.info(`Syncing stats for week ${weekNum}...`);
     const statsResult = await syncSleeperStatsForWeek(season, weekNum, season_type);
 
     // Then, update matchup scores
-    console.log(`Updating matchup scores for week ${weekNum}...`);
+    logger.info(`Updating matchup scores for week ${weekNum}...`);
     await updateMatchupScoresForWeek(leagueIdNum, weekNum, season, season_type);
 
     // Finally, finalize scores if week is complete
-    console.log(`Checking if week ${weekNum} should be finalized...`);
+    logger.info(`Checking if week ${weekNum} should be finalized...`);
     await finalizeWeekScores(leagueIdNum, weekNum, season, season_type);
 
     res.status(200).json({
@@ -189,7 +189,7 @@ class MatchupController extends BaseController {
       return;
     }
 
-    console.log(`Recalculating records for league ${leagueIdNum}, season ${season}...`);
+    logger.info(`Recalculating records for league ${leagueIdNum}, season ${season}...`);
     await recalculateAllRecords(leagueIdNum, season);
 
     this.respondSuccess(res, null, "Records recalculated successfully");
@@ -220,7 +220,7 @@ class MatchupController extends BaseController {
     const playoffWeekStart = settings.playoff_week_start || 15;
     const endWeek = playoffWeekStart - 1; // Regular season ends before playoffs
 
-    console.log(
+    logger.info(
       `[GenerateFullSeason] Generating matchups for league ${leagueIdNum}, weeks ${startWeek}-${endWeek}...`
     );
 
@@ -243,7 +243,7 @@ class MatchupController extends BaseController {
     }
 
     // Auto-populate weekly lineups for all weeks
-    console.log(`[GenerateFullSeason] Auto-populating weekly lineups for all weeks...`);
+    logger.info(`[GenerateFullSeason] Auto-populating weekly lineups for all weeks...`);
     const rosters = await getRostersByLeagueId(leagueIdNum);
 
     for (let week = startWeek; week <= endWeek; week++) {
@@ -262,7 +262,7 @@ class MatchupController extends BaseController {
       }
     }
 
-    console.log(
+    logger.info(
       `[GenerateFullSeason] Successfully generated ${result.matchups.length} matchups and populated lineups`
     );
 
@@ -281,11 +281,11 @@ class MatchupController extends BaseController {
   deleteAllMatchupsForLeague = this.asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const leagueIdNum = this.validateId(req.params.leagueId, "League ID");
 
-    console.log(`[DeleteMatchups] Deleting all matchups for league ${leagueIdNum}...`);
+    logger.info(`[DeleteMatchups] Deleting all matchups for league ${leagueIdNum}...`);
 
     await deleteMatchupsForLeague(leagueIdNum);
 
-    console.log(`[DeleteMatchups] Successfully deleted all matchups for league ${leagueIdNum}`);
+    logger.info(`[DeleteMatchups] Successfully deleted all matchups for league ${leagueIdNum}`);
 
     this.respondSuccess(res, null, "Successfully deleted all matchups");
   });
@@ -302,7 +302,7 @@ async function updateScoresInBackground(
   cacheKey: string
 ): Promise<void> {
   try {
-    console.log(`[AutoUpdate] Background update started for week ${week}...`);
+    logger.info(`[AutoUpdate] Background update started for week ${week}...`);
 
     // Sync stats from Sleeper
     await syncSleeperStatsForWeek(season, week, seasonType);
@@ -316,9 +316,9 @@ async function updateScoresInBackground(
     // Update cache
     lastUpdateCache.set(cacheKey, Date.now());
 
-    console.log(`[AutoUpdate] Background update completed for week ${week}`);
+    logger.info(`[AutoUpdate] Background update completed for week ${week}`);
   } catch (error) {
-    console.error("[AutoUpdate] Error in background update:", error);
+    logger.error("[AutoUpdate] Error in background update:", error);
     throw error;
   }
 }

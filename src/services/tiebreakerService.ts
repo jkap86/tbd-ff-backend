@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { getPlayoffSettings } from "../models/PlayoffSettings";
 import {
   getMatchupById,
@@ -56,7 +57,7 @@ export async function determinePlayoffWinner(
       return { winnerId: matchup.roster1_id, tiebreakerUsed: null };
     }
 
-    console.log(
+    logger.info(
       `[Tiebreaker] Matchup ${matchupId} is tied at ${matchup.roster1_score}. Applying tiebreakers...`
     );
 
@@ -79,12 +80,12 @@ export async function determinePlayoffWinner(
     let tiebreakerUsed: string | null = null;
 
     for (const method of tiebreakerPriority) {
-      console.log(`[Tiebreaker] Trying method: ${method}`);
+      logger.info(`[Tiebreaker] Trying method: ${method}`);
       winnerId = await applyTiebreaker(method, matchup);
 
       if (winnerId !== null) {
         tiebreakerUsed = method;
-        console.log(
+        logger.info(
           `[Tiebreaker] Winner determined by ${method}: roster ${winnerId}`
         );
         break;
@@ -107,7 +108,7 @@ export async function determinePlayoffWinner(
     // 6. Return winner
     return { winnerId, tiebreakerUsed };
   } catch (error) {
-    console.error("Error determining playoff winner:", error);
+    logger.error("Error determining playoff winner:", { error });
     throw error;
   }
 }
@@ -134,7 +135,7 @@ async function applyTiebreaker(
     case "manual":
       return null; // Requires commissioner
     default:
-      console.warn(`[Tiebreaker] Unknown tiebreaker method: ${method}`);
+      logger.warn(`[Tiebreaker] Unknown tiebreaker method: ${method}`);
       return null;
   }
 }
@@ -162,14 +163,14 @@ async function applyBenchPointsTiebreaker(
     const roster2 = await getRosterById(matchup.roster2_id);
 
     if (!roster1 || !roster2) {
-      console.error("[Tiebreaker] Could not load rosters");
+      logger.error("[Tiebreaker] Could not load rosters");
       return null;
     }
 
     // Get league for scoring settings
     const league = await getLeagueById(matchup.league_id);
     if (!league) {
-      console.error("[Tiebreaker] Could not load league");
+      logger.error("[Tiebreaker] Could not load league");
       return null;
     }
 
@@ -209,7 +210,7 @@ async function applyBenchPointsTiebreaker(
       }
     }
 
-    console.log(
+    logger.info(
       `[Tiebreaker] Bench points - Roster ${matchup.roster1_id}: ${roster1BenchPoints.toFixed(
         2
       )}, Roster ${matchup.roster2_id}: ${roster2BenchPoints.toFixed(2)}`
@@ -224,7 +225,7 @@ async function applyBenchPointsTiebreaker(
     // Still tied
     return null;
   } catch (error) {
-    console.error("Error applying bench points tiebreaker:", error);
+    logger.error("Error applying bench points tiebreaker:", { error });
     return null;
   }
 }
@@ -255,7 +256,7 @@ async function applySeasonPointsTiebreaker(
     ]);
 
     if (result.rows.length !== 2) {
-      console.error("[Tiebreaker] Could not load season points for both teams");
+      logger.error("[Tiebreaker] Could not load season points for both teams");
       return null;
     }
 
@@ -266,7 +267,7 @@ async function applySeasonPointsTiebreaker(
       (r) => r.roster_id === matchup.roster2_id
     )?.points_for || 0;
 
-    console.log(
+    logger.info(
       `[Tiebreaker] Season points - Roster ${matchup.roster1_id}: ${roster1Points}, Roster ${matchup.roster2_id}: ${roster2Points}`
     );
 
@@ -279,7 +280,7 @@ async function applySeasonPointsTiebreaker(
     // Still tied
     return null;
   } catch (error) {
-    console.error("Error applying season points tiebreaker:", error);
+    logger.error("Error applying season points tiebreaker:", { error });
     return null;
   }
 }
@@ -332,7 +333,7 @@ async function applyH2HTiebreaker(
       (r) => r.winner_id === matchup.roster2_id
     ).length;
 
-    console.log(
+    logger.info(
       `[Tiebreaker] H2H record - Roster ${matchup.roster1_id}: ${roster1Wins} wins, Roster ${matchup.roster2_id}: ${roster2Wins} wins`
     );
 
@@ -345,7 +346,7 @@ async function applyH2HTiebreaker(
     // Still tied
     return null;
   } catch (error) {
-    console.error("Error applying H2H tiebreaker:", error);
+    logger.error("Error applying H2H tiebreaker:", { error });
     return null;
   }
 }
@@ -358,7 +359,7 @@ function applyHigherSeedTiebreaker(matchup: Matchup): number | null {
     return null;
   }
 
-  console.log(
+  logger.info(
     `[Tiebreaker] Seeds - Roster ${matchup.roster1_id}: seed ${matchup.seed1}, Roster ${matchup.roster2_id}: seed ${matchup.seed2}`
   );
 
@@ -397,11 +398,11 @@ async function updateMatchupTiebreaker(
       matchupId,
     ]);
 
-    console.log(
+    logger.info(
       `[Tiebreaker] Updated matchup ${matchupId} with tiebreaker: ${tiebreakerUsed}`
     );
   } catch (error) {
-    console.error("Error updating matchup tiebreaker:", error);
+    logger.error("Error updating matchup tiebreaker:", { error });
     throw error;
   }
 }
@@ -429,13 +430,13 @@ export async function isPlayoffRoundComplete(
     const result = await pool.query(query, [leagueId, round, season]);
     const { total, completed } = result.rows[0];
 
-    console.log(
+    logger.info(
       `[Playoff] Round ${round}: ${completed}/${total} matchups completed`
     );
 
     return parseInt(total) > 0 && parseInt(total) === parseInt(completed);
   } catch (error) {
-    console.error("Error checking if playoff round is complete:", error);
+    logger.error("Error checking if playoff round is complete:", { error });
     throw error;
   }
 }
@@ -449,7 +450,7 @@ export async function advancePlayoffWinners(
   season: string
 ): Promise<void> {
   try {
-    console.log(
+    logger.info(
       `[Playoff] Advancing winners from ${completedRound} to next round`
     );
 
@@ -473,7 +474,7 @@ export async function advancePlayoffWinners(
     const completedMatchups = matchupsResult.rows;
 
     if (completedMatchups.length === 0) {
-      console.log(`[Playoff] No completed matchups found for ${completedRound}`);
+      logger.info(`[Playoff] No completed matchups found for ${completedRound}`);
       return;
     }
 
@@ -486,7 +487,7 @@ export async function advancePlayoffWinners(
     // 3. Determine next round
     const nextRound = getNextPlayoffRound(completedRound);
     if (!nextRound) {
-      console.log(`[Playoff] ${completedRound} is the final round`);
+      logger.info(`[Playoff] ${completedRound} is the final round`);
       return;
     }
 
@@ -506,7 +507,7 @@ export async function advancePlayoffWinners(
         // Tied - use tiebreaker result
         const tiebreakerResult = await determinePlayoffWinner(matchup.id);
         if (!tiebreakerResult.winnerId) {
-          console.error(
+          logger.error(
             `[Playoff] Cannot advance from matchup ${matchup.id} - no winner determined`
           );
           continue;
@@ -528,11 +529,11 @@ export async function advancePlayoffWinners(
       );
     }
 
-    console.log(
+    logger.info(
       `[Playoff] Successfully advanced winners from ${completedRound} to ${nextRound}`
     );
   } catch (error) {
-    console.error("Error advancing playoff winners:", error);
+    logger.error("Error advancing playoff winners:", { error });
     throw error;
   }
 }
@@ -571,7 +572,7 @@ async function updateNextRoundMatchup(
     // For reseeding, we need to wait until all winners are determined
     // then recreate matchups with highest seed vs lowest seed
     if (reseedRounds) {
-      console.log(
+      logger.info(
         `[Playoff] Reseeding enabled - will reseed after all ${nextRound} matchups are created`
       );
       // TODO: Implement reseeding logic
@@ -610,11 +611,11 @@ async function updateNextRoundMatchup(
       targetBracketPosition,
     ]);
 
-    console.log(
+    logger.info(
       `[Playoff] Advanced roster ${winnerId} (seed ${winnerSeed}) to ${nextRound} matchup ${targetBracketPosition}`
     );
   } catch (error) {
-    console.error("Error updating next round matchup:", error);
+    logger.error("Error updating next round matchup:", { error });
     throw error;
   }
 }
@@ -652,7 +653,7 @@ export async function getPlayoffMatchupWinner(
     const result = await determinePlayoffWinner(matchupId);
     return result.winnerId;
   } catch (error) {
-    console.error("Error getting playoff matchup winner:", error);
+    logger.error("Error getting playoff matchup winner:", { error });
     throw error;
   }
 }
@@ -687,11 +688,11 @@ export async function setManualPlayoffWinner(
 
     await pool.query(query, [commissionerId, matchupId]);
 
-    console.log(
+    logger.info(
       `[Playoff] Manual winner set for matchup ${matchupId}: roster ${winnerId} by commissioner ${commissionerId}`
     );
   } catch (error) {
-    console.error("Error setting manual playoff winner:", error);
+    logger.error("Error setting manual playoff winner:", { error });
     throw error;
   }
 }

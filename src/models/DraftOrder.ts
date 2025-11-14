@@ -1,6 +1,7 @@
 import pool from "../config/database";
 import { setTransactionTimeouts } from "../utils/transactionTimeout";
 import { BaseRepository } from "./BaseRepository";
+import { logger } from "../config/logger";
 
 export interface DraftOrder {
   id: number;
@@ -59,7 +60,7 @@ export async function setDraftOrder(
     return orders;
   } catch (error: any) {
     await client.query("ROLLBACK");
-    console.error("Error setting draft order:", error);
+    logger.error("Error setting draft order:", { error });
 
     if (error.code === "23505") {
       throw new Error("Duplicate draft position or roster in order");
@@ -107,7 +108,7 @@ export async function getDraftOrderWithDetails(draftId: number): Promise<any[]> 
       team_name: row.settings?.team_name || null,
     }));
   } catch (error) {
-    console.error("Error getting draft order with details:", error);
+    logger.error("Error getting draft order with details:", { error });
     throw new Error("Error getting draft order with details");
   }
 }
@@ -133,7 +134,7 @@ export async function getRosterAtPosition(
 
     return result.rows[0].roster_id;
   } catch (error) {
-    console.error("Error getting roster at position:", error);
+    logger.error("Error getting roster at position:", { error });
     throw new Error("Error getting roster at position");
   }
 }
@@ -159,7 +160,7 @@ export async function getRosterPosition(
 
     return result.rows[0].draft_position;
   } catch (error) {
-    console.error("Error getting roster position:", error);
+    logger.error("Error getting roster position:", { error });
     throw new Error("Error getting roster position");
   }
 }
@@ -183,7 +184,7 @@ export async function randomizeDraftOrder(
 
     return await setDraftOrder(draftId, rosterPositions);
   } catch (error) {
-    console.error("Error randomizing draft order:", error);
+    logger.error("Error randomizing draft order:", { error });
     throw new Error("Error randomizing draft order");
   }
 }
@@ -212,7 +213,7 @@ export async function toggleAutodraft(
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error toggling autodraft:", error);
+    logger.error("Error toggling autodraft:", { error });
     throw new Error("Error toggling autodraft");
   }
 }
@@ -226,7 +227,7 @@ export async function initializeChessTimerBudgets(
   budgetSeconds: number
 ): Promise<void> {
   try {
-    console.log(`[DraftOrder] Initializing chess timer budgets for draft ${draftId}: ${budgetSeconds}s per team`);
+    logger.info(`[DraftOrder] Initializing chess timer budgets for draft ${draftId}: ${budgetSeconds}s per team`);
 
     const query = `
       UPDATE draft_order
@@ -237,9 +238,9 @@ export async function initializeChessTimerBudgets(
 
     const result = await pool.query(query, [budgetSeconds, draftId]);
 
-    console.log(`[DraftOrder] Initialized ${result.rowCount} rosters with ${budgetSeconds}s budget`);
+    logger.info(`[DraftOrder] Initialized ${result.rowCount} rosters with ${budgetSeconds}s budget`);
   } catch (error) {
-    console.error("Error initializing chess timer budgets:", error);
+    logger.error("Error initializing chess timer budgets:", { error });
     throw new Error("Error initializing chess timer budgets");
   }
 }
@@ -254,7 +255,7 @@ export async function updateRosterTimeRemaining(
   timeUsedSeconds: number
 ): Promise<DraftOrder | null> {
   try {
-    console.log(`[DraftOrder] Updating time for roster ${rosterId} in draft ${draftId}: -${timeUsedSeconds}s`);
+    logger.info(`[DraftOrder] Updating time for roster ${rosterId} in draft ${draftId}: -${timeUsedSeconds}s`);
 
     const query = `
       UPDATE draft_order
@@ -267,16 +268,16 @@ export async function updateRosterTimeRemaining(
     const result = await pool.query(query, [timeUsedSeconds, draftId, rosterId]);
 
     if (result.rows.length === 0) {
-      console.error(`[DraftOrder] Roster ${rosterId} not found in draft ${draftId}`);
+      logger.error(`[DraftOrder] Roster ${rosterId} not found in draft ${draftId}`);
       return null;
     }
 
     const updatedOrder = result.rows[0];
-    console.log(`[DraftOrder] Time updated for roster ${rosterId}: ${updatedOrder.time_remaining_seconds}s remaining, ${updatedOrder.time_used_seconds}s used`);
+    logger.info(`[DraftOrder] Time updated for roster ${rosterId}: ${updatedOrder.time_remaining_seconds}s remaining, ${updatedOrder.time_used_seconds}s used`);
 
     return updatedOrder;
   } catch (error) {
-    console.error("Error updating roster time remaining:", error);
+    logger.error("Error updating roster time remaining:", { error });
     throw new Error("Error updating roster time remaining");
   }
 }
@@ -291,7 +292,7 @@ export async function adjustRosterTime(
   timeAdjustmentSeconds: number
 ): Promise<DraftOrder | null> {
   try {
-    console.log(`[DraftOrder] Commissioner adjusting time for roster ${rosterId}: ${timeAdjustmentSeconds > 0 ? '+' : ''}${timeAdjustmentSeconds}s`);
+    logger.info(`[DraftOrder] Commissioner adjusting time for roster ${rosterId}: ${timeAdjustmentSeconds > 0 ? '+' : ''}${timeAdjustmentSeconds}s`);
 
     const query = `
       UPDATE draft_order
@@ -303,16 +304,16 @@ export async function adjustRosterTime(
     const result = await pool.query(query, [timeAdjustmentSeconds, draftId, rosterId]);
 
     if (result.rows.length === 0) {
-      console.error(`[DraftOrder] Roster ${rosterId} not found in draft ${draftId}`);
+      logger.error(`[DraftOrder] Roster ${rosterId} not found in draft ${draftId}`);
       return null;
     }
 
     const updatedOrder = result.rows[0];
-    console.log(`[DraftOrder] Time adjusted for roster ${rosterId}: ${updatedOrder.time_remaining_seconds}s remaining`);
+    logger.info(`[DraftOrder] Time adjusted for roster ${rosterId}: ${updatedOrder.time_remaining_seconds}s remaining`);
 
     return updatedOrder;
   } catch (error) {
-    console.error("Error adjusting roster time:", error);
+    logger.error("Error adjusting roster time:", { error });
     throw new Error("Error adjusting roster time");
   }
 }
@@ -339,7 +340,7 @@ export async function getRosterTimeRemaining(
 
     return result.rows[0].time_remaining_seconds;
   } catch (error) {
-    console.error("Error getting roster time remaining:", error);
+    logger.error("Error getting roster time remaining:", { error });
     throw new Error("Error getting roster time remaining");
   }
 }

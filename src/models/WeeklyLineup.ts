@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 
 export interface RosterSlot {
   slot: string;
@@ -61,9 +62,9 @@ export async function getOrCreateWeeklyLineup(
 
     return insertResult.rows[0];
   } catch (error: any) {
-    console.error("Error getting/creating weekly lineup:", error);
-    console.error("Error details:", error.message);
-    console.error("Stack:", error.stack);
+    logger.error("Error getting/creating weekly lineup:", { error });
+    logger.error("Error details:", error.message);
+    logger.error("Stack:", error.stack);
     throw error;
   }
 }
@@ -113,7 +114,7 @@ export async function updateWeeklyLineup(
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error updating weekly lineup:", error);
+    logger.error("Error updating weekly lineup:", { error });
     throw error;
   }
 }
@@ -141,7 +142,7 @@ export async function getWeeklyLineupWithPlayers(
     const validatedStarters = await Promise.all(
       lineup.starters.map(async (slot: RosterSlot) => {
         if (slot.player_id && !(await rosterHasPlayer(currentRoster.id, slot.player_id))) {
-          console.log(`[WeeklyLineup] Player ${slot.player_id} no longer on roster ${rosterId}, clearing from ${slot.slot}`);
+          logger.info(`[WeeklyLineup] Player ${slot.player_id} no longer on roster ${rosterId}, clearing from ${slot.slot}`);
           return { slot: slot.slot, player_id: null };
         }
         return slot;
@@ -178,7 +179,7 @@ export async function getWeeklyLineupWithPlayers(
       })),
     };
   } catch (error) {
-    console.error("Error getting weekly lineup with players:", error);
+    logger.error("Error getting weekly lineup with players:", { error });
     throw new Error("Error getting weekly lineup with players");
   }
 }
@@ -265,9 +266,9 @@ export async function batchGetOrCreateWeeklyLineups(
 
     return resultMap;
   } catch (error: any) {
-    console.error("Error batch getting/creating weekly lineups:", error);
-    console.error("Error details:", error.message);
-    console.error("Stack:", error.stack);
+    logger.error("Error batch getting/creating weekly lineups:", { error });
+    logger.error("Error details:", error.message);
+    logger.error("Stack:", error.stack);
     throw error;
   }
 }
@@ -287,7 +288,7 @@ export async function deleteWeeklyLineupsForLeague(
     `;
     await pool.query(query, [leagueId]);
   } catch (error) {
-    console.error("Error deleting weekly lineups:", error);
+    logger.error("Error deleting weekly lineups:", { error });
     throw new Error("Error deleting weekly lineups");
   }
 }

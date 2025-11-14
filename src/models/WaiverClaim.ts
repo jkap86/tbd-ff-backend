@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { BaseRepository } from "./BaseRepository";
 
 export interface WaiverClaim {
@@ -61,7 +62,7 @@ export async function createWaiverClaim(
     const result = await pool.query(query, values);
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error creating waiver claim:", error);
+    logger.error("Error creating waiver claim:", { error });
     throw new Error("Error creating waiver claim");
   }
 }

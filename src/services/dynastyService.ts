@@ -1,5 +1,6 @@
 import pool from "../config/database";
 import { getLeagueById } from "../models/League";
+import { logger } from "../utils/logger";
 
 export interface SeasonRolloverResult {
   success: boolean;
@@ -78,7 +79,7 @@ export async function isKeeperEligible(
 
     return { eligible: true };
   } catch (error: any) {
-    console.error("Error checking keeper eligibility:", error);
+    logger.error("Error checking keeper eligibility:", error);
     return { eligible: false, reason: error.message || "Failed to check eligibility" };
   }
 }
@@ -180,7 +181,7 @@ export async function rolloverSeason(
     };
   } catch (error: any) {
     await client.query('ROLLBACK');
-    console.error("Error rolling over season:", error);
+    logger.error("Error rolling over season:", error);
     return {
       success: false,
       newSeason: '',
@@ -225,7 +226,7 @@ export async function finalizeKeepers(
       keeperCount: result.rowCount || 0
     };
   } catch (error: any) {
-    console.error("Error finalizing keepers:", error);
+    logger.error("Error finalizing keepers:", error);
     return {
       success: false,
       message: error.message || "Failed to finalize keepers",

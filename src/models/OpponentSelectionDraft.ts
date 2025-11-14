@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { setTransactionTimeouts } from "../utils/transactionTimeout";
 import { BaseRepository } from "./BaseRepository";
 
@@ -53,10 +54,10 @@ export async function createOpponentSelectionDraft(
     `;
 
     const result = await pool.query(query, [leagueId, timeLimitSeconds]);
-    console.log(`[OpponentSelectionDraft] Created draft for league ${leagueId}`);
+    logger.info(`[OpponentSelectionDraft] Created draft for league ${leagueId}`);
     return result.rows[0];
   } catch (error) {
-    console.error('Error creating opponent selection draft:', error);
+    logger.error('Error creating opponent selection draft:', { error });
     throw new Error('Error creating opponent selection draft');
   }
 }
@@ -71,7 +72,7 @@ export async function getOpponentSelectionDraftByLeague(
     const drafts = await draftRepo.findBy('league_id', leagueId);
     return drafts.length > 0 ? drafts[0] : null;
   } catch (error) {
-    console.error('Error getting opponent selection draft:', error);
+    logger.error('Error getting opponent selection draft:', { error });
     throw new Error('Error getting opponent selection draft');
   }
 }
@@ -101,11 +102,11 @@ export async function startOpponentSelectionDraft(
     const result = await client.query(query, [draftId, firstRosterId]);
 
     await client.query('COMMIT');
-    console.log(`[OpponentSelectionDraft] Started draft ${draftId}`);
+    logger.info(`[OpponentSelectionDraft] Started draft ${draftId}`);
     return result.rows[0];
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error starting opponent selection draft:', error);
+    logger.error('Error starting opponent selection draft:', { error });
     throw new Error('Error starting opponent selection draft');
   } finally {
     client.release();
@@ -168,11 +169,11 @@ export async function makeOpponentSelectionPick(
     }
 
     await client.query('COMMIT');
-    console.log(`[OpponentSelectionDraft] Pick made by roster ${rosterId}: opponent ${opponentRosterId} week ${week}`);
+    logger.info(`[OpponentSelectionDraft] Pick made by roster ${rosterId}: opponent ${opponentRosterId} week ${week}`);
     return pickResult.rows[0];
   } catch (error: any) {
     await client.query('ROLLBACK');
-    console.error('Error making opponent selection pick:', error);
+    logger.error('Error making opponent selection pick:', { error });
 
     if (error.code === '23505') {
       throw new Error('This opponent-week combination has already been selected');
@@ -193,7 +194,7 @@ export async function getOpponentSelectionDraftPicks(
   try {
     return await pickRepo.findBy('draft_id', draftId, 'pick_number ASC');
   } catch (error) {
-    console.error('Error getting opponent selection draft picks:', error);
+    logger.error('Error getting opponent selection draft picks:', { error });
     throw new Error('Error getting opponent selection draft picks');
   }
 }
@@ -232,7 +233,7 @@ export async function getOpponentSelectionDraftPicksWithDetails(
       opponent_team_name: row.opponent_settings?.team_name || null,
     }));
   } catch (error) {
-    console.error('Error getting opponent selection draft picks with details:', error);
+    logger.error('Error getting opponent selection draft picks with details:', { error });
     throw new Error('Error getting opponent selection draft picks with details');
   }
 }
@@ -251,10 +252,10 @@ export async function deleteOpponentSelectionDraft(draftId: number): Promise<voi
     await client.query('DELETE FROM opponent_selection_drafts WHERE id = $1', [draftId]);
 
     await client.query('COMMIT');
-    console.log(`[OpponentSelectionDraft] Deleted draft ${draftId}`);
+    logger.info(`[OpponentSelectionDraft] Deleted draft ${draftId}`);
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error deleting opponent selection draft:', error);
+    logger.error('Error deleting opponent selection draft:', { error });
     throw new Error('Error deleting opponent selection draft');
   } finally {
     client.release();

@@ -14,6 +14,7 @@ import { getUserById } from "../models/User";
 import pool from "../config/database";
 import { io } from "../index";
 import { emitLeagueChat } from "../socket/leagueSocket";
+import { logger } from "../config/logger";
 import { BaseController } from "./BaseController";
 
 /**
@@ -122,7 +123,7 @@ class LeagueChatController extends BaseController {
       }
     } catch (notifError: any) {
       // Log but don't fail the request if notification fails
-      console.error("Error sending league chat notification:", notifError);
+      logger.error("Error sending league chat notification:", notifError);
     }
 
     this.respondCreated(res, chatMessage);
@@ -171,7 +172,7 @@ class LeagueChatController extends BaseController {
     const { leagueId } = req.params;
     const userId = this.getAuthenticatedUserId(req);
 
-    console.log('[MarkRead] Request received:', {
+    logger.info('[MarkRead] Request received:', {
       leagueId,
       user: (req as any).user,
       userId,
@@ -196,7 +197,7 @@ class LeagueChatController extends BaseController {
     const { leagueId } = req.params;
     const userId = this.getAuthenticatedUserId(req);
 
-    console.log('[UnreadCount] Request received:', {
+    logger.info('[UnreadCount] Request received:', {
       leagueId,
       user: (req as any).user,
       userId,

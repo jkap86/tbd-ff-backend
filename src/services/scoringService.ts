@@ -1,3 +1,4 @@
+import { logger } from "../config/logger";
 import { PlayerStats } from "../models/PlayerStats";
 
 export interface ScoringSettings {
@@ -318,7 +319,7 @@ export async function updateMatchupScoresForWeek(
         await updateMatchupScores(matchup.id, roster1Score, roster2Score);
       }
 
-      console.log(`✓ Updated bestball scores for week ${week} matchups in league ${leagueId}`);
+      logger.info(`✓ Updated bestball scores for week ${week} matchups in league ${leagueId}`);
     } else {
       // Traditional scoring: use weekly lineups
       // Batch fetch all weekly lineups at once (eliminates N+1 query problem)
@@ -370,10 +371,10 @@ export async function updateMatchupScoresForWeek(
         await updateMatchupScores(matchup.id, roster1Score, roster2Score);
       }
 
-      console.log(`✓ Updated scores for week ${week} matchups in league ${leagueId}`);
+      logger.info(`✓ Updated scores for week ${week} matchups in league ${leagueId}`);
     }
   } catch (error) {
-    console.error("Error updating matchup scores:", error);
+    logger.error("Error updating matchup scores:", { error });
     throw error;
   }
 }

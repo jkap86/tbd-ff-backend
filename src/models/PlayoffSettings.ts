@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { TiebreakerMethod } from "./Matchup";
 import { BaseRepository } from "./BaseRepository";
 
@@ -107,7 +108,7 @@ export async function createOrUpdatePlayoffSettings(
       tiebreaker_priority: row.tiebreaker_priority,
     };
   } catch (error) {
-    console.error("Error creating or updating playoff settings:", error);
+    logger.error("Error creating or updating playoff settings:", { error });
     throw new Error("Error creating or updating playoff settings");
   }
 }
@@ -120,7 +121,7 @@ export async function deletePlayoffSettings(leagueId: number): Promise<void> {
     const query = `DELETE FROM playoff_settings WHERE league_id = $1`;
     await pool.query(query, [leagueId]);
   } catch (error) {
-    console.error("Error deleting playoff settings:", error);
+    logger.error("Error deleting playoff settings:", { error });
     throw new Error("Error deleting playoff settings");
   }
 }

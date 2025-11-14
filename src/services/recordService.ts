@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { isWeekComplete } from "./sleeperScheduleService";
 
 /**
@@ -11,17 +12,17 @@ export async function finalizeWeekScores(
   seasonType: string = "regular"
 ): Promise<void> {
   try {
-    console.log(`[FinalizeScores] Checking if week ${week} is complete...`);
+    logger.info(`[FinalizeScores] Checking if week ${week} is complete...`);
 
     // Check if week is complete
     const weekComplete = await isWeekComplete(season, week, seasonType);
 
     if (!weekComplete) {
-      console.log(`[FinalizeScores] Week ${week} is not complete yet, skipping finalization`);
+      logger.info(`[FinalizeScores] Week ${week} is not complete yet, skipping finalization`);
       return;
     }
 
-    console.log(`[FinalizeScores] Week ${week} is complete, finalizing scores...`);
+    logger.info(`[FinalizeScores] Week ${week} is complete, finalizing scores...`);
 
     // Get all matchups for this week that haven't been finalized yet
     const matchupsQuery = `
@@ -37,11 +38,11 @@ export async function finalizeWeekScores(
     const matchups = matchupsResult.rows;
 
     if (matchups.length === 0) {
-      console.log(`[FinalizeScores] All matchups for week ${week} already finalized`);
+      logger.info(`[FinalizeScores] All matchups for week ${week} already finalized`);
       return;
     }
 
-    console.log(`[FinalizeScores] Found ${matchups.length} matchups to finalize`);
+    logger.info(`[FinalizeScores] Found ${matchups.length} matchups to finalize`);
 
     // Process each matchup
     for (const matchup of matchups) {
@@ -69,12 +70,12 @@ export async function finalizeWeekScores(
       `;
       await pool.query(updateMatchupQuery, [id]);
 
-      console.log(`[FinalizeScores] Finalized matchup ${id}`);
+      logger.info(`[FinalizeScores] Finalized matchup ${id}`);
     }
 
-    console.log(`[FinalizeScores] Successfully finalized week ${week} scores`);
+    logger.info(`[FinalizeScores] Successfully finalized week ${week} scores`);
   } catch (error) {
-    console.error("Error finalizing week scores:", error);
+    logger.error("Error finalizing week scores:", { error });
     throw error;
   }
 }
@@ -94,7 +95,7 @@ async function updateRosterRecord(
     const rosterResult = await pool.query(rosterQuery, [rosterId]);
 
     if (rosterResult.rows.length === 0) {
-      console.error(`Roster ${rosterId} not found`);
+      logger.error(`Roster ${rosterId} not found`);
       return;
     }
 
@@ -147,13 +148,13 @@ async function updateRosterRecord(
 
     await pool.query(updateQuery, [JSON.stringify(updatedSettings), rosterId]);
 
-    console.log(
+    logger.info(
       `[UpdateRecord] Roster ${rosterId}: ${newWins}-${newLosses}-${newTies}, PF: ${newPointsFor.toFixed(
         2
       )}, PA: ${newPointsAgainst.toFixed(2)}`
     );
   } catch (error) {
-    console.error(`Error updating roster ${rosterId} record:`, error);
+    logger.error(`Error updating roster ${rosterId} record:`, { error });
     throw error;
   }
 }
@@ -185,9 +186,9 @@ export async function resetAllRosterRecords(leagueId: number): Promise<void> {
     `;
 
     await pool.query(query, [leagueId]);
-    console.log(`[ResetRecords] Reset all roster records for league ${leagueId}`);
+    logger.info(`[ResetRecords] Reset all roster records for league ${leagueId}`);
   } catch (error) {
-    console.error("Error resetting roster records:", error);
+    logger.error("Error resetting roster records:", { error });
     throw error;
   }
 }
@@ -201,7 +202,7 @@ export async function recalculateAllRecords(
   season: string
 ): Promise<void> {
   try {
-    console.log(
+    logger.info(
       `[RecalculateRecords] Starting recalculation for league ${leagueId}`
     );
 
@@ -210,7 +211,7 @@ export async function recalculateAllRecords(
     const league = await getLeagueById(leagueId);
     const startWeek = league?.settings?.start_week || 1;
 
-    console.log(
+    logger.info(
       `[RecalculateRecords] League start week is ${startWeek}`
     );
 
@@ -235,7 +236,7 @@ export async function recalculateAllRecords(
     const matchupsResult = await pool.query(matchupsQuery, [leagueId, season, startWeek]);
     const matchups = matchupsResult.rows;
 
-    console.log(
+    logger.info(
       `[RecalculateRecords] Found ${matchups.length} completed matchups to process`
     );
 
@@ -244,7 +245,7 @@ export async function recalculateAllRecords(
       const { id, week, roster1_id, roster2_id, roster1_score, roster2_score } =
         matchup;
 
-      console.log(
+      logger.info(
         `[RecalculateRecords] Processing week ${week} matchup ${id}`
       );
 
@@ -270,11 +271,11 @@ export async function recalculateAllRecords(
       await pool.query(updateMatchupQuery, [id]);
     }
 
-    console.log(
+    logger.info(
       `[RecalculateRecords] Successfully recalculated all records for league ${leagueId}`
     );
   } catch (error) {
-    console.error("Error recalculating records:", error);
+    logger.error("Error recalculating records:", { error });
     throw error;
   }
 }

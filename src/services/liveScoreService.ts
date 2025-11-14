@@ -1,5 +1,6 @@
 import { Server } from "socket.io";
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { syncSleeperStatsForWeek } from "./sleeperStatsService";
 import { updateMatchupScoresForWeek } from "./scoringService";
 import { getWeekSchedule } from "./sleeperScheduleService";
@@ -44,7 +45,7 @@ async function getActiveLeagues(): Promise<ActiveLeague[]> {
 
     return activeLeagues;
   } catch (error) {
-    console.error("[LiveScore] Error getting active leagues:", error);
+    logger.error("[LiveScore] Error getting active leagues:", { error });
     return [];
   }
 }
@@ -68,7 +69,7 @@ async function hasGamesInProgress(
     // Check if ANY game is currently in progress
     return schedule.some((game) => game.status === "in_progress");
   } catch (error) {
-    console.error("[LiveScore] Error checking for live games:", error);
+    logger.error("[LiveScore] Error checking for live games:", { error });
     return false;
   }
 }
@@ -79,7 +80,7 @@ async function hasGamesInProgress(
 async function updateLiveScores(io: Server): Promise<void> {
   // Prevent concurrent updates
   if (isUpdating) {
-    console.log("[LiveScore] Update already in progress, skipping...");
+    logger.info("[LiveScore] Update already in progress, skipping...");
     return;
   }
 
@@ -87,7 +88,7 @@ async function updateLiveScores(io: Server): Promise<void> {
 
   // Safety timeout: if update takes >30s, force reset to prevent deadlock
   const updateTimeout = setTimeout(() => {
-    console.error("[LiveScore] Update exceeded 30s timeout, forcing reset");
+    logger.error("[LiveScore] Update exceeded 30s timeout, forcing reset");
     isUpdating = false;
   }, 30000);
 
@@ -112,12 +113,12 @@ async function updateLiveScores(io: Server): Promise<void> {
     const hasLiveGames = await hasGamesInProgress(season, currentWeek, seasonType);
 
     if (!hasLiveGames) {
-      console.log("[LiveScore] No games in progress, skipping update");
+      logger.info("[LiveScore] No games in progress, skipping update");
       isUpdating = false;
       return;
     }
 
-    console.log(`[LiveScore] Updating scores for ${activeLeagues.length} leagues...`);
+    logger.info(`[LiveScore] Updating scores for ${activeLeagues.length} leagues...`);
 
     // Sync stats once
     await syncSleeperStatsForWeek(season, currentWeek, seasonType);
@@ -143,18 +144,18 @@ async function updateLiveScores(io: Server): Promise<void> {
         // Broadcast to all connected clients
         broadcastScoreUpdate(io, league.league_id, league.current_week, matchups);
 
-        console.log(
+        logger.info(
           `[LiveScore] ✓ Updated and broadcast league ${league.league_id} week ${league.current_week}`
         );
       } catch (error) {
-        console.error(
+        logger.error(
           `[LiveScore] Error updating league ${league.league_id}:`,
-          error
+          { error }
         );
       }
     }
   } catch (error) {
-    console.error("[LiveScore] Error in live score update:", error);
+    logger.error("[LiveScore] Error in live score update:", { error });
   } finally {
     clearTimeout(updateTimeout);
     isUpdating = false;
@@ -165,7 +166,7 @@ async function updateLiveScores(io: Server): Promise<void> {
  * Start live score updates (every 10 seconds)
  */
 export function startLiveScoreUpdates(io: Server): void {
-  console.log("[LiveScore] Starting live score updates (10 second interval)");
+  logger.info("[LiveScore] Starting live score updates (10 second interval)");
 
   // Run immediately
   updateLiveScores(io);
@@ -175,7 +176,7 @@ export function startLiveScoreUpdates(io: Server): void {
     updateLiveScores(io);
   }, 10 * 1000); // 10 seconds
 
-  console.log("[LiveScore] ✓ Live score updates started");
+  logger.info("[LiveScore] ✓ Live score updates started");
 }
 
 /**
@@ -185,6 +186,6 @@ export function stopLiveScoreUpdates(): void {
   if (liveUpdateInterval) {
     clearInterval(liveUpdateInterval);
     liveUpdateInterval = null;
-    console.log("[LiveScore] Live score updates stopped");
+    logger.info("[LiveScore] Live score updates stopped");
   }
 }

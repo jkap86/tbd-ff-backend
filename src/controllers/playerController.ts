@@ -4,7 +4,7 @@
 import { Request, Response } from "express";
 import { bulkUpsertPlayers, getAllPlayers, getPlayersByIds } from "../models/Player";
 import https from "https";
-import { logger } from "../utils/logger";
+import { logger } from "../config/logger";
 import { BaseController } from "./BaseController";
 
 /**
@@ -40,7 +40,7 @@ async function fetchSleeperPlayers(): Promise<any> {
  */
 export async function syncPlayers(): Promise<number> {
   try {
-    console.log("[PlayerSync] Fetching players from Sleeper API...");
+    logger.info("[PlayerSync] Fetching players from Sleeper API...");
 
     // Fetch players from Sleeper API
     const sleeperPlayersData = await fetchSleeperPlayers();
@@ -63,12 +63,12 @@ export async function syncPlayers(): Promise<number> {
       }))
       .filter((player) => player.full_name !== "Unknown"); // Filter out players without names
 
-    console.log(`[PlayerSync] Found ${activePlayers.length} active players`);
+    logger.info(`[PlayerSync] Found ${activePlayers.length} active players`);
 
     // Bulk upsert players
     const upsertedCount = await bulkUpsertPlayers(activePlayers);
 
-    console.log(`[PlayerSync] Successfully synced ${upsertedCount} players`);
+    logger.info(`[PlayerSync] Successfully synced ${upsertedCount} players`);
     return upsertedCount;
   } catch (error: any) {
     logger.error("[PlayerSync] Error syncing players:", error);

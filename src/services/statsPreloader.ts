@@ -2,6 +2,7 @@ import cron from "node-cron";
 import axios from "axios";
 import NodeCache from "node-cache";
 import { SLEEPER_API_BASE, API_TIMEOUT } from "../config/sleeper";
+import { logger } from "../config/logger";
 
 /**
  * Stats Preloader Service
@@ -64,7 +65,7 @@ async function preloadSeasonStats(): Promise<void> {
         const cacheKey = `season_stats_${season}_${SEASON_TYPE}`;
         const indexCacheKey = `${cacheKey}_index`;
 
-        console.log(`[StatsPreloader] Preloading season stats for ${season}...`);
+        logger.info(`[StatsPreloader] Preloading season stats for ${season}...`);
 
         const response = await axios.get(
           `${SLEEPER_API_BASE}/stats/nfl/${season}?season_type=${SEASON_TYPE}`,
@@ -85,13 +86,13 @@ async function preloadSeasonStats(): Promise<void> {
 
         // Only cache the index
         statsCache.set(indexCacheKey, statsIndex);
-        console.log(
+        logger.info(
           `[StatsPreloader] Cached season stats for ${season} with ${Object.keys(statsIndex).length} players`
         );
       })
     );
   } catch (error: any) {
-    console.error("[StatsPreloader] Error preloading season stats:", error.message);
+    logger.error("[StatsPreloader] Error preloading season stats:", error.message);
   }
 }
 
@@ -110,17 +111,17 @@ async function preloadWeekRangeProjections(): Promise<void> {
 
     // Only preload if we're still in the season
     if (currentWeek > endWeek) {
-      console.log(`[StatsPreloader] Season ended, skipping week range preload`);
+      logger.info(`[StatsPreloader] Season ended, skipping week range preload`);
       return;
     }
 
-    console.log(
+    logger.info(
       `[StatsPreloader] Preloading week range projections...`
     );
-    console.log(
+    logger.info(
       `[StatsPreloader] - Full season: weeks 1-${endWeek}`
     );
-    console.log(
+    logger.info(
       `[StatsPreloader] - Remaining: weeks ${currentWeek}-${endWeek}`
     );
 
@@ -152,14 +153,14 @@ async function preloadWeekRangeProjections(): Promise<void> {
             if (week === currentWeek) {
               const weekIndexCacheKey = `week_projections_${season}_${week}_${SEASON_TYPE}_index`;
               projectionsCache.set(weekIndexCacheKey, weekIndex);
-              console.log(`[StatsPreloader] Cached projections for current week ${week}`);
+              logger.info(`[StatsPreloader] Cached projections for current week ${week}`);
             } else {
-              console.log(`[StatsPreloader] Fetched projections for week ${week} (not cached individually)`);
+              logger.info(`[StatsPreloader] Fetched projections for week ${week} (not cached individually)`);
             }
 
             return { week, index: weekIndex };
           } catch (error: any) {
-            console.error(
+            logger.error(
               `[StatsPreloader] Error fetching week ${week}:`,
               error.message
             );
@@ -221,26 +222,26 @@ async function preloadWeekRangeProjections(): Promise<void> {
     };
 
     // Cache 1: Full season (weeks 1 to end)
-    console.log(`[StatsPreloader] Aggregating full season: weeks 1-${endWeek}...`);
+    logger.info(`[StatsPreloader] Aggregating full season: weeks 1-${endWeek}...`);
     const fullSeasonAggregates = aggregateRange(1, endWeek);
     const fullSeasonCacheKey = `week_range_aggregated_${season}_1_${endWeek}_${SEASON_TYPE}`;
     projectionsCache.set(fullSeasonCacheKey, fullSeasonAggregates);
-    console.log(
+    logger.info(
       `[StatsPreloader] Cached full season (1-${endWeek}) with ${Object.keys(fullSeasonAggregates).length} players`
     );
 
     // Cache 2: Remaining weeks (current week to end) - only if different from full season
     if (currentWeek > 1) {
-      console.log(`[StatsPreloader] Aggregating remaining weeks: ${currentWeek}-${endWeek}...`);
+      logger.info(`[StatsPreloader] Aggregating remaining weeks: ${currentWeek}-${endWeek}...`);
       const remainingAggregates = aggregateRange(currentWeek, endWeek);
       const remainingCacheKey = `week_range_aggregated_${season}_${currentWeek}_${endWeek}_${SEASON_TYPE}`;
       projectionsCache.set(remainingCacheKey, remainingAggregates);
-      console.log(
+      logger.info(
         `[StatsPreloader] Cached remaining weeks (${currentWeek}-${endWeek}) with ${Object.keys(remainingAggregates).length} players`
       );
     }
   } catch (error: any) {
-    console.error(
+    logger.error(
       "[StatsPreloader] Error preloading week range projections:",
       error.message
     );
@@ -256,7 +257,7 @@ async function preloadSeasonProjections(): Promise<void> {
     const season = getCurrentSeason();
     const indexCacheKey = `season_projections_${season}_${SEASON_TYPE}_index`;
 
-    console.log(`[StatsPreloader] Preloading season projections for ${season}...`);
+    logger.info(`[StatsPreloader] Preloading season projections for ${season}...`);
 
     const response = await axios.get(
       `${SLEEPER_API_BASE}/projections/nfl/${season}?season_type=${SEASON_TYPE}`,
@@ -277,11 +278,11 @@ async function preloadSeasonProjections(): Promise<void> {
 
     // Only cache the index
     projectionsCache.set(indexCacheKey, projectionsIndex);
-    console.log(
+    logger.info(
       `[StatsPreloader] Cached season projections for ${season} with ${Object.keys(projectionsIndex).length} players`
     );
   } catch (error: any) {
-    console.error(
+    logger.error(
       "[StatsPreloader] Error preloading season projections:",
       error.message
     );
@@ -292,40 +293,40 @@ async function preloadSeasonProjections(): Promise<void> {
  * Run all preload tasks
  */
 async function runAllPreloadTasks(): Promise<void> {
-  console.log("[StatsPreloader] Running preload tasks...");
+  logger.info("[StatsPreloader] Running preload tasks...");
   await Promise.all([
     preloadSeasonStats(),
     preloadWeekRangeProjections(),
     preloadSeasonProjections(),
   ]);
-  console.log("[StatsPreloader] All preload tasks completed");
+  logger.info("[StatsPreloader] All preload tasks completed");
 }
 
 /**
  * Start the stats preloader scheduler
  */
 export function startStatsPreloader(): void {
-  console.log("[StatsPreloader] Starting stats preloader service");
+  logger.info("[StatsPreloader] Starting stats preloader service");
 
   // Run immediately on startup
   runAllPreloadTasks();
 
   // Schedule stats preload every 5 minutes
   cron.schedule(STATS_PRELOAD_SCHEDULE, async () => {
-    console.log("[StatsPreloader] Running scheduled stats preload");
+    logger.info("[StatsPreloader] Running scheduled stats preload");
     await preloadSeasonStats();
   });
 
   // Schedule projections preload every 15 minutes
   cron.schedule(PROJECTIONS_PRELOAD_SCHEDULE, async () => {
-    console.log("[StatsPreloader] Running scheduled projections preload");
+    logger.info("[StatsPreloader] Running scheduled projections preload");
     await Promise.all([
       preloadWeekRangeProjections(),
       preloadSeasonProjections(),
     ]);
   });
 
-  console.log(
+  logger.info(
     "[StatsPreloader] Scheduled: stats every 5 minutes, projections every 15 minutes"
   );
 }

@@ -1,4 +1,5 @@
 import { getWeekSchedule } from "./sleeperScheduleService";
+import { logger } from "../utils/logger";
 
 interface CurrentWeekCache {
   season: string;
@@ -25,11 +26,11 @@ export async function getCurrentNFLWeek(
     currentWeekCache.season === season &&
     now - currentWeekCache.lastUpdated < CACHE_TTL
   ) {
-    console.log(`[CurrentWeek] Using cached week ${currentWeekCache.week}`);
+    logger.info(`[CurrentWeek] Using cached week ${currentWeekCache.week}`);
     return currentWeekCache.week;
   }
 
-  console.log(`[CurrentWeek] Detecting current week for ${season}...`);
+  logger.info(`[CurrentWeek] Detecting current week for ${season}...`);
 
   try {
     // Check weeks 1-18 to find current week
@@ -40,7 +41,7 @@ export async function getCurrentNFLWeek(
         // No games scheduled for this week, we've gone too far
         const currentWeek = Math.max(1, week - 1);
         currentWeekCache = { season, week: currentWeek, lastUpdated: now };
-        console.log(`[CurrentWeek] Detected week ${currentWeek} (no more games)`);
+        logger.info(`[CurrentWeek] Detected week ${currentWeek} (no more games)`);
         return currentWeek;
       }
 
@@ -52,7 +53,7 @@ export async function getCurrentNFLWeek(
       if (hasUpcomingOrLive) {
         // This is the current week
         currentWeekCache = { season, week, lastUpdated: now };
-        console.log(`[CurrentWeek] Detected week ${week} (has upcoming/live games)`);
+        logger.info(`[CurrentWeek] Detected week ${week} (has upcoming/live games)`);
         return week;
       }
 
@@ -62,10 +63,10 @@ export async function getCurrentNFLWeek(
     // Fallback: if we checked all weeks, return week 18
     const fallbackWeek = 18;
     currentWeekCache = { season, week: fallbackWeek, lastUpdated: now };
-    console.log(`[CurrentWeek] Using fallback week ${fallbackWeek}`);
+    logger.info(`[CurrentWeek] Using fallback week ${fallbackWeek}`);
     return fallbackWeek;
   } catch (error) {
-    console.error("[CurrentWeek] Error detecting current week:", error);
+    logger.error("[CurrentWeek] Error detecting current week:", error);
 
     // Fallback to date-based estimation
     return estimateWeekByDate(season);
@@ -108,5 +109,5 @@ function estimateWeekByDate(season: string): number {
  */
 export function refreshCurrentWeekCache(): void {
   currentWeekCache = null;
-  console.log("[CurrentWeek] Cache cleared");
+  logger.info("[CurrentWeek] Cache cleared");
 }

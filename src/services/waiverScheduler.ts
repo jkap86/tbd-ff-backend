@@ -1,5 +1,6 @@
 import cron from "node-cron";
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { processWaivers } from "./waiverService";
 import { withCronLogging } from "../utils/cronHelper";
 
@@ -15,7 +16,7 @@ const SCHEDULE = "0 3 * * *";
  * Process waivers for all leagues that have pending claims
  */
 async function processAllLeagueWaivers(): Promise<void> {
-  console.log("[WaiverScheduler] Starting scheduled waiver processing");
+  logger.info("[WaiverScheduler] Starting scheduled waiver processing");
 
   // Get all leagues that have pending waiver claims
   const query = `
@@ -28,16 +29,16 @@ async function processAllLeagueWaivers(): Promise<void> {
   const leagueIds = result.rows.map((row) => row.league_id);
 
   if (leagueIds.length === 0) {
-    console.log("[WaiverScheduler] No leagues with pending claims");
+    logger.info("[WaiverScheduler] No leagues with pending claims");
     return;
   }
 
-  console.log(`[WaiverScheduler] Processing waivers for ${leagueIds.length} leagues`);
+  logger.info(`[WaiverScheduler] Processing waivers for ${leagueIds.length} leagues`);
 
   // Process waivers for each league with retry logic
   for (const leagueId of leagueIds) {
     try {
-      console.log(`[WaiverScheduler] Processing league ${leagueId}`);
+      logger.info(`[WaiverScheduler] Processing league ${leagueId}`);
 
       // Wrap each league's waiver processing with retry logic
       await withCronLogging(
@@ -46,24 +47,24 @@ async function processAllLeagueWaivers(): Promise<void> {
         { maxAttempts: 3, baseDelayMs: 2000 }
       );
 
-      console.log(`[WaiverScheduler] Completed processing for league ${leagueId}`);
+      logger.info(`[WaiverScheduler] Completed processing for league ${leagueId}`);
     } catch (error: any) {
-      console.error(
+      logger.error(
         `[WaiverScheduler] Error processing waivers for league ${leagueId} after all retries:`,
-        error
+        { error }
       );
       // Continue with other leagues even if one fails permanently
     }
   }
 
-  console.log("[WaiverScheduler] Finished scheduled waiver processing");
+  logger.info("[WaiverScheduler] Finished scheduled waiver processing");
 }
 
 /**
  * Start the waiver scheduler
  */
 export function startWaiverScheduler(): void {
-  console.log("[WaiverScheduler] Starting waiver scheduler (daily at 3:00 AM UTC)");
+  logger.info("[WaiverScheduler] Starting waiver scheduler (daily at 3:00 AM UTC)");
 
   // Schedule the job
   cron.schedule(SCHEDULE, async () => {
@@ -79,6 +80,6 @@ export function startWaiverScheduler(): void {
  * Manually trigger waiver processing for testing
  */
 export async function triggerWaiverProcessing(): Promise<void> {
-  console.log("[WaiverScheduler] Manually triggering waiver processing");
+  logger.info("[WaiverScheduler] Manually triggering waiver processing");
   await processAllLeagueWaivers();
 }

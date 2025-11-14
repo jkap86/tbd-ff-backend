@@ -1,5 +1,6 @@
 import { PoolClient } from "pg";
 import pool from "../config/database";
+import { logger } from "../utils/logger";
 
 /**
  * Result of a sync operation
@@ -67,7 +68,7 @@ export abstract class BaseSyncService<T extends SleeperData> {
     );
 
     if (playerResult.rows.length === 0) {
-      console.warn(
+      logger.warn(
         `[${this.serviceName}] Player not found for player_id ${sleeperPlayerId}, skipping`
       );
       return null;
@@ -112,7 +113,7 @@ export abstract class BaseSyncService<T extends SleeperData> {
     seasonType: string,
     identifierLabel: string
   ): Promise<SyncResult> {
-    console.log(
+    logger.info(
       `[${this.serviceName}] Starting sync for ${season} ${identifierLabel} ${seasonType}...`
     );
 
@@ -121,13 +122,13 @@ export abstract class BaseSyncService<T extends SleeperData> {
       const data = await this.fetchFromApi(season, identifier, seasonType);
 
       if (!data || data.length === 0) {
-        console.log(
+        logger.info(
           `[${this.serviceName}] No data found for ${season} ${identifierLabel}`
         );
         return { synced: 0, errors: 0 };
       }
 
-      console.log(
+      logger.info(
         `[${this.serviceName}] Fetched ${data.length} records from Sleeper`
       );
 
@@ -142,7 +143,7 @@ export abstract class BaseSyncService<T extends SleeperData> {
           await this.processBatch(batch, season, identifier, seasonType);
           synced += batch.length;
         } catch (error) {
-          console.error(
+          logger.error(
             `[${this.serviceName}] Error processing batch ${i}-${i + batch.length}:`,
             error
           );
@@ -150,12 +151,12 @@ export abstract class BaseSyncService<T extends SleeperData> {
         }
       }
 
-      console.log(
+      logger.info(
         `[${this.serviceName}] Completed: ${synced} synced, ${errors} errors`
       );
       return { synced, errors };
     } catch (error) {
-      console.error(
+      logger.error(
         `[${this.serviceName}] Error syncing data for ${season} ${identifierLabel}:`,
         error
       );
@@ -171,7 +172,7 @@ export abstract class BaseSyncService<T extends SleeperData> {
     syncFn: (item: I) => Promise<SyncResult>,
     getLabel: (item: I) => string
   ): Promise<void> {
-    console.log(
+    logger.info(
       `[${this.serviceName}] Syncing ${items.length} items in parallel...`
     );
 
@@ -181,11 +182,11 @@ export abstract class BaseSyncService<T extends SleeperData> {
     results.forEach((result, index) => {
       const label = getLabel(items[index]);
       if (result.status === "fulfilled") {
-        console.log(
+        logger.info(
           `[${this.serviceName}] ${label}: ${result.value.synced} synced, ${result.value.errors} errors`
         );
       } else {
-        console.error(
+        logger.error(
           `[${this.serviceName}] ${label} failed:`,
           result.reason
         );

@@ -1,6 +1,7 @@
 import pool from "../config/database";
 import { getDraftById } from "./Draft";
 import { cancelNominationTimer } from "../socket/auctionSocket";
+import { logger } from "../config/logger";
 
 export interface AuctionNomination {
   id: number;
@@ -171,7 +172,7 @@ export async function completeNomination(
   try {
     cancelNominationTimer(nomination_id);
   } catch (error) {
-    console.error(`[Auction] Failed to cancel timer for nomination ${nomination_id}:`, error);
+    logger.error(`[Auction] Failed to cancel timer for nomination ${nomination_id}:`, { error });
     // Continue anyway - nomination is already completed in DB
   }
 
@@ -670,7 +671,7 @@ export async function assignAuctionPlayersToRosters(
   draft_id: number
 ): Promise<void> {
   try {
-    console.log(
+    logger.info(
       `[AssignAuctionPlayers] Starting roster assignment for draft ${draft_id}`
     );
 
@@ -694,7 +695,7 @@ export async function assignAuctionPlayersToRosters(
     const nominationsResult = await pool.query(nominationsQuery, [draft_id]);
     const nominations = nominationsResult.rows;
 
-    console.log(
+    logger.info(
       `[AssignAuctionPlayers] Found ${nominations.length} won players to assign`
     );
 
@@ -715,7 +716,7 @@ export async function assignAuctionPlayersToRosters(
     // Update each roster with their won players
     for (const [rosterIdStr, playerIds] of Object.entries(playersByRoster)) {
       const rosterId = parseInt(rosterIdStr);
-      console.log(
+      logger.info(
         `[AssignAuctionPlayers] Auto-populating roster ${rosterId} with ${playerIds.length} players`
       );
 
@@ -760,7 +761,7 @@ export async function assignAuctionPlayersToRosters(
         const playoffWeekStart = league.settings?.playoff_week_start || 15;
         const { updateWeeklyLineup } = await import("./WeeklyLineup");
 
-        console.log(
+        logger.info(
           `[AssignAuctionPlayers] Populating weekly lineups for roster ${rosterId} from week ${startWeek} to ${playoffWeekStart - 1}`
         );
 
@@ -779,20 +780,20 @@ export async function assignAuctionPlayersToRosters(
               nonBenchStarters
             );
           } catch (error) {
-            console.error(
+            logger.error(
               `[AssignAuctionPlayers] Failed to populate week ${week} lineup:`,
-              error
+              { error }
             );
           }
         }
       }
     }
 
-    console.log(
+    logger.info(
       `[AssignAuctionPlayers] Successfully assigned players to rosters and populated weekly lineups`
     );
   } catch (error) {
-    console.error("Error assigning auction players to rosters:", error);
+    logger.error("Error assigning auction players to rosters:", { error });
     throw new Error("Error assigning auction players to rosters");
   }
 }
@@ -812,7 +813,7 @@ async function autoPopulateAuctionStarters(
     const league = await getLeagueById(leagueId);
 
     if (!league || !league.roster_positions) {
-      console.log(
+      logger.info(
         `[AutoPopulate] No roster positions found, all players to bench`
       );
       return { starters: [], bench: playerIds };
@@ -867,7 +868,7 @@ async function autoPopulateAuctionStarters(
     const canFillSlot = (playerId: string, slotPos: string): boolean => {
       const playerPosition = playersMap[playerId];
       if (!playerPosition) {
-        console.log(`[AutoPopulate] WARNING: No position found for player ${playerId}`);
+        logger.warn(`[AutoPopulate] WARNING: No position found for player ${playerId}`);
         return false;
       }
 
@@ -876,13 +877,13 @@ async function autoPopulateAuctionStarters(
 
       // Extra validation: QB can ONLY go in QB or SUPER_FLEX
       if (playerPosition === "QB" && !["QB", "SUPER_FLEX"].includes(slotPos)) {
-        console.log(`[AutoPopulate] BLOCKED: QB ${playerId} cannot fill ${slotPos}`);
+        logger.warn(`[AutoPopulate] BLOCKED: QB ${playerId} cannot fill ${slotPos}`);
         return false;
       }
 
       // Validate non-QB cannot go in QB slot
       if (slotPos === "QB" && playerPosition !== "QB") {
-        console.log(`[AutoPopulate] BLOCKED: ${playerPosition} player ${playerId} cannot fill QB slot`);
+        logger.warn(`[AutoPopulate] BLOCKED: ${playerPosition} player ${playerId} cannot fill QB slot`);
         return false;
       }
 
@@ -925,20 +926,20 @@ async function autoPopulateAuctionStarters(
     // For each slot (most restrictive to least):
     //   - Find all unassigned players that fit
     //   - Pick the one acquired earliest (earliest in playerIds array)
-    console.log(`[AutoPopulate] Starting slot assignment with ${playerIds.length} players`);
-    console.log(`[AutoPopulate] Players map:`, JSON.stringify(playersMap, null, 2));
+    logger.info(`[AutoPopulate] Starting slot assignment with ${playerIds.length} players`);
+    logger.debug(`[AutoPopulate] Players map:`, { playersMap });
 
     for (const slot of sortedSlots) {
       const slotPos = slot.slot.replace(/\d+$/, "");
 
-      console.log(`[AutoPopulate] Filling slot ${slot.slot} (${slotPos}, restrictiveness: ${getSlotRestrictiveness(slotPos)})`);
+      logger.debug(`[AutoPopulate] Filling slot ${slot.slot} (${slotPos}, restrictiveness: ${getSlotRestrictiveness(slotPos)})`);
 
       // Find all unassigned players that can fill this slot
       const eligiblePlayers = playerIds.filter(
         (playerId) => !assignedPlayerIds.has(playerId) && canFillSlot(playerId, slotPos)
       );
 
-      console.log(`[AutoPopulate]   Found ${eligiblePlayers.length} eligible players:`, eligiblePlayers.map(id => `${id}(${playersMap[id]})`).join(', '));
+      logger.debug(`[AutoPopulate]   Found ${eligiblePlayers.length} eligible players:`, { eligiblePlayers: eligiblePlayers.map(id => `${id}(${playersMap[id]})`) });
 
       if (eligiblePlayers.length > 0) {
         // Pick the first one (earliest auction win)
@@ -950,25 +951,25 @@ async function autoPopulateAuctionStarters(
         if (slotIndex !== -1) {
           starters[slotIndex].player_id = selectedPlayer;
           assignedPlayerIds.add(selectedPlayer);
-          console.log(
+          logger.debug(
             `[AutoPopulate] ✓ Assigned player ${selectedPlayer} (${playerPosition}) to slot ${starters[slotIndex].slot}`
           );
         }
       } else {
-        console.log(`[AutoPopulate]   No eligible players for slot ${slot.slot}`);
+        logger.debug(`[AutoPopulate]   No eligible players for slot ${slot.slot}`);
       }
     }
 
     // Remaining players go to bench
     const bench = playerIds.filter((id) => !assignedPlayerIds.has(id));
 
-    console.log(
+    logger.info(
       `[AutoPopulate] Roster ${rosterId}: ${assignedPlayerIds.size} starters, ${bench.length} bench`
     );
 
     return { starters, bench };
   } catch (error) {
-    console.error("Error auto-populating auction starters:", error);
+    logger.error("Error auto-populating auction starters:", { error });
     // Fallback: all players to bench
     return { starters: [], bench: playerIds };
   }

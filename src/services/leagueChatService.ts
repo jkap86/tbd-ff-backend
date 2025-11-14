@@ -1,6 +1,7 @@
 import { Server as SocketServer } from "socket.io";
 import { createLeagueChatMessage, LeagueChatMessage } from "../models/LeagueChatMessage";
 import { emitLeagueChat } from "../socket/leagueSocket";
+import { logger } from "../utils/logger";
 
 /**
  * League Chat Service - Consolidates chat message creation and emission logic
@@ -51,7 +52,7 @@ export async function sendSystemMessage(
 
     return chatMessage;
   } catch (error) {
-    console.error(`Error sending system message to league ${leagueId}:`, error);
+    logger.error(`Error sending system message to league ${leagueId}:`, error);
     throw error;
   }
 }
@@ -115,7 +116,7 @@ export async function sendSystemMessageSafe(
   try {
     return await sendSystemMessage(io, leagueId, message, metadata);
   } catch (error) {
-    console.error(`Failed to send system message (non-critical): ${message}`, error);
+    logger.error(`Failed to send system message (non-critical): ${message}`, error);
     return null;
   }
 }
@@ -141,7 +142,7 @@ export async function sendCollapsibleSystemMessageSafe(
   try {
     return await sendCollapsibleSystemMessage(io, leagueId, message, type, details);
   } catch (error) {
-    console.error(`Failed to send collapsible system message (non-critical): ${message}`, error);
+    logger.error(`Failed to send collapsible system message (non-critical): ${message}`, error);
     return null;
   }
 }

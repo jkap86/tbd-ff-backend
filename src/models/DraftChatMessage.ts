@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 
 export interface DraftChatMessage {
   id: number;
@@ -39,7 +40,7 @@ export async function createChatMessage(messageData: {
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error creating chat message:", error);
+    logger.error("Error creating chat message:", { error });
     throw new Error("Error creating chat message");
   }
 }
@@ -62,7 +63,7 @@ export async function getChatMessages(
     const result = await pool.query(query, [draftId, limit]);
     return result.rows.reverse(); // Return in chronological order
   } catch (error) {
-    console.error("Error getting chat messages:", error);
+    logger.error("Error getting chat messages:", { error });
     throw new Error("Error getting chat messages");
   }
 }
@@ -89,7 +90,7 @@ export async function getChatMessagesWithDetails(
     const result = await pool.query(query, [draftId, limit]);
     return result.rows.reverse(); // Return in chronological order
   } catch (error) {
-    console.error("Error getting chat messages with details:", error);
+    logger.error("Error getting chat messages with details:", { error });
     throw new Error("Error getting chat messages with details");
   }
 }
@@ -115,7 +116,7 @@ export async function getChatMessagesSince(
     const result = await pool.query(query, [draftId, since]);
     return result.rows;
   } catch (error) {
-    console.error("Error getting chat messages since timestamp:", error);
+    logger.error("Error getting chat messages since timestamp:", { error });
     throw new Error("Error getting chat messages since timestamp");
   }
 }
@@ -128,7 +129,7 @@ export async function deleteChatMessages(draftId: number): Promise<void> {
     const query = `DELETE FROM draft_chat_messages WHERE draft_id = $1`;
     await pool.query(query, [draftId]);
   } catch (error) {
-    console.error("Error deleting chat messages:", error);
+    logger.error("Error deleting chat messages:", { error });
     throw new Error("Error deleting chat messages");
   }
 }

@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { getRostersByLeagueId } from "../models/Roster";
 import { createMatchup, deleteMatchupsForWeek } from "../models/Matchup";
 import { getLeagueById } from "../models/League";
@@ -98,7 +99,7 @@ export async function generateFullSeasonSchedule(
 
     // Delete existing matchups if regenerating
     if (regenerate) {
-      console.log(`[ScheduleGenerator] Deleting existing matchups for weeks ${startWeek}-${endWeek}...`);
+      logger.info(`[ScheduleGenerator] Deleting existing matchups for weeks ${startWeek}-${endWeek}...`);
       for (let week = startWeek; week <= endWeek; week++) {
         await deleteMatchupsForWeek(leagueId, week);
       }
@@ -106,7 +107,7 @@ export async function generateFullSeasonSchedule(
 
     // Generate all matchups for the season
     const allMatchups: any[] = [];
-    console.log(`[ScheduleGenerator] Generating ${totalWeeks} weeks of matchups for ${totalTeams} teams...`);
+    logger.info(`[ScheduleGenerator] Generating ${totalWeeks} weeks of matchups for ${totalTeams} teams...`);
 
     for (let weekOffset = 0; weekOffset < totalWeeks; weekOffset++) {
       const week = startWeek + weekOffset;
@@ -124,13 +125,13 @@ export async function generateFullSeasonSchedule(
         allMatchups.push(created);
       }
 
-      console.log(`[ScheduleGenerator] Generated ${weekMatchups.length} matchups for week ${week}`);
+      logger.info(`[ScheduleGenerator] Generated ${weekMatchups.length} matchups for week ${week}`);
     }
 
     // Validate the schedule
     const validation = validateSchedule(allMatchups, totalTeams, totalWeeks);
     if (!validation.valid) {
-      console.error("[ScheduleGenerator] Schedule validation failed:", validation.errors);
+      logger.error("[ScheduleGenerator] Schedule validation failed:", { errors: validation.errors });
       return {
         success: false,
         matchups: allMatchups,
@@ -139,7 +140,7 @@ export async function generateFullSeasonSchedule(
       };
     }
 
-    console.log(`[ScheduleGenerator] Successfully generated and validated ${allMatchups.length} matchups`);
+    logger.info(`[ScheduleGenerator] Successfully generated and validated ${allMatchups.length} matchups`);
 
     return {
       success: true,
@@ -147,7 +148,7 @@ export async function generateFullSeasonSchedule(
       message: `Successfully generated ${allMatchups.length} matchups for ${totalWeeks} weeks`,
     };
   } catch (error: any) {
-    console.error("[ScheduleGenerator] Error generating full season schedule:", error);
+    logger.error("[ScheduleGenerator] Error generating full season schedule:", { error });
     return {
       success: false,
       matchups: [],

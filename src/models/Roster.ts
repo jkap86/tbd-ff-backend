@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { BaseRepository } from "./BaseRepository";
 
 export interface RosterSlot {
@@ -102,7 +103,7 @@ export async function createRoster(
     const result = await pool.query(query, values);
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error creating roster:", error);
+    logger.error("Error creating roster:", { error });
 
     // Handle unique constraint violations
     if (error.code === "23505") {
@@ -137,7 +138,7 @@ export async function getRostersByLeagueId(leagueId: number): Promise<any[]> {
     const result = await pool.query(query, [leagueId]);
     return result.rows;
   } catch (error) {
-    console.error("Error getting rosters:", error);
+    logger.error("Error getting rosters:", { error });
     throw new Error("Error getting rosters");
   }
 }
@@ -207,11 +208,11 @@ export async function getRosterWithPlayers(rosterId: number): Promise<any | null
     // Debug logging
     const bnSlots = result.starters.filter((s: any) => s.slot?.startsWith('BN'));
     const filledBnSlots = bnSlots.filter((s: any) => s.player !== null);
-    console.log(`[getRosterWithPlayers] Roster ${rosterId}: Total starters=${result.starters.length}, BN slots=${bnSlots.length}, Filled BN=${filledBnSlots.length}, Bench array=${result.bench.length}`);
+    logger.info(`[getRosterWithPlayers] Roster ${rosterId}: Total starters=${result.starters.length}, BN slots=${bnSlots.length}, Filled BN=${filledBnSlots.length}, Bench array=${result.bench.length}`);
 
     return result;
   } catch (error) {
-    console.error("Error getting roster with players:", error);
+    logger.error("Error getting roster with players:", { error });
     throw new Error("Error getting roster with players");
   }
 }
@@ -237,7 +238,7 @@ export async function getRostersByIds(rosterIds: number[]): Promise<Roster[]> {
     const result = await pool.query(query, [rosterIds]);
     return result.rows;
   } catch (error) {
-    console.error("Error getting rosters by IDs:", error);
+    logger.error("Error getting rosters by IDs:", { error });
     throw new Error("Error getting rosters by IDs");
   }
 }
@@ -263,7 +264,7 @@ export async function getRosterByLeagueAndUser(
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error getting roster:", error);
+    logger.error("Error getting roster:", { error });
     throw new Error("Error getting roster");
   }
 }
@@ -282,7 +283,7 @@ export async function getNextRosterId(leagueId: number): Promise<number> {
     const result = await pool.query(query, [leagueId]);
     return result.rows[0].next_roster_id;
   } catch (error) {
-    console.error("Error getting next roster ID:", error);
+    logger.error("Error getting next roster ID:", { error });
     throw new Error("Error getting next roster ID");
   }
 }
@@ -352,7 +353,7 @@ export async function validateLineup(
       errors,
     };
   } catch (error) {
-    console.error("Error validating lineup:", error);
+    logger.error("Error validating lineup:", { error });
     return { valid: false, errors: ["Error validating lineup"] };
   }
 }
@@ -430,7 +431,7 @@ export async function validateSlotAssignment(
       errors,
     };
   } catch (error) {
-    console.error("Error validating slot assignment:", error);
+    logger.error("Error validating slot assignment:", { error });
     return { valid: false, errors: ["Error validating slot assignment"] };
   }
 }
@@ -513,7 +514,7 @@ export async function updateRoster(
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error updating roster:", error);
+    logger.error("Error updating roster:", { error });
     throw new Error("Error updating roster");
   }
 }
@@ -536,7 +537,7 @@ export async function deleteRosterByLeagueAndUser(
 
     return result.rows.length > 0;
   } catch (error: any) {
-    console.error("Error deleting roster:", error);
+    logger.error("Error deleting roster:", { error });
     throw new Error("Error deleting roster");
   }
 }
@@ -577,7 +578,7 @@ export async function clearAllRosterLineups(leagueId: number): Promise<void> {
 
     await pool.query(query, [JSON.stringify(starterSlots), leagueId]);
   } catch (error: any) {
-    console.error("Error clearing roster lineups:", error);
+    logger.error("Error clearing roster lineups:", { error });
     throw new Error("Error clearing roster lineups");
   }
 }
@@ -615,7 +616,7 @@ export async function updateFAAB(rosterId: number, amount: number): Promise<Rost
 
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error updating FAAB:", error);
+    logger.error("Error updating FAAB:", { error });
     throw new Error("Error updating FAAB");
   }
 }
@@ -635,7 +636,7 @@ export async function deductFAAB(rosterId: number, amount: number): Promise<Rost
     const newFAAB = currentFAAB - amount;
     return await updateFAAB(rosterId, newFAAB);
   } catch (error: any) {
-    console.error("Error deducting FAAB:", error);
+    logger.error("Error deducting FAAB:", { error });
     throw error;
   }
 }
@@ -677,7 +678,7 @@ export async function addPlayerToRoster(
 
     return roster;
   } catch (error: any) {
-    console.error("Error adding player to roster:", error);
+    logger.error("Error adding player to roster:", { error });
     throw new Error("Error adding player to roster");
   }
 }
@@ -695,15 +696,15 @@ export async function removePlayerFromRoster(
       throw new Error("Roster not found");
     }
 
-    console.log(`[RemovePlayer] Removing player ${playerId} from roster ${rosterId}`);
-    console.log(`[RemovePlayer] Starters before:`, roster.starters);
-    console.log(`[RemovePlayer] Bench before:`, roster.bench);
+    logger.info(`[RemovePlayer] Removing player ${playerId} from roster ${rosterId}`);
+    logger.info(`[RemovePlayer] Starters before:`, roster.starters);
+    logger.info(`[RemovePlayer] Bench before:`, roster.bench);
 
     // Check and remove from starters (slot-based)
     const starters = roster.starters || [];
     const updatedStarters = starters.map((slot: any) => {
       if (slot.player_id === playerId) {
-        console.log(`[RemovePlayer] Found player in slot ${slot.slot}, clearing`);
+        logger.info(`[RemovePlayer] Found player in slot ${slot.slot}, clearing`);
         return { ...slot, player_id: null };
       }
       return slot;
@@ -718,8 +719,8 @@ export async function removePlayerFromRoster(
     // Check and remove from IR
     const ir = (roster.ir || []).filter((id: number) => id !== playerId);
 
-    console.log(`[RemovePlayer] Starters after:`, updatedStarters);
-    console.log(`[RemovePlayer] Bench after:`, bench);
+    logger.info(`[RemovePlayer] Starters after:`, updatedStarters);
+    logger.info(`[RemovePlayer] Bench after:`, bench);
 
     return await updateRoster(rosterId, {
       starters: updatedStarters,
@@ -728,7 +729,7 @@ export async function removePlayerFromRoster(
       ir,
     });
   } catch (error: any) {
-    console.error("Error removing player from roster:", error);
+    logger.error("Error removing player from roster:", { error });
     throw new Error("Error removing player from roster");
   }
 }
@@ -755,7 +756,7 @@ export async function rosterHasPlayer(rosterId: number, playerId: number): Promi
 
     return hasInStarters || hasInBench || hasInTaxi || hasInIR;
   } catch (error: any) {
-    console.error("Error checking if roster has player:", error);
+    logger.error("Error checking if roster has player:", { error });
     throw new Error("Error checking if roster has player");
   }
 }
@@ -777,7 +778,7 @@ export async function getRosterSize(rosterId: number): Promise<number> {
 
     return starterCount + benchCount + taxiCount + irCount;
   } catch (error: any) {
-    console.error("Error getting roster size:", error);
+    logger.error("Error getting roster size:", { error });
     throw new Error("Error getting roster size");
   }
 }

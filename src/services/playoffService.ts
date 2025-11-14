@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { getPlayoffTeams, StandingsEntry } from "./standingsService";
 import { setTransactionTimeouts } from "../utils/transactionTimeout";
 
@@ -58,7 +59,7 @@ export async function getPlayoffSettings(
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error getting playoff settings:", error);
+    logger.error("Error getting playoff settings:", { error });
     throw new Error("Error getting playoff settings");
   }
 }
@@ -112,7 +113,7 @@ export async function savePlayoffSettings(
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error saving playoff settings:", error);
+    logger.error("Error saving playoff settings:", { error });
     throw new Error("Error saving playoff settings");
   }
 }
@@ -128,7 +129,7 @@ export async function generatePlayoffBracket(
   season: string
 ): Promise<void> {
   try {
-    console.log(`[PlayoffService] Generating playoff bracket for league ${leagueId}, season ${season}`);
+    logger.info(`[PlayoffService] Generating playoff bracket for league ${leagueId}, season ${season}`);
 
     // 1. Get playoff settings
     const settings = await getPlayoffSettings(leagueId);
@@ -138,7 +139,7 @@ export async function generatePlayoffBracket(
 
     // 2. Get seeded playoff teams from standings
     const teams = await getPlayoffTeams(leagueId);
-    console.log(`[PlayoffService] Retrieved ${teams.length} playoff teams`);
+    logger.info(`[PlayoffService] Retrieved ${teams.length} playoff teams`);
 
     // 3. Validate team count matches settings
     if (teams.length < settings.playoff_teams) {
@@ -167,7 +168,7 @@ export async function generatePlayoffBracket(
         throw new Error(`Unsupported playoff team count: ${settings.playoff_teams}`);
     }
 
-    console.log(`[PlayoffService] Generated ${matchups.length} playoff matchups`);
+    logger.info(`[PlayoffService] Generated ${matchups.length} playoff matchups`);
 
     // 5. Delete any existing playoff matchups for this league/season
     await deletePlayoffMatchups(leagueId, season);
@@ -175,9 +176,9 @@ export async function generatePlayoffBracket(
     // 6. Insert matchups into database
     await insertBracketMatchups(leagueId, season, matchups);
 
-    console.log(`[PlayoffService] Playoff bracket generation complete`);
+    logger.info(`[PlayoffService] Playoff bracket generation complete`);
   } catch (error) {
-    console.error("Error generating playoff bracket:", error);
+    logger.error("Error generating playoff bracket:", { error });
     throw error;
   }
 }
@@ -619,7 +620,7 @@ async function insertBracketMatchups(
       }
 
       await client.query("COMMIT");
-      console.log(`[PlayoffService] Inserted ${matchups.length} matchups into database`);
+      logger.info(`[PlayoffService] Inserted ${matchups.length} matchups into database`);
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -627,7 +628,7 @@ async function insertBracketMatchups(
       client.release();
     }
   } catch (error) {
-    console.error("Error inserting bracket matchups:", error);
+    logger.error("Error inserting bracket matchups:", { error });
     throw new Error("Error inserting bracket matchups");
   }
 }
@@ -650,9 +651,9 @@ async function deletePlayoffMatchups(
     `;
 
     const result = await pool.query(query, [leagueId, season]);
-    console.log(`[PlayoffService] Deleted ${result.rowCount} existing playoff matchups`);
+    logger.info(`[PlayoffService] Deleted ${result.rowCount} existing playoff matchups`);
   } catch (error) {
-    console.error("Error deleting playoff matchups:", error);
+    logger.error("Error deleting playoff matchups:", { error });
     throw new Error("Error deleting playoff matchups");
   }
 }
@@ -689,7 +690,7 @@ export async function getPlayoffMatchups(
     const result = await pool.query(query, [leagueId, season]);
     return result.rows;
   } catch (error) {
-    console.error("Error getting playoff matchups:", error);
+    logger.error("Error getting playoff matchups:", { error });
     throw new Error("Error getting playoff matchups");
   }
 }
@@ -725,7 +726,7 @@ export async function getPlayoffBracket(
 
     return bracket;
   } catch (error) {
-    console.error("Error getting playoff bracket:", error);
+    logger.error("Error getting playoff bracket:", { error });
     throw new Error("Error getting playoff bracket");
   }
 }
@@ -769,9 +770,9 @@ export async function advancePlayoffWinner(matchupId: number): Promise<void> {
     // This is complex and depends on bracket structure
     // For now, this is a placeholder for future implementation
 
-    console.log(`[PlayoffService] Matchup ${matchupId} winner: roster ${winnerId} (seed ${winnerSeed})`);
+    logger.info(`[PlayoffService] Matchup ${matchupId} winner: roster ${winnerId} (seed ${winnerSeed})`);
   } catch (error) {
-    console.error("Error advancing playoff winner:", error);
+    logger.error("Error advancing playoff winner:", { error });
     throw new Error("Error advancing playoff winner");
   }
 }

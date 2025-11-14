@@ -4,6 +4,7 @@
 
 import { Request, Response } from "express";
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { getDraftById } from "../models/Draft";
 import { getRostersByLeagueId } from "../models/Roster";
 import { io } from "../index";
@@ -27,7 +28,7 @@ class DerbyController extends BaseController {
     const { draftId } = req.params;
     const userId = this.getAuthenticatedUserId(req);
 
-    console.log('[Derby] Starting derby for draft', draftId);
+    logger.info('[Derby] Starting derby for draft', { draftId });
 
     // Get the draft
     const draft = await getDraftById(parseInt(draftId));
@@ -121,7 +122,7 @@ class DerbyController extends BaseController {
       const draft = await getDraftById(parseInt(draftId));
 
       if (draft && draft.derby_enabled) {
-        console.log('[Derby] Auto-creating derby for draft', draftId);
+        logger.info('[Derby] Auto-creating derby for draft', { draftId });
 
         // Get rosters and create derby
         const rosters = await getRostersByLeagueId(draft.league_id);
@@ -153,9 +154,11 @@ class DerbyController extends BaseController {
       [draft.league_id]
     );
 
-    console.log('[Derby] getDerbyStatus response - is_randomized:', derbyDetails.is_randomized);
-    console.log('[Derby] getDerbyStatus response - selection_order length:', derbyDetails.selection_order?.length);
-    console.log('[Derby] getDerbyStatus response - status:', derbyDetails.status);
+    logger.info('[Derby] getDerbyStatus response', {
+      is_randomized: derbyDetails.is_randomized,
+      selection_order_length: derbyDetails.selection_order?.length,
+      status: derbyDetails.status,
+    });
 
     // Calculate turn deadline if derby is in progress with an active turn
     let turnDeadline: string | null = null;
@@ -238,11 +241,11 @@ class DerbyController extends BaseController {
    */
   selectDerbyPosition = this.asyncHandler(async (req: Request, res: Response) => {
     const { draftId } = req.params;
-    console.log('[Derby] Request body:', req.body);
+    logger.info('[Derby] Request body', { body: req.body });
     const { rosterId, draftPosition } = req.body;
     const userId = this.getAuthenticatedUserId(req);
 
-    console.log('[Derby] Position selection attempt:', { draftId, rosterId, draftPosition, userId });
+    logger.info('[Derby] Position selection attempt', { draftId, rosterId, draftPosition, userId });
 
     // Verify user owns this roster
     const rosterCheck = await pool.query(
@@ -341,9 +344,9 @@ class DerbyController extends BaseController {
         message: 'Derby completed - all positions selected',
       });
       // Create system chat message for derby completed with draft order
-      console.log('[Derby] Derby completed, sending chat message. Draft:', draft?.id, 'League:', draft?.league_id);
+      logger.info('[Derby] Derby completed, sending chat message', { draft_id: draft?.id, league_id: draft?.league_id });
       if (draft) {
-        console.log('[Derby] Querying draft order for draftId:', draftId);
+        logger.info('[Derby] Querying draft order', { draftId });
         // Get final draft order determined by derby
         const draftOrderResult = await pool.query(
           `SELECT dord.draft_position as position, r.id as roster_id, r.settings, u.username
@@ -355,7 +358,7 @@ class DerbyController extends BaseController {
           [draftId]
         );
 
-        console.log('[Derby] Draft order query returned', draftOrderResult.rows.length, 'rows');
+        logger.info('[Derby] Draft order query result', { rows_count: draftOrderResult.rows.length });
 
         // Format draft order for chat message
         const draftOrderList = draftOrderResult.rows.map((row) => {
@@ -368,15 +371,15 @@ class DerbyController extends BaseController {
           };
         });
 
-        console.log('[Derby] Formatted draft order list:', JSON.stringify(draftOrderList, null, 2));
+        logger.info('[Derby] Formatted draft order list', { draft_order_list: draftOrderList });
 
         await sendCollapsibleSystemMessageSafe(io, draft.league_id, "Derby has completed. Draft order set.", "derby_completed", {
           draft_id: parseInt(draftId),
           draft_order: draftOrderList,
         });
-        console.log('[Derby] Derby completion message sent successfully');
+        logger.info('[Derby] Derby completion message sent successfully');
       } else {
-        console.log('[Derby] No draft found, cannot send completion message');
+        logger.info('[Derby] No draft found, cannot send completion message');
       }
 
     }
@@ -398,7 +401,7 @@ class DerbyController extends BaseController {
     const { draftId } = req.params;
     const userId = this.getAuthenticatedUserId(req);
 
-    console.log('[Derby] Skip turn attempt:', { draftId, userId });
+    logger.info('[Derby] Skip turn attempt', { draftId, userId });
 
     // Get draft and league for commissioner check
     const draft = await getDraftById(parseInt(draftId));
@@ -481,9 +484,9 @@ class DerbyController extends BaseController {
         message: 'Derby completed',
       });
       // Create system chat message for derby completed with draft order
-      console.log('[Derby] Derby completed via skip, sending chat message. Draft:', draft.id, 'League:', draft.league_id);
+      logger.info('[Derby] Derby completed via skip, sending chat message', { draft_id: draft.id, league_id: draft.league_id });
 
-      console.log('[Derby] Querying draft order for draftId:', draftId);
+      logger.info('[Derby] Querying draft order', { draftId });
       // Get final draft order determined by derby
       const draftOrderResult = await pool.query(
         `SELECT do.draft_position as position, r.id as roster_id, r.settings, u.username
@@ -526,7 +529,7 @@ class DerbyController extends BaseController {
     const { draftId } = req.params;
     const userId = this.getAuthenticatedUserId(req);
 
-    console.log('[Derby] Randomize order attempt:', { draftId, userId });
+    logger.info('[Derby] Randomize order attempt', { draftId, userId });
 
     // Get draft and league for commissioner check
     const draft = await getDraftById(parseInt(draftId));
@@ -582,7 +585,7 @@ class DerbyController extends BaseController {
       };
     });
 
-    console.log('[Derby] Derby order list for chat:', JSON.stringify(derbyOrderList, null, 2));
+    logger.info('[Derby] Derby order list for chat', { derby_order_list: derbyOrderList });
 
     // Emit socket event to notify all clients
     io.to(`draft_${draftId}`).emit('derby:update', {
@@ -593,7 +596,7 @@ class DerbyController extends BaseController {
     });
 
     // Create system chat message with collapsible derby order
-    console.log('[Derby] Sending derby order randomized message with order:', JSON.stringify(derbyOrderList, null, 2));
+    logger.info('[Derby] Sending derby order randomized message with order', { derby_order_list: derbyOrderList });
 
     await sendCollapsibleSystemMessageSafe(io, draft.league_id, "Derby selection order has been randomized", "derby_order_randomized", {
       draft_id: parseInt(draftId),
@@ -611,7 +614,7 @@ class DerbyController extends BaseController {
     const { draftId } = req.params;
     const userId = this.getAuthenticatedUserId(req);
 
-    console.log('[Derby] Pausing derby for draft', draftId);
+    logger.info('[Derby] Pausing derby for draft', { draftId });
 
     // Get the draft
     const draft = await getDraftById(parseInt(draftId));
@@ -664,7 +667,7 @@ class DerbyController extends BaseController {
     const { draftId } = req.params;
     const userId = this.getAuthenticatedUserId(req);
 
-    console.log('[Derby] Resuming derby for draft', draftId);
+    logger.info('[Derby] Resuming derby for draft', { draftId });
 
     // Get the draft
     const draft = await getDraftById(parseInt(draftId));

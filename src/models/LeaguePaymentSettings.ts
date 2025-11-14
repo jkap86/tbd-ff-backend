@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 
 export type PayoutType =
   | 'placement'           // Playoff/final standings (1st, 2nd, 3rd, etc.)
@@ -45,7 +46,7 @@ export async function getByLeagueId(
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error getting league payment settings:", error);
+    logger.error("Error getting league payment settings:", { error });
     throw error;
   }
 }
@@ -86,7 +87,7 @@ export async function create(
     const result = await pool.query(query, values);
     return result.rows[0];
   } catch (error) {
-    console.error("Error creating league payment settings:", error);
+    logger.error("Error creating league payment settings:", { error });
     throw error;
   }
 }
@@ -162,7 +163,7 @@ export async function update(
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error updating league payment settings:", error);
+    logger.error("Error updating league payment settings:", { error });
     throw error;
   }
 }

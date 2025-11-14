@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import dotenv from "dotenv";
+import { logger } from "./logger";
 
 dotenv.config();
 
@@ -18,7 +19,7 @@ const pool = new Pool({
 
 // Test the connection
 pool.on("connect", () => {
-  console.log("Connected to PostgreSQL database");
+  logger.info("Connected to PostgreSQL database");
 });
 
 // Track consecutive errors for circuit breaker pattern
@@ -27,7 +28,7 @@ const MAX_CONSECUTIVE_ERRORS = 5;
 const ERROR_RESET_TIMEOUT = 60000; // 1 minute
 
 pool.on("error", (err: any) => {
-  console.error("Unexpected error on idle client:", {
+  logger.error("Unexpected error on idle client", {
     error: err.message,
     code: err.code,
     timestamp: new Date().toISOString(),
@@ -39,9 +40,10 @@ pool.on("error", (err: any) => {
   // Example: Sentry.captureException(err);
 
   if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-    console.error(
+    logger.error(
       `CRITICAL: ${MAX_CONSECUTIVE_ERRORS} consecutive database errors. ` +
-      "Manual intervention required."
+      "Manual intervention required.",
+      { consecutiveErrors }
     );
     // In production, this should trigger alerts, not exit
     // For now, log critically but allow server to attempt recovery

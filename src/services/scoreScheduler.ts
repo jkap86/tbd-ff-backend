@@ -1,5 +1,6 @@
 import cron from "node-cron";
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { syncSleeperStatsForWeek } from "./sleeperStatsService";
 import { updateMatchupScoresForWeek } from "./scoringService";
 import { finalizeWeekScores } from "./recordService";
@@ -45,7 +46,7 @@ async function getActiveLeagues(): Promise<ActiveLeague[]> {
 
     return activeLeagues;
   } catch (error) {
-    console.error("[Scheduler] Error getting active leagues:", error);
+    logger.error("[Scheduler] Error getting active leagues:", { error });
     return [];
   }
 }
@@ -87,7 +88,7 @@ async function hasLiveOrUpcomingGames(
 
     return false; // No live or upcoming games
   } catch (error) {
-    console.error("[Scheduler] Error checking for live games:", error);
+    logger.error("[Scheduler] Error checking for live games:", { error });
     // Default to true on error to avoid missing updates
     return true;
   }
@@ -98,12 +99,12 @@ async function hasLiveOrUpcomingGames(
  */
 async function updateAllLeagueScores(): Promise<void> {
   const startTime = Date.now();
-  console.log("[Scheduler] Checking for live games...");
+  logger.info("[Scheduler] Checking for live games...");
 
   const activeLeagues = await getActiveLeagues();
 
   if (activeLeagues.length === 0) {
-    console.log("[Scheduler] No active leagues to update");
+    logger.info("[Scheduler] No active leagues to update");
     return;
   }
 
@@ -113,7 +114,7 @@ async function updateAllLeagueScores(): Promise<void> {
   const seasonType = activeLeagues[0]?.season_type || "regular";
 
   if (!currentWeek || !season) {
-    console.log("[Scheduler] No current week/season found");
+    logger.info("[Scheduler] No current week/season found");
     return;
   }
 
@@ -124,18 +125,18 @@ async function updateAllLeagueScores(): Promise<void> {
   );
 
   if (!hasLiveGames) {
-    console.log(
+    logger.info(
       `[Scheduler] No live games for week ${currentWeek}, skipping update`
     );
     return;
   }
 
-  console.log(
+  logger.info(
     `[Scheduler] Live games detected for week ${currentWeek}, updating ${activeLeagues.length} leagues...`
   );
 
   // Sync stats once for current week with retry logic (shared across all leagues)
-  console.log(`[Scheduler] Syncing stats for ${season} week ${currentWeek}...`);
+  logger.info(`[Scheduler] Syncing stats for ${season} week ${currentWeek}...`);
   await withCronLogging(
     async () => await syncSleeperStatsForWeek(season, currentWeek, seasonType),
     `Stats Sync - Week ${currentWeek}`,
@@ -145,7 +146,7 @@ async function updateAllLeagueScores(): Promise<void> {
   // Update each league's matchup scores with retry logic
   for (const league of activeLeagues) {
     try {
-      console.log(
+      logger.info(
         `[Scheduler] Updating league ${league.league_id} week ${league.current_week}...`
       );
 
@@ -170,16 +171,16 @@ async function updateAllLeagueScores(): Promise<void> {
         { maxAttempts: 3, baseDelayMs: 1000 }
       );
     } catch (error) {
-      console.error(
+      logger.error(
         `[Scheduler] Error updating league ${league.league_id} after all retries:`,
-        error
+        { error }
       );
       // Continue with other leagues even if one fails permanently
     }
   }
 
   const duration = Date.now() - startTime;
-  console.log(
+  logger.info(
     `[Scheduler] Score update completed in ${duration}ms for ${activeLeagues.length} leagues`
   );
 }
@@ -191,7 +192,7 @@ async function syncPlayersDaily(): Promise<void> {
   await withCronLogging(
     async () => {
       const syncedCount = await syncPlayers();
-      console.log(`[Scheduler] ${syncedCount} players synced`);
+      logger.info(`[Scheduler] ${syncedCount} players synced`);
     },
     'Daily Player Sync',
     { maxAttempts: 3, baseDelayMs: 2000 }
@@ -203,8 +204,8 @@ async function syncPlayersDaily(): Promise<void> {
  * Checks every 10 minutes if there are live games, and updates if so
  */
 export function startScoreScheduler(): void {
-  console.log("[Scheduler] Starting smart score update scheduler...");
-  console.log(
+  logger.info("[Scheduler] Starting smart score update scheduler...");
+  logger.info(
     "[Scheduler] Will check for live games every 10 minutes and update when needed"
   );
 
@@ -214,19 +215,19 @@ export function startScoreScheduler(): void {
     timezone: "UTC",
   });
 
-  console.log("[Scheduler] ✓ Live game detection scheduled (every 10 min)");
-  console.log(
+  logger.info("[Scheduler] ✓ Live game detection scheduled (every 10 min)");
+  logger.info(
     "[Scheduler] ✓ Supports Thursday, Saturday, Sunday, and Monday games"
   );
-  console.log("[Scheduler] ✓ Auto-detects game times from Sleeper schedule");
+  logger.info("[Scheduler] ✓ Auto-detects game times from Sleeper schedule");
 
   // Run daily at 3:00 AM UTC to sync players from Sleeper
   cron.schedule("0 3 * * *", syncPlayersDaily, {
     timezone: "UTC",
   });
 
-  console.log("[Scheduler] ✓ Daily player sync scheduled (3:00 AM UTC)");
-  console.log("[Scheduler] Score scheduler started successfully");
+  logger.info("[Scheduler] ✓ Daily player sync scheduled (3:00 AM UTC)");
+  logger.info("[Scheduler] Score scheduler started successfully");
 }
 
 /**
@@ -234,5 +235,5 @@ export function startScoreScheduler(): void {
  */
 export function stopScoreScheduler(): void {
   cron.getTasks().forEach((task) => task.stop());
-  console.log("[Scheduler] Score scheduler stopped");
+  logger.info("[Scheduler] Score scheduler stopped");
 }

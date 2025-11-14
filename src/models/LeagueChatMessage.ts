@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 
 export interface LeagueChatMessage {
   id: number;
@@ -39,7 +40,7 @@ export async function createLeagueChatMessage(messageData: {
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error creating league chat message:", error);
+    logger.error("Error creating league chat message:", { error });
     throw new Error("Error creating league chat message");
   }
 }
@@ -62,7 +63,7 @@ export async function getLeagueChatMessages(
     const result = await pool.query(query, [leagueId, limit]);
     return result.rows.reverse(); // Return in chronological order
   } catch (error) {
-    console.error("Error getting league chat messages:", error);
+    logger.error("Error getting league chat messages:", { error });
     throw new Error("Error getting league chat messages");
   }
 }
@@ -89,7 +90,7 @@ export async function getLeagueChatMessagesWithDetails(
     const result = await pool.query(query, [leagueId, limit]);
     return result.rows.reverse(); // Return in chronological order
   } catch (error) {
-    console.error("Error getting league chat messages with details:", error);
+    logger.error("Error getting league chat messages with details:", { error });
     throw new Error("Error getting league chat messages with details");
   }
 }
@@ -115,7 +116,7 @@ export async function getLeagueChatMessagesSince(
     const result = await pool.query(query, [leagueId, since]);
     return result.rows;
   } catch (error) {
-    console.error("Error getting league chat messages since timestamp:", error);
+    logger.error("Error getting league chat messages since timestamp:", { error });
     throw new Error("Error getting league chat messages since timestamp");
   }
 }
@@ -128,7 +129,7 @@ export async function deleteLeagueChatMessages(leagueId: number): Promise<void> 
     const query = `DELETE FROM league_chat_messages WHERE league_id = $1`;
     await pool.query(query, [leagueId]);
   } catch (error) {
-    console.error("Error deleting league chat messages:", error);
+    logger.error("Error deleting league chat messages:", { error });
     throw new Error("Error deleting league chat messages");
   }
 }

@@ -14,6 +14,7 @@ import {
 import { createTransaction } from "../models/Transaction";
 import pool from "../config/database";
 import { withTransaction } from "../utils/transactionWrapper";
+import { logger } from "../config/logger";
 
 /**
  * Submit a waiver claim for a player
@@ -78,7 +79,7 @@ export async function submitWaiverClaim(
 
     return claim;
   } catch (error: any) {
-    console.error("Error submitting waiver claim:", error);
+    logger.error("Error submitting waiver claim:", error);
     throw error;
   }
 }
@@ -128,7 +129,7 @@ export async function processWaivers(leagueId: number): Promise<void> {
       faabBudgetMap.set(row.id, row.faab_budget);
     });
 
-    console.log(`Processing ${pendingClaims.length} waiver claims for league ${leagueId}`);
+    logger.info(`Processing ${pendingClaims.length} waiver claims for league ${leagueId}`);
 
     for (const claim of pendingClaims) {
       try {
@@ -138,7 +139,7 @@ export async function processWaivers(leagueId: number): Promise<void> {
             "UPDATE waiver_claims SET status = $1, processed_at = NOW(), failure_reason = $2 WHERE id = $3",
             ["failed", "Player already claimed in this batch", claim.id]
           );
-          console.log(`Claim ${claim.id} failed: Player already claimed in this batch`);
+          logger.info(`Claim ${claim.id} failed: Player already claimed in this batch`);
           continue;
         }
 
@@ -164,7 +165,7 @@ export async function processWaivers(leagueId: number): Promise<void> {
             "UPDATE waiver_claims SET status = $1, processed_at = NOW(), failure_reason = $2 WHERE id = $3",
             ["failed", "Player not available", claim.id]
           );
-          console.log(`Claim ${claim.id} failed: Player not available`);
+          logger.info(`Claim ${claim.id} failed: Player not available`);
           continue;
         }
 
@@ -176,7 +177,7 @@ export async function processWaivers(leagueId: number): Promise<void> {
             "UPDATE waiver_claims SET status = $1, processed_at = NOW(), failure_reason = $2 WHERE id = $3",
             ["failed", "Roster not found", claim.id]
           );
-          console.log(`Claim ${claim.id} failed: Roster not found`);
+          logger.info(`Claim ${claim.id} failed: Roster not found`);
           continue;
         }
 
@@ -186,7 +187,7 @@ export async function processWaivers(leagueId: number): Promise<void> {
             "UPDATE waiver_claims SET status = $1, processed_at = NOW(), failure_reason = $2 WHERE id = $3",
             ["failed", `Insufficient FAAB (need $${claim.bid_amount}, have $${faabBudget})`, claim.id]
           );
-          console.log(`Claim ${claim.id} failed: Insufficient FAAB`);
+          logger.info(`Claim ${claim.id} failed: Insufficient FAAB`);
           continue;
         }
 
@@ -215,7 +216,7 @@ export async function processWaivers(leagueId: number): Promise<void> {
                 "UPDATE waiver_claims SET status = $1, processed_at = NOW(), failure_reason = $2 WHERE id = $3",
                 ["failed", "Drop player not on roster", claim.id]
               );
-              console.log(`Claim ${claim.id} failed: Drop player not on roster`);
+              logger.info(`Claim ${claim.id} failed: Drop player not on roster`);
               continue;
             }
           }
@@ -257,9 +258,9 @@ export async function processWaivers(leagueId: number): Promise<void> {
           ]
         );
 
-        console.log(`Claim ${claim.id} processed successfully`);
+        logger.info(`Claim ${claim.id} processed successfully`);
       } catch (claimError: any) {
-        console.error(`Error processing claim ${claim.id}:`, claimError);
+        logger.error(`Error processing claim ${claim.id}:`, claimError);
         // Mark individual claim as failed but continue with others
         await client.query(
           "UPDATE waiver_claims SET status = $1, processed_at = NOW(), failure_reason = $2 WHERE id = $3",
@@ -268,7 +269,7 @@ export async function processWaivers(leagueId: number): Promise<void> {
       }
     }
 
-    console.log(`Successfully processed ${pendingClaims.length} waiver claims for league ${leagueId}`);
+    logger.info(`Successfully processed ${pendingClaims.length} waiver claims for league ${leagueId}`);
   }, { isolationLevel: "SERIALIZABLE" });
 }
 
@@ -330,7 +331,7 @@ export async function pickupFreeAgent(
 
     return transaction;
   } catch (error: any) {
-    console.error("Error picking up free agent:", error);
+    logger.error("Error picking up free agent:", error);
     throw error;
   }
 }
@@ -351,7 +352,7 @@ export async function isPlayerAvailable(leagueId: number, playerId: number): Pro
 
     return true;
   } catch (error: any) {
-    console.error("Error checking player availability:", error);
+    logger.error("Error checking player availability:", error);
     throw error;
   }
 }
@@ -387,7 +388,7 @@ export async function getAvailablePlayers(leagueId: number): Promise<number[]> {
     // Return players not on any roster
     return allPlayerIds.filter((id) => !rosteredPlayerIds.has(id));
   } catch (error: any) {
-    console.error("Error getting available players:", error);
+    logger.error("Error getting available players:", error);
     throw error;
   }
 }

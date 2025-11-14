@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { getRosterWithPlayers, getRosterById, updateRoster, validateLineup, validateSlotAssignment, getRostersByLeagueId } from "../models/Roster";
+import { logger } from "../config/logger";
 import { BaseController } from "./BaseController";
 import { io } from "../index";
 import { sendSystemMessageSafe } from "../services/leagueChatService";
@@ -17,7 +18,7 @@ class RosterController extends BaseController {
   fixBenchSlots = this.asyncHandler(async (req: Request, res: Response) => {
     const { leagueId } = req.params;
 
-    console.log(`[MigrateBench] Starting BN slot to bench array migration for league ${leagueId}`);
+    logger.info(`[MigrateBench] Starting BN slot to bench array migration`, { league_id: leagueId });
 
     // If leagueId is 'all', migrate all rosters across all leagues
     let rosters;
@@ -25,15 +26,14 @@ class RosterController extends BaseController {
       const pool = await import("../config/database");
       const result = await pool.default.query('SELECT * FROM rosters');
       rosters = result.rows;
-      console.log(`[MigrateBench] Migrating ALL rosters across all leagues`);
+      logger.info(`[MigrateBench] Migrating ALL rosters across all leagues`);
     } else {
       // Validate leagueId
       const leagueIdNum = this.validateId(leagueId, "League ID");
       rosters = await getRostersByLeagueId(leagueIdNum);
     }
 
-    console.log(`[MigrateBench] Found ${rosters.length} rosters to migrate`);
-    console.log(`[MigrateBench] Roster IDs:`, rosters.map(r => r.id));
+    logger.info(`[MigrateBench] Found rosters to migrate`, { count: rosters.length, roster_ids: rosters.map(r => r.id) });
 
     let migratedCount = 0;
     let totalPlayersMoved = 0;
@@ -55,7 +55,7 @@ class RosterController extends BaseController {
         !slot.slot?.startsWith('BN')
       );
 
-      console.log(`[MigrateBench] Roster ${roster.id}: ${bnSlots.length} BN slots, ${nonBnStarters.length} scoring slots`);
+      logger.info(`[MigrateBench] Roster stats`, { roster_id: roster.id, bn_slots: bnSlots.length, scoring_slots: nonBnStarters.length });
 
       if (bnSlots.length > 0) {
         // Extract player IDs from BN slots
@@ -63,7 +63,7 @@ class RosterController extends BaseController {
           .map((slot: any) => slot.player_id)
           .filter((id: number | null) => id !== null);
 
-        console.log(`[MigrateBench] Roster ${roster.id}: Moving ${bnPlayerIds.length} players from BN slots to bench array`);
+        logger.info(`[MigrateBench] Moving players from BN slots to bench array`, { roster_id: roster.id, player_count: bnPlayerIds.length });
 
         // Combine with existing bench players
         const newBench = [...currentBench, ...bnPlayerIds];
@@ -76,13 +76,13 @@ class RosterController extends BaseController {
 
         migratedCount++;
         totalPlayersMoved += bnPlayerIds.length;
-        console.log(`[MigrateBench] Migrated roster ${roster.id}: ${bnPlayerIds.length} players moved to bench`);
+        logger.info(`[MigrateBench] Migrated roster`, { roster_id: roster.id, players_moved: bnPlayerIds.length });
       } else {
-        console.log(`[MigrateBench] Roster ${roster.id} has no BN slots to migrate`);
+        logger.info(`[MigrateBench] Roster has no BN slots to migrate`, { roster_id: roster.id });
       }
     }
 
-    console.log(`[MigrateBench] Completed: Migrated ${migratedCount} rosters, moved ${totalPlayersMoved} total players`);
+    logger.info(`[MigrateBench] Migration completed`, { rosters_migrated: migratedCount, total_players_moved: totalPlayersMoved });
 
     this.respondSuccess(res, {
       migrated_count: migratedCount,

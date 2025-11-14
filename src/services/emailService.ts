@@ -24,7 +24,7 @@ const createTransporter = () => {
     });
   } else {
     // Development: Use ethereal email or console logging
-    console.log("⚠️  Email service in development mode - emails will be logged to console");
+    logger.info("Email service in development mode - emails will be logged to console");
     return null;
   }
 };
@@ -139,7 +139,7 @@ If you didn't request a password reset, you can safely ignore this email. Your p
     if (transporter) {
       // Send actual email in production
       const info = await transporter.sendMail(mailOptions);
-      console.log("✅ Password reset email sent:", info.messageId);
+      logger.info("Password reset email sent:", { messageId: info.messageId });
     } else {
       // Development mode: Log to console (without sensitive token)
       logger.info("Password reset email sent (dev mode)", {
@@ -149,7 +149,7 @@ If you didn't request a password reset, you can safely ignore this email. Your p
       });
     }
   } catch (error) {
-    console.error("❌ Error sending password reset email:", error);
+    logger.error("Error sending password reset email:", error);
     throw new Error("Failed to send password reset email");
   }
 }
@@ -210,12 +210,12 @@ If you did not make this change, please contact support immediately.
 
     if (transporter) {
       await transporter.sendMail(mailOptions);
-      console.log("✅ Password changed confirmation email sent");
+      logger.info("Password changed confirmation email sent");
     } else {
-      console.log("📧 Password Changed Email (Development Mode):", email);
+      logger.info("Password Changed Email (Development Mode)", { email });
     }
   } catch (error) {
-    console.error("❌ Error sending password changed email:", error);
+    logger.error("Error sending password changed email:", error);
     // Don't throw - this is just a confirmation email
   }
 }

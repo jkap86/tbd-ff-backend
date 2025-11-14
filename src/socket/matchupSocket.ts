@@ -1,4 +1,5 @@
 import { Server, Socket } from "socket.io";
+import { logger } from "../config/logger";
 
 export function setupMatchupSocket(io: Server) {
   io.on("connection", (socket: Socket) => {
@@ -15,9 +16,13 @@ export function setupMatchupSocket(io: Server) {
           const roomName = `league_${league_id}_week_${week}`;
           socket.join(roomName);
 
-          console.log(
-            `[Socket] Client ${socket.id} joined ${roomName} for live scores`
-          );
+          logger.info(`Client joined matchup room for live scores`, {
+            socket_id: socket.id,
+            league_id,
+            week,
+            room_name: roomName,
+            context: 'MatchupSocket'
+          });
 
           // Send confirmation
           socket.emit("joined_matchup_room", {
@@ -27,7 +32,7 @@ export function setupMatchupSocket(io: Server) {
             message: `Subscribed to live scores for league ${league_id} week ${week}`,
           });
         } catch (error) {
-          console.error("[Socket] Error joining matchup room:", error);
+          logger.error("Error joining matchup room", { error, context: 'MatchupSocket' });
           socket.emit("error", { message: "Failed to join matchup room" });
         }
       }
@@ -45,9 +50,11 @@ export function setupMatchupSocket(io: Server) {
           const roomName = `league_${league_id}_week_${week}`;
           socket.leave(roomName);
 
-          console.log(
-            `[Socket] Client ${socket.id} left ${roomName}`
-          );
+          logger.info("Client left matchup room", {
+            socket_id: socket.id,
+            room_name: roomName,
+            context: 'MatchupSocket'
+          });
 
           socket.emit("left_matchup_room", {
             league_id,
@@ -55,7 +62,7 @@ export function setupMatchupSocket(io: Server) {
             message: `Unsubscribed from league ${league_id} week ${week}`,
           });
         } catch (error) {
-          console.error("[Socket] Error leaving matchup room:", error);
+          logger.error("Error leaving matchup room", { error, context: 'MatchupSocket' });
         }
       }
     );
@@ -64,7 +71,7 @@ export function setupMatchupSocket(io: Server) {
      * Handle disconnection
      */
     socket.on("disconnect", () => {
-      console.log(`[Socket] Client ${socket.id} disconnected`);
+      logger.info("Client disconnected", { socket_id: socket.id, context: 'MatchupSocket' });
     });
   });
 }
@@ -81,9 +88,13 @@ export function broadcastScoreUpdate(
 ) {
   const roomName = `league_${leagueId}_week_${week}`;
 
-  console.log(
-    `[Socket] Broadcasting score update to ${roomName} (${matchups.length} matchups)`
-  );
+  logger.info("Broadcasting score update", {
+    room_name: roomName,
+    matchup_count: matchups.length,
+    league_id: leagueId,
+    week,
+    context: 'MatchupSocket'
+  });
 
   io.to(roomName).emit("matchup_scores_updated", {
     league_id: leagueId,

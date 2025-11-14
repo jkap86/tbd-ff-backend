@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { BaseRepository } from "./BaseRepository";
 
 export interface Transaction {
@@ -82,7 +83,7 @@ export async function createTransaction(
     const result = await pool.query(query, values);
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error creating transaction:", error);
+    logger.error("Error creating transaction:", { error });
     throw new Error("Error creating transaction");
   }
 }
@@ -108,7 +109,7 @@ export async function getTransactionsByLeague(
     const result = await pool.query(query, [leagueId, limit]);
     return result.rows;
   } catch (error: any) {
-    console.error("Error getting transactions by league:", error);
+    logger.error("Error getting transactions by league:", { error });
     throw new Error("Error getting transactions by league");
   }
 }
@@ -131,7 +132,7 @@ export async function getTransactionsByRoster(
     const result = await pool.query(query, [rosterId, limit]);
     return result.rows;
   } catch (error: any) {
-    console.error("Error getting transactions by roster:", error);
+    logger.error("Error getting transactions by roster:", { error });
     throw new Error("Error getting transactions by roster");
   }
 }
@@ -198,7 +199,7 @@ export async function getTransactionsWithPlayerDetails(
       drops_details: (txn.drops || []).map((id: number) => playerMap[id] || null),
     }));
   } catch (error: any) {
-    console.error("Error getting transactions with player details:", error);
+    logger.error("Error getting transactions with player details:", { error });
     throw new Error("Error getting transactions with player details");
   }
 }

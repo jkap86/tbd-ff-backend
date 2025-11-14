@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import {
   createLeague,
   getLeagueById,
@@ -41,26 +42,26 @@ export class LeagueBusinessService {
         const playoffWeekStart = leagueData.settings?.playoff_week_start || 15;
         const { generateMatchupsForWeek } = await import("../models/Matchup");
 
-        console.log(
+        logger.info(
           `[LeagueBusinessService] Auto-generating matchups for weeks ${startWeek} to ${playoffWeekStart - 1}...`
         );
 
         for (let week = startWeek; week < playoffWeekStart; week++) {
           try {
             await generateMatchupsForWeek(league.id, week, leagueData.season);
-            console.log(
+            logger.info(
               `[LeagueBusinessService] Generated matchups for week ${week}`
             );
           } catch (error) {
-            console.error(
+            logger.error(
               `[LeagueBusinessService] Failed to generate matchups for week ${week}:`,
-              error
+              { error }
             );
             // Continue with other weeks even if one fails
           }
         }
       } else {
-        console.log(
+        logger.info(
           `[LeagueBusinessService] Skipping auto-generation of matchups - opponent_selection is '${opponentSelection}'`
         );
       }
@@ -70,7 +71,7 @@ export class LeagueBusinessService {
       return league;
     } catch (error) {
       await client.query("ROLLBACK");
-      console.error("[LeagueBusinessService] Error creating league:", error);
+      logger.error("[LeagueBusinessService] Error creating league:", { error });
       throw error;
     } finally {
       client.release();

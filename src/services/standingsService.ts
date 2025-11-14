@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 
 export interface StandingsEntry {
   roster_id: number;
@@ -40,7 +41,7 @@ async function getPlayoffConfiguration(leagueId: number): Promise<{
 
     return { playoff_teams, tiebreaker };
   } catch (error) {
-    console.error("Error getting playoff configuration:", error);
+    logger.error("Error getting playoff configuration:", { error });
     throw error;
   }
 }
@@ -162,7 +163,7 @@ export async function calculateStandings(
 
     return finalStandings;
   } catch (error) {
-    console.error("Error calculating standings:", error);
+    logger.error("Error calculating standings:", { error });
     throw new Error("Error calculating standings");
   }
 }
@@ -185,7 +186,7 @@ export async function getPlayoffTeams(
     // Return top N teams
     return standings.slice(0, playoff_teams);
   } catch (error) {
-    console.error("Error getting playoff teams:", error);
+    logger.error("Error getting playoff teams:", { error });
     throw new Error("Error getting playoff teams");
   }
 }
@@ -244,7 +245,7 @@ async function applyTiebreaker(
 
     return teams;
   } catch (error) {
-    console.error("Error applying tiebreaker:", error);
+    logger.error("Error applying tiebreaker:", { error });
     throw error;
   }
 }
@@ -335,7 +336,7 @@ async function calculateHeadToHeadRecords(
 
     return records;
   } catch (error) {
-    console.error("Error calculating head-to-head records:", error);
+    logger.error("Error calculating head-to-head records:", { error });
     throw error;
   }
 }
@@ -357,7 +358,7 @@ export async function getStandingsWithPlayoffIndicators(
       is_playoff_team: team.seed <= playoff_teams,
     }));
   } catch (error) {
-    console.error("Error getting standings with playoff indicators:", error);
+    logger.error("Error getting standings with playoff indicators:", { error });
     throw new Error("Error getting standings with playoff indicators");
   }
 }

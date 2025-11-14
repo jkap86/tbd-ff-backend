@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { setTransactionTimeouts } from "../utils/transactionTimeout";
 import { BaseRepository } from "./BaseRepository";
 
@@ -53,11 +54,11 @@ export async function setOpponentSelectionOrder(
     }
 
     await client.query("COMMIT");
-    console.log(`[OpponentSelectionOrder] Set opponent selection order for league ${leagueId}`);
+    logger.info(`[OpponentSelectionOrder] Set opponent selection order for league ${leagueId}`);
     return orders;
   } catch (error: any) {
     await client.query("ROLLBACK");
-    console.error("Error setting opponent selection order:", error);
+    logger.error("Error setting opponent selection order:", { error });
 
     if (error.code === "23505") {
       throw new Error("Duplicate selection position or roster in order");
@@ -103,7 +104,7 @@ export async function getOpponentSelectionOrderWithDetails(leagueId: number): Pr
       team_name: row.settings?.team_name || null,
     }));
   } catch (error) {
-    console.error("Error getting opponent selection order with details:", error);
+    logger.error("Error getting opponent selection order with details:", { error });
     throw new Error("Error getting opponent selection order with details");
   }
 }
@@ -125,10 +126,10 @@ export async function randomizeOpponentSelectionOrder(
       selection_position: index + 1,
     }));
 
-    console.log(`[OpponentSelectionOrder] Randomizing order for league ${leagueId}`);
+    logger.info(`[OpponentSelectionOrder] Randomizing order for league ${leagueId}`);
     return await setOpponentSelectionOrder(leagueId, rosterPositions);
   } catch (error) {
-    console.error("Error randomizing opponent selection order:", error);
+    logger.error("Error randomizing opponent selection order:", { error });
     throw new Error("Error randomizing opponent selection order");
   }
 }
@@ -140,9 +141,9 @@ export async function deleteOpponentSelectionOrder(leagueId: number): Promise<vo
   try {
     const query = `DELETE FROM opponent_selection_order WHERE league_id = $1`;
     await pool.query(query, [leagueId]);
-    console.log(`[OpponentSelectionOrder] Deleted opponent selection order for league ${leagueId}`);
+    logger.info(`[OpponentSelectionOrder] Deleted opponent selection order for league ${leagueId}`);
   } catch (error) {
-    console.error("Error deleting opponent selection order:", error);
+    logger.error("Error deleting opponent selection order:", { error });
     throw new Error("Error deleting opponent selection order");
   }
 }

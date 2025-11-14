@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { BaseRepository } from "./BaseRepository";
 
 export interface LeagueInvite {
@@ -47,7 +48,7 @@ export async function createInvite(
     ]);
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error creating invite:", error);
+    logger.error("Error creating invite:", { error });
 
     // Check if it's a duplicate invite
     if (error.code === "23505") {
@@ -80,7 +81,7 @@ export async function getInvitesForUser(userId: number): Promise<any[]> {
     const result = await pool.query(query, [userId]);
     return result.rows;
   } catch (error) {
-    console.error("Error getting user invites:", error);
+    logger.error("Error getting user invites:", { error });
     throw new Error("Error getting user invites");
   }
 }

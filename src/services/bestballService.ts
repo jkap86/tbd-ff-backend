@@ -7,6 +7,7 @@
  */
 
 import pool from "../config/database";
+import { logger } from "../utils/logger";
 
 interface Player {
   id: number;
@@ -88,7 +89,7 @@ export async function getPlayerStats(
 
     return result.rows[0].fantasy_points || 0;
   } catch (error) {
-    console.error("Error getting player stats:", error);
+    logger.error("Error getting player stats:", error);
     return 0;
   }
 }
@@ -123,7 +124,7 @@ export async function getRosterPlayersWithStats(
     const result = await pool.query(query, [rosterId, week, season, seasonType]);
     return result.rows;
   } catch (error) {
-    console.error("Error getting roster players with stats:", error);
+    logger.error("Error getting roster players with stats:", error);
     return [];
   }
 }
@@ -235,7 +236,7 @@ export async function optimizeLineup(
 
     return lineup;
   } catch (error) {
-    console.error("Error optimizing lineup:", error);
+    logger.error("Error optimizing lineup:", error);
     throw new Error("Failed to optimize lineup");
   }
 }
@@ -277,7 +278,7 @@ export async function calculateOptimizedScore(
 
     return totalScore;
   } catch (error) {
-    console.error("Error calculating optimized score:", error);
+    logger.error("Error calculating optimized score:", error);
     return 0;
   }
 }

@@ -1,6 +1,7 @@
 import axios from "axios";
 import { PlayerStats } from "../models/PlayerStats";
 import { SLEEPER_API_BASE, API_TIMEOUT } from "../config/sleeper";
+import { logger } from "../config/logger";
 
 interface SleeperProjections {
   [playerId: string]: {
@@ -69,7 +70,7 @@ export async function fetchSleeperProjections(
   seasonType: string = "regular"
 ): Promise<SleeperProjections> {
   try {
-    console.log(
+    logger.info(
       `[Projections] Fetching projections for ${season} week ${week} (${seasonType})`
     );
 
@@ -79,7 +80,7 @@ export async function fetchSleeperProjections(
     );
 
     const rawData = response.data || [];
-    console.log(`[Projections] Raw data type:`, Array.isArray(rawData) ? 'array' : 'object');
+    logger.debug(`[Projections] Raw data type: ${Array.isArray(rawData) ? 'array' : 'object'}`);
 
     // Convert array to object keyed by player_id
     const projections: SleeperProjections = {};
@@ -93,12 +94,12 @@ export async function fetchSleeperProjections(
     }
 
     const count = Object.keys(projections).length;
-    console.log(`[Projections] Converted to ${count} player projections`);
-    console.log(`[Projections] First 5 projection keys after conversion:`, Object.keys(projections).slice(0, 5));
+    logger.info(`[Projections] Converted to ${count} player projections`);
+    logger.debug(`[Projections] First 5 projection keys after conversion: ${Object.keys(projections).slice(0, 5)}`);
 
     return projections;
   } catch (error: any) {
-    console.error("[Projections] Error fetching projections:", error.message);
+    logger.error("[Projections] Error fetching projections:", error.message);
     // Return empty object if projections aren't available
     return {};
   }
@@ -134,7 +135,7 @@ export async function getPlayerProjection(
         return playerProj.pts_ppr || 0;
     }
   } catch (error) {
-    console.error("[Projections] Error getting player projection:", error);
+    logger.error("[Projections] Error getting player projection:", error);
     return 0;
   }
 }
@@ -149,7 +150,7 @@ export function convertSleeperProjectionToStats(
   week: number,
   season: string
 ): Partial<PlayerStats> {
-  console.log(`[Convert] Converting projection for player ${playerId}:`, {
+  logger.debug(`[Convert] Converting projection for player ${playerId}:`, {
     pass_yd: projection.pass_yd,
     rush_yd: projection.rush_yd,
     rec: projection.rec,

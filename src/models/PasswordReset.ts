@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import crypto from "crypto";
 
 export interface PasswordResetToken {
@@ -46,7 +47,7 @@ export async function createPasswordResetToken(
     const result = await pool.query(query, [userId, token, expiresAt]);
     return result.rows[0].token;
   } catch (error) {
-    console.error("Error creating password reset token:", error);
+    logger.error("Error creating password reset token:", { error });
     throw new Error("Error creating password reset token");
   }
 }
@@ -85,7 +86,7 @@ export async function verifyPasswordResetToken(
 
     return tokenData.user_id;
   } catch (error) {
-    console.error("Error verifying password reset token:", error);
+    logger.error("Error verifying password reset token:", { error });
     throw new Error("Error verifying password reset token");
   }
 }
@@ -100,7 +101,7 @@ export async function markTokenAsUsed(token: string): Promise<void> {
       [token]
     );
   } catch (error) {
-    console.error("Error marking token as used:", error);
+    logger.error("Error marking token as used:", { error });
     throw new Error("Error marking token as used");
   }
 }
@@ -114,9 +115,9 @@ export async function deleteExpiredTokens(): Promise<void> {
     await pool.query(
       `DELETE FROM password_reset_tokens WHERE expires_at < NOW()`
     );
-    console.log("✅ Expired password reset tokens deleted");
+    logger.info("✅ Expired password reset tokens deleted");
   } catch (error) {
-    console.error("Error deleting expired tokens:", error);
+    logger.error("Error deleting expired tokens:", { error });
     throw new Error("Error deleting expired tokens");
   }
 }

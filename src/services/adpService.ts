@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../utils/logger";
 
 /**
  * Calculate ADP from completed drafts
@@ -7,7 +8,7 @@ export async function calculateADP(season: string): Promise<{
   updated: number;
   errors: string[];
 }> {
-  console.log(`[ADP] Calculating ADP for ${season} season...`);
+  logger.info(`[ADP] Calculating ADP for ${season} season...`);
 
   const errors: string[] = [];
 
@@ -34,10 +35,10 @@ export async function calculateADP(season: string): Promise<{
     );
     const updated = parseInt(countResult.rows[0]?.count || "0");
 
-    console.log(`[ADP] Calculation complete for ${season}. ${updated} ADP records.`);
+    logger.info(`[ADP] Calculation complete for ${season}. ${updated} ADP records.`);
     return { updated, errors };
   } catch (error: any) {
-    console.error("[ADP] Calculation failed:", error);
+    logger.error("[ADP] Calculation failed:", error);
     throw error;
   }
 }
@@ -168,7 +169,7 @@ export async function getTopPlayersByADP(
  * Use search_rank from Sleeper when app doesn't have enough data
  */
 export async function syncSleeperADP(season: string): Promise<void> {
-  console.log("[ADP] Syncing Sleeper search_rank as ADP fallback...");
+  logger.info("[ADP] Syncing Sleeper search_rank as ADP fallback...");
 
   // This uses the existing search_rank field in players table
   // We'll create virtual ADP records based on search_rank for players not drafted yet
@@ -201,5 +202,5 @@ export async function syncSleeperADP(season: string): Promise<void> {
     [season]
   );
 
-  console.log("[ADP] Sleeper ADP sync complete");
+  logger.info("[ADP] Sleeper ADP sync complete");
 }

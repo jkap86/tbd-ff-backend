@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { escapeLikePattern } from "../utils/sqlHelpers";
 import { BaseRepository } from "./BaseRepository";
 
@@ -41,7 +42,7 @@ export async function searchUsers(
     const result = await pool.query(searchQuery, [`%${escapedQuery}%`, limit]);
     return result.rows;
   } catch (error) {
-    console.error("Error searching users:", error);
+    logger.error("Error searching users:", { error });
     throw new Error("Error searching users");
   }
 }
@@ -70,7 +71,7 @@ export async function createUser(
     ]);
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error creating user:", error);
+    logger.error("Error creating user:", { error });
 
     // Check for unique constraint violations
     if (error.code === "23505") {
@@ -128,7 +129,7 @@ export async function getUserByUsernameWithPassword(
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error getting user by username:", error);
+    logger.error("Error getting user by username:", { error });
     throw new Error("Error getting user by username");
   }
 }

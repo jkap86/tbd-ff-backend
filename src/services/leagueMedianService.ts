@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { setTransactionTimeouts } from "../utils/transactionTimeout";
 
 /**
@@ -44,7 +45,7 @@ export async function calculateWeekMedian(
 
     // Edge case: no matchups exist
     if (result.rows.length === 0) {
-      console.log(`[LeagueMedian] No matchups found for league ${leagueId}, week ${week}`);
+      logger.info(`[LeagueMedian] No matchups found for league ${leagueId}, week ${week}`);
       return 0;
     }
 
@@ -60,7 +61,7 @@ export async function calculateWeekMedian(
 
     // Edge case: handle null or invalid scores
     if (scores.length === 0) {
-      console.log(`[LeagueMedian] No valid scores found for league ${leagueId}, week ${week}`);
+      logger.info(`[LeagueMedian] No valid scores found for league ${leagueId}, week ${week}`);
       return 0;
     }
 
@@ -79,13 +80,13 @@ export async function calculateWeekMedian(
       median = scores[middleIndex];
     }
 
-    console.log(
+    logger.info(
       `[LeagueMedian] Calculated median for league ${leagueId}, week ${week}: ${median.toFixed(2)} (from ${scores.length} scores)`
     );
 
     return median;
   } catch (error) {
-    console.error("Error calculating week median:", error);
+    logger.error("Error calculating week median:", { error });
     throw new Error("Error calculating week median");
   }
 }
@@ -110,7 +111,7 @@ export async function generateMedianMatchups(
   season: string
 ): Promise<void> {
   try {
-    console.log(`[LeagueMedian] Generating median matchups for league ${leagueId}, week ${week}, season ${season}`);
+    logger.info(`[LeagueMedian] Generating median matchups for league ${leagueId}, week ${week}, season ${season}`);
 
     // 1. Get league settings and verify median matchups are enabled
     const leagueQuery = `
@@ -138,12 +139,12 @@ export async function generateMedianMatchups(
     const endWeek = leagueSettings.median_matchup_week_end;
 
     if (startWeek !== null && week < startWeek) {
-      console.log(`[LeagueMedian] Week ${week} is before median matchup start week ${startWeek}, skipping`);
+      logger.info(`[LeagueMedian] Week ${week} is before median matchup start week ${startWeek}, skipping`);
       return;
     }
 
     if (endWeek !== null && week > endWeek) {
-      console.log(`[LeagueMedian] Week ${week} is after median matchup end week ${endWeek}, skipping`);
+      logger.info(`[LeagueMedian] Week ${week} is after median matchup end week ${endWeek}, skipping`);
       return;
     }
 
@@ -178,7 +179,7 @@ export async function generateMedianMatchups(
     const existingCount = parseInt(existingResult.rows[0].count);
 
     if (existingCount > 0) {
-      console.log(`[LeagueMedian] ${existingCount} median matchups already exist for week ${week}, skipping generation`);
+      logger.info(`[LeagueMedian] ${existingCount} median matchups already exist for week ${week}, skipping generation`);
       return;
     }
 
@@ -222,7 +223,7 @@ export async function generateMedianMatchups(
       }
 
       await client.query("COMMIT");
-      console.log(`[LeagueMedian] Created ${rosters.length} median matchups for week ${week}`);
+      logger.info(`[LeagueMedian] Created ${rosters.length} median matchups for week ${week}`);
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -230,7 +231,7 @@ export async function generateMedianMatchups(
       client.release();
     }
   } catch (error) {
-    console.error("Error generating median matchups:", error);
+    logger.error("Error generating median matchups:", { error });
     throw error;
   }
 }
@@ -253,13 +254,13 @@ export async function updateMedianMatchupResults(
   week: number
 ): Promise<void> {
   try {
-    console.log(`[LeagueMedian] Updating median matchup results for league ${leagueId}, week ${week}`);
+    logger.info(`[LeagueMedian] Updating median matchup results for league ${leagueId}, week ${week}`);
 
     // 1. Recalculate the median score based on current matchup results
     const medianScore = await calculateWeekMedian(leagueId, week);
 
     if (medianScore === 0) {
-      console.log(`[LeagueMedian] Median score is 0, regular matchups may not be scored yet`);
+      logger.info(`[LeagueMedian] Median score is 0, regular matchups may not be scored yet`);
     }
 
     // 2. Get all median matchups for this league/week
@@ -277,7 +278,7 @@ export async function updateMedianMatchupResults(
     const medianMatchupsResult = await pool.query(medianMatchupsQuery, [leagueId, week]);
 
     if (medianMatchupsResult.rows.length === 0) {
-      console.log(`[LeagueMedian] No median matchups found for week ${week}`);
+      logger.info(`[LeagueMedian] No median matchups found for week ${week}`);
       return;
     }
 
@@ -311,14 +312,14 @@ export async function updateMedianMatchupResults(
         ]);
 
         if (regularMatchupResult.rows.length === 0) {
-          console.log(`[LeagueMedian] No regular matchup found for roster ${medianMatchup.roster1_id}`);
+          logger.info(`[LeagueMedian] No regular matchup found for roster ${medianMatchup.roster1_id}`);
           continue;
         }
 
         const rosterScore = regularMatchupResult.rows[0].roster_score;
 
         if (rosterScore === null) {
-          console.log(`[LeagueMedian] Roster ${medianMatchup.roster1_id} has no score yet`);
+          logger.info(`[LeagueMedian] Roster ${medianMatchup.roster1_id} has no score yet`);
           continue;
         }
 
@@ -351,13 +352,13 @@ export async function updateMedianMatchupResults(
           medianMatchup.id,
         ]);
 
-        console.log(
+        logger.info(
           `[LeagueMedian] Updated median matchup for roster ${medianMatchup.roster1_id}: score ${rosterScoreFloat.toFixed(2)} vs median ${medianScore.toFixed(2)}, winner: ${winnerRosterId || "median"}`
         );
       }
 
       await client.query("COMMIT");
-      console.log(`[LeagueMedian] Updated ${medianMatchupsResult.rows.length} median matchups`);
+      logger.info(`[LeagueMedian] Updated ${medianMatchupsResult.rows.length} median matchups`);
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -365,7 +366,7 @@ export async function updateMedianMatchupResults(
       client.release();
     }
   } catch (error) {
-    console.error("Error updating median matchup results:", error);
+    logger.error("Error updating median matchup results:", { error });
     throw error;
   }
 }
@@ -388,7 +389,7 @@ export async function generateSeasonMedianMatchups(
   season: string
 ): Promise<{ weeks_generated: number; matchups_created: number }> {
   try {
-    console.log(`[LeagueMedian] Generating season median matchups for league ${leagueId}, season ${season}`);
+    logger.info(`[LeagueMedian] Generating season median matchups for league ${leagueId}, season ${season}`);
 
     // 1. Get league median settings
     const leagueQuery = `
@@ -442,7 +443,7 @@ export async function generateSeasonMedianMatchups(
 
     const matchupsCreated = weeksGenerated * rosterCount;
 
-    console.log(
+    logger.info(
       `[LeagueMedian] Season generation complete: ${weeksGenerated} weeks, ${matchupsCreated} matchups created`
     );
 
@@ -451,7 +452,7 @@ export async function generateSeasonMedianMatchups(
       matchups_created: matchupsCreated,
     };
   } catch (error) {
-    console.error("Error generating season median matchups:", error);
+    logger.error("Error generating season median matchups:", { error });
     throw error;
   }
 }

@@ -90,7 +90,7 @@ async function checkAndUpdateDraftStatuses(): Promise<void> {
 
         // If draft should be paused but is currently in_progress
         if (shouldPause && draft.status === "in_progress") {
-          console.log(
+          logger.info(
             `[DraftScheduler] Auto-pausing draft ${draft.id} for overnight (${startHour}:${startMinute.toString().padStart(2, '0')} - ${endHour}:${endMinute.toString().padStart(2, '0')} UTC)`
           );
 
@@ -111,7 +111,7 @@ async function checkAndUpdateDraftStatuses(): Promise<void> {
         }
         // If draft should be active but is currently paused
         else if (!shouldPause && draft.status === "paused") {
-          console.log(
+          logger.info(
             `[DraftScheduler] Auto-resuming draft ${draft.id} after overnight pause`
           );
 
@@ -122,7 +122,7 @@ async function checkAndUpdateDraftStatuses(): Promise<void> {
             // Chess timer mode: Set reasonable buffer to prevent immediate auto-pick
             // The actual chess timer deadline should be managed separately
             pickDeadline.setSeconds(pickDeadline.getSeconds() + 300); // 5 min buffer
-            console.log(`[DraftScheduler] Chess mode: Resuming with buffer time`);
+            logger.info(`[DraftScheduler] Chess mode: Resuming with buffer time`);
           } else {
             // Traditional mode: Use standard pick time
             pickDeadline.setSeconds(pickDeadline.getSeconds() + draft.pick_time_seconds);
@@ -181,7 +181,7 @@ async function checkAndAutoStartDrafts(): Promise<void> {
           // Get league info
           const league = await getLeagueById(draft.league_id);
           if (!league) {
-            console.error(`[DraftScheduler] League ${draft.league_id} not found for draft ${draft.id}`);
+            logger.error(`[DraftScheduler] League ${draft.league_id} not found for draft ${draft.id}`);
             continue;
           }
 
@@ -196,7 +196,7 @@ async function checkAndAutoStartDrafts(): Promise<void> {
               const orderedRosters = draftOrder.sort((a, b) => a.draft_position - b.draft_position);
               firstRosterId = orderedRosters[0].roster_id;
             } else {
-              console.error(`[DraftScheduler] No draft order found for auction draft ${draft.id}`);
+              logger.error(`[DraftScheduler] No draft order found for auction draft ${draft.id}`);
               continue;
             }
 
@@ -236,14 +236,14 @@ async function checkAndAutoStartDrafts(): Promise<void> {
               scheduleTurnTimer(ioInstance, draft.id, firstRosterId, draft.pick_time_seconds);
             }
 
-            console.log(`[DraftScheduler] Successfully auto-started auction draft ${draft.id}`);
+            logger.info(`[DraftScheduler] Successfully auto-started auction draft ${draft.id}`);
           }
           // Handle snake/linear drafts
           else if (draft.draft_type === "snake" || draft.draft_type === "linear") {
             // Check draft order
             const draftOrder = await getDraftOrder(draft.id);
             if (draftOrder.length === 0) {
-              console.error(`[DraftScheduler] Draft order not set for draft ${draft.id}`);
+              logger.error(`[DraftScheduler] Draft order not set for draft ${draft.id}`);
               continue;
             }
 
@@ -316,13 +316,13 @@ async function checkAndAutoStartDrafts(): Promise<void> {
               });
             }
 
-            console.log(`[DraftScheduler] Successfully auto-started ${draft.draft_type} draft ${draft.id}`);
+            logger.info(`[DraftScheduler] Successfully auto-started ${draft.draft_type} draft ${draft.id}`);
           }
 
           // Check if draft should be immediately auto-paused
           await checkAndAutoPauseDraft(draft.id);
         } catch (error: any) {
-          console.error(`[DraftScheduler] Error auto-starting draft ${draft.id}:`, error);
+          logger.error(`[DraftScheduler] Error auto-starting draft ${draft.id}:`, error);
         }
       }
     },
@@ -357,7 +357,7 @@ export async function checkAndAutoPauseDraft(draftId: number): Promise<void> {
     const shouldPause = shouldBePaused(startHour, startMinute, endHour, endMinute);
 
     if (shouldPause) {
-      console.log(`[DraftScheduler] Immediately auto-pausing draft ${draftId} for overnight`);
+      logger.info(`[DraftScheduler] Immediately auto-pausing draft ${draftId} for overnight`);
 
       const updatedDraft = await pauseDraft(draftId);
 
@@ -375,7 +375,7 @@ export async function checkAndAutoPauseDraft(draftId: number): Promise<void> {
       }
     }
   } catch (error: any) {
-    console.error("[DraftScheduler] Error checking draft for immediate pause:", error);
+    logger.error("[DraftScheduler] Error checking draft for immediate pause:", error);
   }
 }
 

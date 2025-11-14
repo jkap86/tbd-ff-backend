@@ -8,6 +8,7 @@ import { getLeagueById, updateLeague } from "../models/League";
 import { getRosterById } from "../models/Roster";
 import { getPlayerById } from "../models/Player";
 import { calculateCurrentRoster } from "../utils/draftCalculations";
+import { logger } from "../utils/logger";
 
 export interface DraftPickRequest {
   draftId: number;
@@ -198,7 +199,7 @@ export async function createDraftPick(
         [pickTimeSeconds, draftId, rosterId]
       );
     } catch (error) {
-      console.error(
+      logger.error(
         `[Draft] Failed to update chess timer for roster ${rosterId}:`,
         error
       );
@@ -318,7 +319,7 @@ export async function completeDraft(
     return updatedDraft;
   } catch (error) {
     // Rollback draft status from 'completing' to 'in_progress'
-    console.error(`[Draft] Failed to complete draft ${draftId}:`, error);
+    logger.error(`[Draft] Failed to complete draft ${draftId}:`, error);
     await pool.query(
       `UPDATE drafts
        SET status = 'in_progress',

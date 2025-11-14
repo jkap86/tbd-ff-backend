@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 
 export interface LeaguePayout {
   id: number;
@@ -64,7 +65,7 @@ export async function getByLeagueId(
     const result = await pool.query(query, params);
     return result.rows;
   } catch (error: any) {
-    console.error("Error getting payouts by league:", error);
+    logger.error("Error getting payouts by league:", { error });
     throw new Error("Error getting payouts by league");
   }
 }
@@ -83,7 +84,7 @@ export async function getByRosterId(rosterId: number): Promise<LeaguePayout[]> {
     const result = await pool.query(query, [rosterId]);
     return result.rows;
   } catch (error: any) {
-    console.error("Error getting payouts by roster:", error);
+    logger.error("Error getting payouts by roster:", { error });
     throw new Error("Error getting payouts by roster");
   }
 }
@@ -110,7 +111,7 @@ export async function getByUserId(userId: number): Promise<PayoutWithDetails[]> 
     const result = await pool.query(query, [userId]);
     return result.rows;
   } catch (error: any) {
-    console.error("Error getting payouts by user:", error);
+    logger.error("Error getting payouts by user:", { error });
     throw new Error("Error getting payouts by user");
   }
 }
@@ -162,7 +163,7 @@ export async function create(
     const result = await pool.query(query, values);
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error creating payout:", error);
+    logger.error("Error creating payout:", { error });
 
     // Handle unique constraint violations if they exist
     if (error.code === "23505") {
@@ -258,7 +259,7 @@ export async function update(
 
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error updating payout:", error);
+    logger.error("Error updating payout:", { error });
     throw new Error("Error updating payout");
   }
 }
@@ -320,7 +321,7 @@ export async function createPayoutStructure(
     return createdPayouts;
   } catch (error: any) {
     await client.query("ROLLBACK");
-    console.error("Error creating payout structure:", error);
+    logger.error("Error creating payout structure:", { error });
 
     // Handle specific errors
     if (error.code === "23505") {
@@ -356,7 +357,7 @@ export async function deletePayout(id: number): Promise<boolean> {
     const result = await pool.query(query, [id]);
     return result.rows.length > 0;
   } catch (error: any) {
-    console.error("Error deleting payout:", error);
+    logger.error("Error deleting payout:", { error });
     throw new Error("Error deleting payout");
   }
 }
@@ -375,7 +376,7 @@ export async function getById(id: number): Promise<LeaguePayout | null> {
 
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error getting payout by ID:", error);
+    logger.error("Error getting payout by ID:", { error });
     throw new Error("Error getting payout by ID");
   }
 }
@@ -402,7 +403,7 @@ export async function markAsPaid(id: number): Promise<LeaguePayout | null> {
 
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error marking payout as paid:", error);
+    logger.error("Error marking payout as paid:", { error });
     throw new Error("Error marking payout as paid");
   }
 }
@@ -431,7 +432,7 @@ export async function getTotalPayoutAmount(
     const result = await pool.query(query, params);
     return parseFloat(result.rows[0].total) || 0;
   } catch (error: any) {
-    console.error("Error getting total payout amount:", error);
+    logger.error("Error getting total payout amount:", { error });
     throw new Error("Error getting total payout amount");
   }
 }

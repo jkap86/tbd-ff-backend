@@ -9,6 +9,7 @@ import * as LeaguePaymentSettings from "../models/LeaguePaymentSettings";
 import * as RosterPayment from "../models/RosterPayment";
 import * as Payment from "../models/Payment";
 import * as Payout from "../models/Payout";
+import { logger } from "../config/logger";
 
 const router = express.Router();
 
@@ -53,7 +54,7 @@ router.get(
         data: settings,
       });
     } catch (error: any) {
-      console.error("Error getting league payment settings:", error);
+      logger.error("Error getting league payment settings", { error: error.message, stack: error.stack });
       res.status(500).json({
         success: false,
         message: "Failed to get payment settings",
@@ -124,7 +125,7 @@ router.put(
           : "Payment settings created successfully",
       });
     } catch (error: any) {
-      console.error("Error updating league payment settings:", error);
+      logger.error("Error updating league payment settings", { error: error.message, stack: error.stack });
       res.status(500).json({
         success: false,
         message: "Failed to update payment settings",
@@ -164,7 +165,7 @@ router.get(
         data: payments,
       });
     } catch (error: any) {
-      console.error("Error getting payment status:", error);
+      logger.error("Error getting payment status", { error: error.message, stack: error.stack });
       res.status(500).json({
         success: false,
         message: "Failed to get payment status",
@@ -208,7 +209,7 @@ router.get(
         data: summary,
       });
     } catch (error: any) {
-      console.error("Error getting payment summary:", error);
+      logger.error("Error getting payment summary", { error: error.message, stack: error.stack });
       res.status(500).json({
         success: false,
         message: "Failed to get payment summary",
@@ -248,7 +249,7 @@ router.get(
         data: payments,
       });
     } catch (error: any) {
-      console.error("Error getting roster payments:", error);
+      logger.error("Error getting roster payments", { error: error.message, stack: error.stack });
       res.status(500).json({
         success: false,
         message: "Failed to get roster payments",
@@ -319,7 +320,7 @@ router.post(
         message: "Payment recorded successfully",
       });
     } catch (error: any) {
-      console.error("Error recording payment:", error);
+      logger.error("Error recording payment", { error: error.message, stack: error.stack });
       res.status(500).json({
         success: false,
         message: error.message || "Failed to record payment",
@@ -354,7 +355,7 @@ router.get(
         data: transactions,
       });
     } catch (error: any) {
-      console.error("Error getting payment transactions:", error);
+      logger.error("Error getting payment transactions", { error: error.message, stack: error.stack });
       res.status(500).json({
         success: false,
         message: "Failed to get payment transactions",
@@ -394,7 +395,7 @@ router.get(
         data: payouts,
       });
     } catch (error: any) {
-      console.error("Error getting payouts:", error);
+      logger.error("Error getting payouts", { error: error.message, stack: error.stack });
       res.status(500).json({
         success: false,
         message: "Failed to get payouts",
@@ -469,7 +470,7 @@ router.post(
         message: "Payout structure created successfully",
       });
     } catch (error: any) {
-      console.error("Error creating payout structure:", error);
+      logger.error("Error creating payout structure", { error: error.message, stack: error.stack });
       res.status(500).json({
         success: false,
         message: error.message || "Failed to create payout structure",
@@ -521,7 +522,7 @@ router.put(
         message: "Payout marked as paid successfully",
       });
     } catch (error: any) {
-      console.error("Error marking payout as paid:", error);
+      logger.error("Error marking payout as paid", { error: error.message, stack: error.stack });
       res.status(500).json({
         success: false,
         message: "Failed to mark payout as paid",
@@ -556,7 +557,7 @@ router.get(
         data: payouts,
       });
     } catch (error: any) {
-      console.error("Error getting roster payouts:", error);
+      logger.error("Error getting roster payouts", { error: error.message, stack: error.stack });
       res.status(500).json({
         success: false,
         message: "Failed to get roster payouts",

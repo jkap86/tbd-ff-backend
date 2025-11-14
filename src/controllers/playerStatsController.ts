@@ -4,6 +4,7 @@
 
 import { Request, Response } from "express";
 import axios from "axios";
+import { logger } from "../config/logger";
 import { statsCache, projectionsCache } from "../services/statsPreloader";
 import { BaseController } from "./BaseController";
 import { SLEEPER_API_BASE } from "../config/sleeper";
@@ -168,7 +169,7 @@ class PlayerStatsController extends BaseController {
 
       if (!allStats) {
         // Fetch all season stats from Sleeper
-        console.log(`[StatsCache] Cache miss for ${cacheKey}, fetching from Sleeper...`);
+        logger.info(`[StatsCache] Cache miss, fetching from Sleeper...`, { cache_key: cacheKey });
         const response = await axios.get(
           `${SLEEPER_API_BASE}/stats/nfl/${season}?season_type=${season_type}`
         );
@@ -177,7 +178,7 @@ class PlayerStatsController extends BaseController {
         // Store array in cache
         statsCache.set(cacheKey, allStats);
       } else {
-        console.log(`[StatsCache] Cache hit for ${cacheKey}`);
+        logger.info(`[StatsCache] Cache hit`, { cache_key: cacheKey });
       }
 
       // Create index for fast lookups
@@ -192,9 +193,9 @@ class PlayerStatsController extends BaseController {
 
       // Store indexed version in cache
       statsCache.set(indexCacheKey, statsIndex);
-      console.log(`[StatsCache] Created index for ${cacheKey} with ${Object.keys(statsIndex).length} players`);
+      logger.info(`[StatsCache] Created index`, { cache_key: cacheKey, player_count: Object.keys(statsIndex).length });
     } else {
-      console.log(`[StatsCache] Index cache hit for ${cacheKey}`);
+      logger.info(`[StatsCache] Index cache hit`, { cache_key: cacheKey });
     }
 
     // Filter to only requested players using O(1) lookups
@@ -237,7 +238,7 @@ class PlayerStatsController extends BaseController {
 
       if (!allProjections) {
         // Fetch all season projections from Sleeper
-        console.log(`[ProjectionsCache] Cache miss for ${cacheKey}, fetching from Sleeper...`);
+        logger.info(`[ProjectionsCache] Cache miss, fetching from Sleeper...`, { cache_key: cacheKey });
         const response = await axios.get(
           `${SLEEPER_API_BASE}/projections/nfl/${season}?season_type=${season_type}`
         );
@@ -246,7 +247,7 @@ class PlayerStatsController extends BaseController {
         // Store array in cache
         projectionsCache.set(cacheKey, allProjections);
       } else {
-        console.log(`[ProjectionsCache] Cache hit for ${cacheKey}`);
+        logger.info(`[ProjectionsCache] Cache hit`, { cache_key: cacheKey });
       }
 
       // Create index for fast lookups
@@ -261,9 +262,9 @@ class PlayerStatsController extends BaseController {
 
       // Store indexed version in cache
       projectionsCache.set(indexCacheKey, projectionsIndex);
-      console.log(`[ProjectionsCache] Created index for ${cacheKey} with ${Object.keys(projectionsIndex).length} players`);
+      logger.info(`[ProjectionsCache] Created index`, { cache_key: cacheKey, player_count: Object.keys(projectionsIndex).length });
     } else {
-      console.log(`[ProjectionsCache] Index cache hit for ${cacheKey}`);
+      logger.info(`[ProjectionsCache] Index cache hit`, { cache_key: cacheKey });
     }
 
     // Filter to only requested players using O(1) lookups
@@ -308,7 +309,7 @@ class PlayerStatsController extends BaseController {
     let aggregatedData = projectionsCache.get<Record<string, any>>(aggregateCacheKey);
 
     if (aggregatedData) {
-      console.log(`[ProjectionsCache] Aggregate cache hit for weeks ${start_week}-${end_week}`);
+      logger.info(`[ProjectionsCache] Aggregate cache hit`, { start_week, end_week });
 
       // Filter to only requested players from cached aggregate
       const projectionsMap: Record<string, any> = {};
@@ -327,7 +328,7 @@ class PlayerStatsController extends BaseController {
       return;
     }
 
-    console.log(`[ProjectionsCache] Aggregate cache miss for weeks ${start_week}-${end_week}, building...`);
+    logger.info(`[ProjectionsCache] Aggregate cache miss, building...`, { start_week, end_week });
 
     // Fetch projections for each week in parallel with caching and indexing
     const weekPromises = [];
@@ -345,14 +346,14 @@ class PlayerStatsController extends BaseController {
             let weekData = projectionsCache.get<any[]>(weekCacheKey);
 
             if (!weekData) {
-              console.log(`[ProjectionsCache] Cache miss for ${weekCacheKey}, fetching from Sleeper...`);
+              logger.info(`[ProjectionsCache] Cache miss, fetching from Sleeper...`, { week_cache_key: weekCacheKey });
               const response = await axios.get(
                 `${SLEEPER_API_BASE}/projections/nfl/${season}/${week}?season_type=${season_type}`
               );
               weekData = response.data;
               projectionsCache.set(weekCacheKey, weekData);
             } else {
-              console.log(`[ProjectionsCache] Cache hit for ${weekCacheKey}`);
+              logger.info(`[ProjectionsCache] Cache hit`, { week_cache_key: weekCacheKey });
             }
 
             // Create index for fast lookups
@@ -367,9 +368,9 @@ class PlayerStatsController extends BaseController {
 
             // Store indexed version
             projectionsCache.set(weekIndexCacheKey, weekIndex);
-            console.log(`[ProjectionsCache] Created index for ${weekCacheKey}`);
+            logger.info(`[ProjectionsCache] Created index`, { week_cache_key: weekCacheKey });
           } else {
-            console.log(`[ProjectionsCache] Index cache hit for ${weekCacheKey}`);
+            logger.info(`[ProjectionsCache] Index cache hit`, { week_cache_key: weekCacheKey });
           }
 
           return { index: weekIndex };
@@ -427,7 +428,7 @@ class PlayerStatsController extends BaseController {
 
     // Cache the complete aggregated dataset
     projectionsCache.set(aggregateCacheKey, allPlayerAggregates);
-    console.log(`[ProjectionsCache] Cached aggregate for weeks ${start_week}-${end_week} with ${Object.keys(allPlayerAggregates).length} players`);
+    logger.info(`[ProjectionsCache] Cached aggregate`, { start_week, end_week, player_count: Object.keys(allPlayerAggregates).length });
 
     // Filter to only requested players
     const projectionsMap: Record<string, any> = {};

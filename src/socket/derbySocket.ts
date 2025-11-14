@@ -1,6 +1,7 @@
 import pool from '../config/database';
 import { getDraftById } from '../models/Draft';
 import { io } from '../index';
+import { logger } from '../config/logger';
 
 // Track active derby timers
 const derbyTimers = new Map<number, NodeJS.Timeout>();
@@ -20,11 +21,11 @@ export function scheduleDerbyTimeout(draftId: number, deadline: Date) {
 
   if (delay <= 0) {
     // Deadline already passed
-    console.log(`[DerbyTimer] Deadline already passed for draft ${draftId}`);
+    logger.info("Deadline already passed for draft", { draft_id: draftId, context: 'DerbySocket' });
     return;
   }
 
-  console.log(`[DerbyTimer] Scheduled timeout for draft ${draftId} in ${delay}ms`);
+  logger.info("Scheduled timeout for draft", { draft_id: draftId, delay_ms: delay, context: 'DerbySocket' });
 
   const timer = setTimeout(async () => {
     await processDerbyTimeout(draftId);
@@ -41,7 +42,7 @@ export function cancelDerbyTimer(draftId: number) {
   if (existingTimer) {
     clearTimeout(existingTimer);
     derbyTimers.delete(draftId);
-    console.log(`[DerbyTimer] Cancelled timer for draft ${draftId}`);
+    logger.info("Cancelled timer for draft", { draft_id: draftId, context: 'DerbySocket' });
   }
 }
 
@@ -50,7 +51,7 @@ export function cancelDerbyTimer(draftId: number) {
  */
 async function processDerbyTimeout(draftId: number) {
   try {
-    console.log(`[DerbyTimer] Processing timeout for draft ${draftId}`);
+    logger.info("Processing timeout for draft", { draft_id: draftId, context: 'DerbySocket' });
 
     // Import DraftDerby model functions
     const { getDraftDerbyByDraftId, autoAssignDerbyPosition, skipDerbyTurn, getDraftDerbyWithDetails } = await import('../models/DraftDerby');
@@ -59,13 +60,13 @@ async function processDerbyTimeout(draftId: number) {
     const derby = await getDraftDerbyByDraftId(draftId);
 
     if (!derby) {
-      console.log(`[DerbyTimer] No derby found for draft ${draftId}`);
+      logger.info("No derby found for draft", { draft_id: draftId, context: 'DerbySocket' });
       return;
     }
 
     // Check if derby is still in progress
     if (derby.status !== 'in_progress') {
-      console.log(`[DerbyTimer] Derby ${derby.id} not in progress (status: ${derby.status})`);
+      logger.info("Derby not in progress", { derby_id: derby.id, status: derby.status, context: 'DerbySocket' });
       return;
     }
 
@@ -82,12 +83,12 @@ async function processDerbyTimeout(draftId: number) {
 
     // When only skipped remain, auto-assign ALL of them at once
     if (onlySkippedRemaining) {
-      console.log(`[DerbyTimer] Only skipped users remain - auto-assigning ALL remaining rosters`);
+      logger.info("Only skipped users remain - auto-assigning all remaining rosters", { draft_id: draftId, context: 'DerbySocket' });
 
       const { autoAssignAllSkippedRosters } = await import('../models/DraftDerby');
       const assignments = await autoAssignAllSkippedRosters(draftId);
 
-      console.log(`[DerbyTimer] Auto-assigned ${assignments.length} skipped rosters`);
+      logger.info("Auto-assigned skipped rosters", { draft_id: draftId, count: assignments.length, context: 'DerbySocket' });
 
       // Update draft_order table for all assignments
       for (const assignment of assignments) {
@@ -129,7 +130,7 @@ async function processDerbyTimeout(draftId: number) {
         [draftId, timedOutRosterId, autoAssignedPosition]
       );
 
-      console.log(`[DerbyTimer] Auto-assigned position ${autoAssignedPosition} to roster ${timedOutRosterId}`);
+      logger.info("Auto-assigned position to roster", { draft_id: draftId, position: autoAssignedPosition, roster_id: timedOutRosterId, context: 'DerbySocket' });
 
       // Emit selection made event for auto-assign
       io.to(`draft_${draftId}`).emit('derby:selection_made', {
@@ -149,14 +150,14 @@ async function processDerbyTimeout(draftId: number) {
       // Skip: NFL-style skip (roster can still pick later)
       // Note: This only happens when there's a current roster on the clock
       await skipDerbyTurn(draftId);
-      console.log(`[DerbyTimer] Skipped roster ${currentRosterId} (can still pick later)`);
+      logger.info("Skipped roster turn", { draft_id: draftId, roster_id: currentRosterId, context: 'DerbySocket' });
     }
 
     // Get updated derby details
     derbyWithDetails = await getDraftDerbyWithDetails(draftId);
 
     if (!derbyWithDetails) {
-      console.error(`[DerbyTimer] Could not get updated derby details`);
+      logger.error("Could not get updated derby details", { draft_id: draftId, context: 'DerbySocket' });
       return;
     }
 
@@ -172,7 +173,7 @@ async function processDerbyTimeout(draftId: number) {
         message: 'Derby completed - all positions assigned',
       });
 
-      console.log(`[DerbyTimer] Derby ${derby.id} completed`);
+      logger.info("Derby completed", { derby_id: derby.id, context: 'DerbySocket' });
     } else {
       // Determine which timer to use for the next turn
       let timerDuration = draft?.derby_time_limit_seconds || 60;
@@ -180,7 +181,7 @@ async function processDerbyTimeout(draftId: number) {
       if (updatedOnlySkippedRemaining) {
         // Use skipped user timer if configured, otherwise use normal timer
         timerDuration = draft?.derby_skipped_user_time_limit_seconds || timerDuration;
-        console.log(`[DerbyTimer] Only skipped users remain, using timer: ${timerDuration}s`);
+        logger.info("Only skipped users remain, using skipped timer", { duration_seconds: timerDuration, context: 'DerbySocket' });
       }
 
       const newDeadline = new Date(Date.now() + timerDuration * 1000);
@@ -194,7 +195,7 @@ async function processDerbyTimeout(draftId: number) {
         skippedRosterIds,
         onlySkippedRemaining: updatedOnlySkippedRemaining,
       };
-      console.log(`[DerbyTimer] Emitting derby:timeout to draft_${draftId}:`, timeoutEventData);
+      logger.debug("Emitting derby:timeout event", { draft_id: draftId, event_data: timeoutEventData, context: 'DerbySocket' });
       io.to(`draft_${draftId}`).emit('derby:timeout', timeoutEventData);
 
       // Emit turn changed event
@@ -205,20 +206,20 @@ async function processDerbyTimeout(draftId: number) {
         onlySkippedRemaining: updatedOnlySkippedRemaining,
         turnDeadline: newDeadline.toISOString(),
       };
-      console.log(`[DerbyTimer] Emitting derby:turn_changed to draft_${draftId}:`, turnChangedEventData);
+      logger.debug("Emitting derby:turn_changed event", { draft_id: draftId, event_data: turnChangedEventData, context: 'DerbySocket' });
       io.to(`draft_${draftId}`).emit('derby:turn_changed', turnChangedEventData);
 
       // Schedule next timeout
       scheduleDerbyTimeout(draftId, newDeadline);
 
-      console.log(`[DerbyTimer] Moved to next turn for draft ${draftId}, nextRosterId: ${nextRosterId}, onlySkippedRemaining: ${onlySkippedRemaining}`);
+      logger.info("Moved to next turn for draft", { draft_id: draftId, next_roster_id: nextRosterId, only_skipped_remaining: onlySkippedRemaining, context: 'DerbySocket' });
     }
   } catch (error: any) {
-    console.error('[DerbyTimer] Error processing timeout:', error);
+    logger.error('Error processing timeout', { error, context: 'DerbySocket' });
   }
 }
 
 export function setupDerbySocket() {
   // Socket handlers can be added here if needed
-  console.log('[DerbySocket] Derby socket handlers initialized');
+  logger.info('Derby socket handlers initialized', { context: 'DerbySocket' });
 }

@@ -1,16 +1,25 @@
 import { Server, Socket } from "socket.io";
+import { logger } from "../config/logger";
 
 export function setupTradeSocket(io: Server) {
   io.on("connection", (socket: Socket) => {
     // User joins their league room to receive trade updates
     socket.on("join_league", (leagueId: number) => {
       socket.join(`league_${leagueId}`);
-      console.log(`[TradeSocket] Socket ${socket.id} joined league_${leagueId}`);
+      logger.info(`Socket joined league`, {
+        socket_id: socket.id,
+        league_id: leagueId,
+        context: 'TradeSocket'
+      });
     });
 
     socket.on("leave_league", (leagueId: number) => {
       socket.leave(`league_${leagueId}`);
-      console.log(`[TradeSocket] Socket ${socket.id} left league_${leagueId}`);
+      logger.info(`Socket left league`, {
+        socket_id: socket.id,
+        league_id: leagueId,
+        context: 'TradeSocket'
+      });
     });
   });
 }
@@ -23,7 +32,11 @@ export function emitTradeProposed(io: Server, leagueId: number, trade: any) {
     trade,
     timestamp: new Date(),
   });
-  console.log(`[TradeSocket] Trade ${trade.id} proposed in league ${leagueId}`);
+  logger.info(`Trade proposed in league`, {
+    trade_id: trade.id,
+    league_id: leagueId,
+    context: 'TradeSocket'
+  });
 }
 
 /**
@@ -34,7 +47,11 @@ export function emitTradeProcessed(io: Server, leagueId: number, trade: any) {
     trade,
     timestamp: new Date(),
   });
-  console.log(`[TradeSocket] Trade ${trade.id} processed in league ${leagueId}`);
+  logger.info(`Trade processed in league`, {
+    trade_id: trade.id,
+    league_id: leagueId,
+    context: 'TradeSocket'
+  });
 }
 
 /**
@@ -45,7 +62,11 @@ export function emitTradeRejected(io: Server, leagueId: number, trade: any) {
     trade,
     timestamp: new Date(),
   });
-  console.log(`[TradeSocket] Trade ${trade.id} rejected in league ${leagueId}`);
+  logger.info(`Trade rejected in league`, {
+    trade_id: trade.id,
+    league_id: leagueId,
+    context: 'TradeSocket'
+  });
 }
 
 /**
@@ -56,5 +77,9 @@ export function emitTradeCancelled(io: Server, leagueId: number, trade: any) {
     trade,
     timestamp: new Date(),
   });
-  console.log(`[TradeSocket] Trade ${trade.id} cancelled in league ${leagueId}`);
+  logger.info(`Trade cancelled in league`, {
+    trade_id: trade.id,
+    league_id: leagueId,
+    context: 'TradeSocket'
+  });
 }

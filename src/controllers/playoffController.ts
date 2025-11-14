@@ -6,6 +6,7 @@ import { generatePlayoffBracket } from "../services/playoffService";
 import { advancePlayoffWinners, isPlayoffRoundComplete } from "../services/tiebreakerService";
 import { calculateStandings } from "../services/standingsService";
 import pool from "../config/database";
+import { logger } from "../config/logger";
 
 /**
  * GET /api/playoffs/league/:leagueId/settings
@@ -38,7 +39,7 @@ export async function getPlayoffSettingsHandler(req: Request, res: Response): Pr
       data: settings,
     });
   } catch (error: any) {
-    console.error("Error getting playoff settings:", error);
+    logger.error("Error getting playoff settings:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error getting playoff settings",
@@ -184,7 +185,7 @@ export async function updatePlayoffSettingsHandler(req: Request, res: Response):
       message: "Playoff settings updated successfully",
     });
   } catch (error: any) {
-    console.error("Error updating playoff settings:", error);
+    logger.error("Error updating playoff settings:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error updating playoff settings",
@@ -263,7 +264,7 @@ export async function generatePlayoffBracketHandler(req: Request, res: Response)
       message: "Playoff bracket generated successfully",
     });
   } catch (error: any) {
-    console.error("Error generating playoff bracket:", error);
+    logger.error("Error generating playoff bracket:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error generating playoff bracket",
@@ -322,7 +323,7 @@ export async function getPlayoffBracketHandler(req: Request, res: Response): Pro
       data: result.rows,
     });
   } catch (error: any) {
-    console.error("Error getting playoff bracket:", error);
+    logger.error("Error getting playoff bracket:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error getting playoff bracket",
@@ -363,7 +364,7 @@ export async function getPlayoffStandingsHandler(req: Request, res: Response): P
       data: standings,
     });
   } catch (error: any) {
-    console.error("Error getting playoff standings:", error);
+    logger.error("Error getting playoff standings:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error getting playoff standings",
@@ -452,7 +453,7 @@ export async function advancePlayoffRoundHandler(req: Request, res: Response): P
       message: `Successfully advanced winners from ${round}`,
     });
   } catch (error: any) {
-    console.error("Error advancing playoff round:", error);
+    logger.error("Error advancing playoff round:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error advancing playoff round",
@@ -564,7 +565,7 @@ export async function pickManualWinnerHandler(req: Request, res: Response): Prom
       message: "Manual winner selected successfully",
     });
   } catch (error: any) {
-    console.error("Error picking manual winner:", error);
+    logger.error("Error picking manual winner:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error picking manual winner",

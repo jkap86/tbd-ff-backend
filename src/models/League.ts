@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { BaseRepository } from "./BaseRepository";
 
 export interface League {
@@ -155,14 +156,14 @@ export async function createLeague(
         });
       }
 
-      console.log(`[League] Created ${total_rosters} rosters for league ${league.id}`);
+      logger.info(`[League] Created ${total_rosters} rosters for league ${league.id}`);
     } catch (rosterError: any) {
-      console.error("Error creating rosters:", rosterError);
+      logger.error("Error creating rosters:", rosterError);
     }
 
     return league;
   } catch (error: any) {
-    console.error("Error creating league:", error);
+    logger.error("Error creating league:", { error });
     throw new Error("Error creating league");
   }
 }
@@ -193,7 +194,7 @@ export async function getLeaguesForUser(userId: number): Promise<League[]> {
     const result = await pool.query(query, [userId]);
     return result.rows;
   } catch (error) {
-    console.error("Error getting user leagues:", error);
+    logger.error("Error getting user leagues:", { error });
     throw new Error("Error getting user leagues");
   }
 }
@@ -284,7 +285,7 @@ export async function updateLeague(
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error updating league:", error);
+    logger.error("Error updating league:", { error });
     throw new Error("Error updating league");
   }
 }
@@ -320,7 +321,7 @@ export async function getPublicLeagues(limit: number = 20): Promise<any[]> {
     const result = await pool.query(query, [limit]);
     return result.rows;
   } catch (error) {
-    console.error("Error getting public leagues:", error);
+    logger.error("Error getting public leagues:", { error });
     throw new Error("Error getting public leagues");
   }
 }
@@ -346,7 +347,7 @@ export function getCommissionerIdFromLeague(league: League): number | null {
     }
     return null;
   } catch (error) {
-    console.error("Error getting commissioner ID:", error);
+    logger.error("Error getting commissioner ID:", { error });
     return null;
   }
 }
@@ -468,7 +469,7 @@ export async function updateLeagueSettings(
 
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error updating league settings:", error);
+    logger.error("Error updating league settings:", { error });
     throw error;
   }
 }
@@ -525,7 +526,7 @@ export async function transferCommissioner(
 
     return updateResult.rows[0];
   } catch (error: any) {
-    console.error("Error transferring commissioner:", error);
+    logger.error("Error transferring commissioner:", { error });
     throw error;
   }
 }
@@ -618,7 +619,7 @@ export function validateLeagueSettings(settings: LeagueSettings): boolean {
 
     return true;
   } catch (error: any) {
-    console.error("Validation error:", error.message);
+    logger.error("Validation error:", error.message);
     throw error;
   }
 }
@@ -643,7 +644,7 @@ export function validateScoringSettings(
 
     return true;
   } catch (error: any) {
-    console.error("Scoring settings validation error:", error.message);
+    logger.error("Scoring settings validation error:", error.message);
     throw error;
   }
 }
@@ -677,7 +678,7 @@ export function validateRosterPositions(
 
     return true;
   } catch (error: any) {
-    console.error("Roster positions validation error:", error.message);
+    logger.error("Roster positions validation error:", error.message);
     throw error;
   }
 }

@@ -1,4 +1,5 @@
 import { Server, Socket } from "socket.io";
+import { logger } from "../config/logger";
 
 /**
  * Waiver Socket Setup
@@ -17,7 +18,13 @@ export function setupWaiverSocket(io: Server) {
         const roomName = `waivers_${league_id}`;
         socket.join(roomName);
 
-        console.log(`${username ? `User ${username} (${user_id})` : `Socket ${socket.id}`} joined waiver room for league ${league_id}`);
+        logger.info(`${username ? `User ${username} (${user_id})` : `Socket ${socket.id}`} joined waiver room for league ${league_id}`, {
+          league_id,
+          user_id,
+          username,
+          socket_id: socket.id,
+          context: 'WaiverSocket'
+        });
 
         // Send confirmation to the user
         socket.emit("joined_waiver_room", {
@@ -33,7 +40,7 @@ export function setupWaiverSocket(io: Server) {
         //   timestamp: new Date(),
         // });
       } catch (error) {
-        console.error("Error joining waiver room:", error);
+        logger.error("Error joining waiver room", { error, context: 'WaiverSocket' });
         socket.emit("error", { message: "Error joining waiver room" });
       }
     });
@@ -47,7 +54,13 @@ export function setupWaiverSocket(io: Server) {
       const roomName = `waivers_${league_id}`;
       socket.leave(roomName);
 
-      console.log(`${username ? `User ${username} (${user_id})` : `Socket ${socket.id}`} left waiver room for league ${league_id}`);
+      logger.info(`${username ? `User ${username} (${user_id})` : `Socket ${socket.id}`} left waiver room for league ${league_id}`, {
+        league_id,
+        user_id,
+        username,
+        socket_id: socket.id,
+        context: 'WaiverSocket'
+      });
     });
 
     /**
@@ -65,7 +78,7 @@ export function setupWaiverSocket(io: Server) {
           timestamp: new Date(),
         });
       } catch (error) {
-        console.error("Error getting waiver state:", error);
+        logger.error("Error getting waiver state", { error, context: 'WaiverSocket' });
         socket.emit("error", { message: "Error getting waiver state" });
       }
     });
@@ -88,7 +101,11 @@ export function emitClaimSubmitted(
     timestamp: new Date(),
   });
 
-  console.log(`Waiver claim submitted in league ${leagueId}: Claim ID ${claim.id}`);
+  logger.info(`Waiver claim submitted in league ${leagueId}: Claim ID ${claim.id}`, {
+    league_id: leagueId,
+    claim_id: claim.id,
+    context: 'WaiverSocket'
+  });
 }
 
 /**
@@ -109,7 +126,12 @@ export function emitClaimCancelled(
     timestamp: new Date(),
   });
 
-  console.log(`Waiver claim ${claimId} cancelled in league ${leagueId}`);
+  logger.info(`Waiver claim ${claimId} cancelled in league ${leagueId}`, {
+    league_id: leagueId,
+    claim_id: claimId,
+    roster_id: rosterId,
+    context: 'WaiverSocket'
+  });
 }
 
 /**
@@ -127,7 +149,11 @@ export function emitWaiversProcessing(
     timestamp: new Date(),
   });
 
-  console.log(`Waivers processing started for league ${leagueId}`);
+  logger.info(`Waivers processing started for league ${leagueId}`, {
+    league_id: leagueId,
+    status: 'processing',
+    context: 'WaiverSocket'
+  });
 }
 
 /**
@@ -150,7 +176,12 @@ export function emitWaiversProcessed(
     timestamp: new Date(),
   });
 
-  console.log(`Waivers processed for league ${leagueId}: ${results.successful.length} successful, ${results.failed.length} failed`);
+  logger.info(`Waivers processed for league ${leagueId}: ${results.successful.length} successful, ${results.failed.length} failed`, {
+    league_id: leagueId,
+    successful_count: results.successful.length,
+    failed_count: results.failed.length,
+    context: 'WaiverSocket'
+  });
 }
 
 /**
@@ -169,7 +200,12 @@ export function emitFreeAgentAdded(
     timestamp: new Date(),
   });
 
-  console.log(`Free agent added in league ${leagueId}: Player ${transaction.player_id} to roster ${transaction.roster_id}`);
+  logger.info(`Free agent added in league ${leagueId}: Player ${transaction.player_id} to roster ${transaction.roster_id}`, {
+    league_id: leagueId,
+    player_id: transaction.player_id,
+    roster_id: transaction.roster_id,
+    context: 'WaiverSocket'
+  });
 }
 
 /**
@@ -188,7 +224,12 @@ export function emitPlayerDropped(
     timestamp: new Date(),
   });
 
-  console.log(`Player dropped in league ${leagueId}: Player ${transaction.player_id} from roster ${transaction.roster_id}`);
+  logger.info(`Player dropped in league ${leagueId}: Player ${transaction.player_id} from roster ${transaction.roster_id}`, {
+    league_id: leagueId,
+    player_id: transaction.player_id,
+    roster_id: transaction.roster_id,
+    context: 'WaiverSocket'
+  });
 }
 
 /**
@@ -207,7 +248,11 @@ export function emitWaiverPriorityChanged(
     timestamp: new Date(),
   });
 
-  console.log(`Waiver priorities updated for league ${leagueId}`);
+  logger.info(`Waiver priorities updated for league ${leagueId}`, {
+    league_id: leagueId,
+    priority_count: priorities.length,
+    context: 'WaiverSocket'
+  });
 }
 
 /**
@@ -227,5 +272,9 @@ export function emitWaiverUpdate(
     timestamp: new Date(),
   });
 
-  console.log(`Waiver event '${event}' emitted for league ${leagueId}`);
+  logger.info(`Waiver event '${event}' emitted for league ${leagueId}`, {
+    league_id: leagueId,
+    event,
+    context: 'WaiverSocket'
+  });
 }

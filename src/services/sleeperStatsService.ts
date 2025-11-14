@@ -1,6 +1,7 @@
 import axios from "axios";
 import { upsertPlayerStats } from "../models/PlayerStats";
 import { SLEEPER_API_BASE, API_TIMEOUT } from "../config/sleeper";
+import { logger } from "../config/logger";
 
 /**
  * Map Sleeper player ID to our database player ID
@@ -20,7 +21,7 @@ export async function syncSleeperStatsForWeek(
   seasonType: string = "regular"
 ): Promise<{ synced: number; failed: number }> {
   try {
-    console.log(`Fetching Sleeper stats for ${season} week ${week}...`);
+    logger.info(`Fetching Sleeper stats for ${season} week ${week}...`);
 
     const response = await axios.get(
       `${SLEEPER_API_BASE}/stats/nfl/${season}/${week}?season_type=${seasonType}`,
@@ -30,7 +31,7 @@ export async function syncSleeperStatsForWeek(
     // Response is an array of player stat objects
     const sleeperStats: any[] = Array.isArray(response.data) ? response.data : [];
 
-    console.log(`Received ${sleeperStats.length} player stats from Sleeper`);
+    logger.info(`Received ${sleeperStats.length} player stats from Sleeper`);
 
     let synced = 0;
     let failed = 0;
@@ -129,15 +130,15 @@ export async function syncSleeperStatsForWeek(
 
         synced++;
       } catch (error) {
-        console.error(`Failed to sync stats for player ${playerData.player_id}:`, error);
+        logger.error(`Failed to sync stats for player ${playerData.player_id}:`, error);
         failed++;
       }
     }
 
-    console.log(`✓ Synced ${synced} players, ${failed} failed`);
+    logger.info(`✓ Synced ${synced} players, ${failed} failed`);
     return { synced, failed };
   } catch (error) {
-    console.error("Error syncing Sleeper stats:", error);
+    logger.error("Error syncing Sleeper stats:", error);
     throw new Error("Error syncing Sleeper stats");
   }
 }

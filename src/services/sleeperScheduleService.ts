@@ -1,5 +1,6 @@
 import axios from "axios";
 import { API_TIMEOUT } from "../config/sleeper";
+import { logger } from "../config/logger";
 
 const SLEEPER_GRAPHQL_URL = "https://sleeper.com/graphql";
 
@@ -52,7 +53,7 @@ export async function getWeekSchedule(
 
     return response.data.data.scores || [];
   } catch (error) {
-    console.error("Error fetching week schedule:", error);
+    logger.error("Error fetching week schedule:", error);
     return [];
   }
 }
@@ -75,7 +76,7 @@ export async function isWeekComplete(
     // Week is complete if all games have status "complete"
     return schedule.every((game) => game.status === "complete");
   } catch (error) {
-    console.error("Error checking if week is complete:", error);
+    logger.error("Error checking if week is complete:", error);
     return false;
   }
 }
@@ -109,7 +110,7 @@ export async function getTeamsWithGamesStarted(
 
     return teamsPlaying;
   } catch (error) {
-    console.error("Error getting teams with games started:", error);
+    logger.error("Error getting teams with games started:", error);
     return new Map();
   }
 }

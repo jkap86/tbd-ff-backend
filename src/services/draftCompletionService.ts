@@ -2,6 +2,7 @@ import { League } from "../models/League";
 import { generateMatchupsForWeek, getMatchupsByLeagueAndWeek } from "../models/Matchup";
 import { updateMatchupScoresForWeek } from "./scoringService";
 import { finalizeWeekScores, recalculateAllRecords } from "./recordService";
+import { logger } from "../utils/logger";
 
 /**
  * Service for handling draft/auction completion logic
@@ -25,8 +26,8 @@ export async function initializeSeasonAfterDraft(
 ): Promise<void> {
   const { leagueId, season, startWeek, playoffWeekStart, seasonType = "regular" } = options;
 
-  console.log(`[SeasonInit] Initializing season for league ${leagueId}, season ${season}`);
-  console.log(`[SeasonInit] Weeks: ${startWeek} to ${playoffWeekStart - 1}`);
+  logger.info(`[SeasonInit] Initializing season for league ${leagueId}, season ${season}`);
+  logger.info(`[SeasonInit] Weeks: ${startWeek} to ${playoffWeekStart - 1}`);
 
   // Generate matchups for all weeks if they don't exist
   await generateAllMatchups(leagueId, season, startWeek, playoffWeekStart);
@@ -37,7 +38,7 @@ export async function initializeSeasonAfterDraft(
   // Recalculate all records to ensure consistency
   await recalculateSeasonRecords(leagueId, season);
 
-  console.log(`[SeasonInit] Season initialization complete for league ${leagueId}`);
+  logger.info(`[SeasonInit] Season initialization complete for league ${leagueId}`);
 }
 
 /**
@@ -50,25 +51,25 @@ async function generateAllMatchups(
   startWeek: number,
   playoffWeekStart: number
 ): Promise<void> {
-  console.log(`[SeasonInit] Checking/generating matchups for weeks ${startWeek}-${playoffWeekStart - 1}...`);
+  logger.info(`[SeasonInit] Checking/generating matchups for weeks ${startWeek}-${playoffWeekStart - 1}...`);
 
   for (let week = startWeek; week < playoffWeekStart; week++) {
     try {
       const existingMatchups = await getMatchupsByLeagueAndWeek(leagueId, week);
 
       if (existingMatchups.length === 0) {
-        console.log(`[SeasonInit] Generating matchups for week ${week}...`);
+        logger.info(`[SeasonInit] Generating matchups for week ${week}...`);
         await generateMatchupsForWeek(leagueId, week, season);
       } else {
-        console.log(`[SeasonInit] Matchups already exist for week ${week}, skipping...`);
+        logger.info(`[SeasonInit] Matchups already exist for week ${week}, skipping...`);
       }
     } catch (error) {
-      console.error(`[SeasonInit] Failed to generate matchups for week ${week}:`, error);
+      logger.error(`[SeasonInit] Failed to generate matchups for week ${week}:`, error);
       // Continue with other weeks even if one fails
     }
   }
 
-  console.log(`[SeasonInit] Matchup generation complete`);
+  logger.info(`[SeasonInit] Matchup generation complete`);
 }
 
 /**
@@ -81,20 +82,20 @@ async function calculateAllWeekScores(
   playoffWeekStart: number,
   seasonType: "regular" | "post"
 ): Promise<void> {
-  console.log(`[SeasonInit] Calculating scores for all weeks...`);
+  logger.info(`[SeasonInit] Calculating scores for all weeks...`);
 
   for (let week = startWeek; week < playoffWeekStart; week++) {
     try {
-      console.log(`[SeasonInit] Updating scores for week ${week}...`);
+      logger.info(`[SeasonInit] Updating scores for week ${week}...`);
       await updateMatchupScoresForWeek(leagueId, week, season, seasonType);
       await finalizeWeekScores(leagueId, week, season, seasonType);
     } catch (error) {
-      console.error(`[SeasonInit] Failed to update scores for week ${week}:`, error);
+      logger.error(`[SeasonInit] Failed to update scores for week ${week}:`, error);
       // Continue with other weeks even if one fails
     }
   }
 
-  console.log(`[SeasonInit] Score calculation complete`);
+  logger.info(`[SeasonInit] Score calculation complete`);
 }
 
 /**
@@ -104,13 +105,13 @@ async function recalculateSeasonRecords(
   leagueId: number,
   season: string
 ): Promise<void> {
-  console.log(`[SeasonInit] Recalculating all records...`);
+  logger.info(`[SeasonInit] Recalculating all records...`);
 
   try {
     await recalculateAllRecords(leagueId, season);
-    console.log(`[SeasonInit] Record recalculation complete`);
+    logger.info(`[SeasonInit] Record recalculation complete`);
   } catch (error) {
-    console.error(`[SeasonInit] Failed to recalculate records:`, error);
+    logger.error(`[SeasonInit] Failed to recalculate records:`, error);
     throw error; // This is critical, so rethrow
   }
 }

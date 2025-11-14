@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { BaseRepository } from "./BaseRepository";
 
 export interface DraftPick {
@@ -67,7 +68,7 @@ export async function createDraftPick(pickData: {
 
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error creating draft pick:", error);
+    logger.error("Error creating draft pick:", { error });
 
     // Check for unique constraint violations
     if (error.code === "23505") {
@@ -108,7 +109,7 @@ export async function getRosterDraftPicks(
     const result = await pool.query(query, [draftId, rosterId]);
     return result.rows;
   } catch (error) {
-    console.error("Error getting roster draft picks:", error);
+    logger.error("Error getting roster draft picks:", { error });
     throw new Error("Error getting roster draft picks");
   }
 }
@@ -134,7 +135,7 @@ export async function getDraftPickByNumber(
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error getting draft pick:", error);
+    logger.error("Error getting draft pick:", { error });
     throw new Error("Error getting draft pick");
   }
 }
@@ -176,7 +177,7 @@ export async function getDraftPicksWithDetails(draftId: number): Promise<any[]> 
     const result = await pool.query(query, [draftId]);
     return result.rows;
   } catch (error) {
-    console.error("Error getting draft picks with details:", error);
+    logger.error("Error getting draft picks with details:", { error });
     throw new Error("Error getting draft picks with details");
   }
 }
@@ -209,7 +210,7 @@ export async function isPlayerDrafted(
     const result = await pool.query(query, [draftId, playerId]);
     return parseInt(result.rows[0].count) > 0;
   } catch (error) {
-    console.error("Error checking if player is drafted:", error);
+    logger.error("Error checking if player is drafted:", { error });
     throw new Error("Error checking if player is drafted");
   }
 }

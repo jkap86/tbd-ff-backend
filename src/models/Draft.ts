@@ -1,6 +1,7 @@
 import pool from "../config/database";
 import { setTransactionTimeouts } from "../utils/transactionTimeout";
 import { BaseRepository } from "./BaseRepository";
+import { logger } from "../config/logger";
 
 export interface Draft {
   id: number;
@@ -89,7 +90,7 @@ export async function createDraft(draftData: {
       throw new Error("Chess timer mode requires a positive team_time_budget_seconds value");
     }
 
-    console.log(`[Draft] Creating draft with timer_mode: ${timerMode}, budget: ${timeBudget || 'N/A'}, type: ${draftData.draft_type}`);
+    logger.info(`[Draft] Creating draft with timer_mode: ${timerMode}, budget: ${timeBudget || 'N/A'}, type: ${draftData.draft_type}`);
 
     const query = `
       INSERT INTO drafts (
@@ -132,7 +133,7 @@ export async function createDraft(draftData: {
 
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error creating draft:", error);
+    logger.error("Error creating draft:", { error });
 
     // Check for unique constraint violation
     if (error.code === "23505") {
@@ -214,7 +215,7 @@ export async function updateDraft(
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error updating draft:", error);
+    logger.error("Error updating draft:", { error });
     throw new Error("Error updating draft");
   }
 }
@@ -241,7 +242,7 @@ export async function startDraft(draftId: number): Promise<Draft> {
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error starting draft:", error);
+    logger.error("Error starting draft:", { error });
     throw new Error("Error starting draft");
   }
 }
@@ -268,7 +269,7 @@ export async function pauseDraft(draftId: number): Promise<Draft> {
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error pausing draft:", error);
+    logger.error("Error pausing draft:", { error });
     throw new Error("Error pausing draft");
   }
 }
@@ -294,7 +295,7 @@ export async function resumeDraft(draftId: number): Promise<Draft> {
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error resuming draft:", error);
+    logger.error("Error resuming draft:", { error });
     throw new Error("Error resuming draft");
   }
 }
@@ -323,7 +324,7 @@ export async function completeDraft(draftId: number): Promise<Draft> {
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error completing draft:", error);
+    logger.error("Error completing draft:", { error });
     throw new Error("Error completing draft");
   }
 }
@@ -343,7 +344,7 @@ async function autoPopulateStarters(
     const league = await getLeagueById(leagueId);
 
     if (!league || !league.roster_positions) {
-      console.log(`[AutoPopulate] No roster positions found, all players to bench`);
+      logger.info(`[AutoPopulate] No roster positions found, all players to bench`);
       return { starters: [], bench: playerIds };
     }
 
@@ -396,7 +397,7 @@ async function autoPopulateStarters(
     const canFillSlot = (playerId: string, slotPos: string): boolean => {
       const playerPosition = playersMap[playerId];
       if (!playerPosition) {
-        console.log(`[AutoPopulate] WARNING: No position found for player ${playerId}`);
+        logger.warn(`[AutoPopulate] WARNING: No position found for player ${playerId}`);
         return false;
       }
 
@@ -405,13 +406,13 @@ async function autoPopulateStarters(
 
       // Extra validation: QB can ONLY go in QB or SUPER_FLEX
       if (playerPosition === "QB" && !["QB", "SUPER_FLEX"].includes(slotPos)) {
-        console.log(`[AutoPopulate] BLOCKED: QB ${playerId} cannot fill ${slotPos}`);
+        logger.warn(`[AutoPopulate] BLOCKED: QB ${playerId} cannot fill ${slotPos}`);
         return false;
       }
 
       // Validate non-QB cannot go in QB slot
       if (slotPos === "QB" && playerPosition !== "QB") {
-        console.log(`[AutoPopulate] BLOCKED: ${playerPosition} player ${playerId} cannot fill QB slot`);
+        logger.warn(`[AutoPopulate] BLOCKED: ${playerPosition} player ${playerId} cannot fill QB slot`);
         return false;
       }
 
@@ -454,20 +455,20 @@ async function autoPopulateStarters(
     // For each slot (most restrictive to least):
     //   - Find all unassigned players that fit
     //   - Pick the one drafted earliest (earliest in playerIds array)
-    console.log(`[AutoPopulate] Starting slot assignment with ${playerIds.length} players`);
-    console.log(`[AutoPopulate] Players map:`, JSON.stringify(playersMap, null, 2));
+    logger.info(`[AutoPopulate] Starting slot assignment with ${playerIds.length} players`);
+    logger.debug(`[AutoPopulate] Players map:`, { playersMap });
 
     for (const slot of sortedSlots) {
       const slotPos = slot.slot.replace(/\d+$/, "");
 
-      console.log(`[AutoPopulate] Filling slot ${slot.slot} (${slotPos}, restrictiveness: ${getSlotRestrictiveness(slotPos)})`);
+      logger.debug(`[AutoPopulate] Filling slot ${slot.slot} (${slotPos}, restrictiveness: ${getSlotRestrictiveness(slotPos)})`);
 
       // Find all unassigned players that can fill this slot
       const eligiblePlayers = playerIds.filter(
         (playerId) => !assignedPlayerIds.has(playerId) && canFillSlot(playerId, slotPos)
       );
 
-      console.log(`[AutoPopulate]   Found ${eligiblePlayers.length} eligible players:`, eligiblePlayers.map(id => `${id}(${playersMap[id]})`).join(', '));
+      logger.debug(`[AutoPopulate]   Found ${eligiblePlayers.length} eligible players:`, { eligiblePlayers: eligiblePlayers.map(id => `${id}(${playersMap[id]})`) });
 
       if (eligiblePlayers.length > 0) {
         // Pick the first one (earliest draft pick)
@@ -479,25 +480,25 @@ async function autoPopulateStarters(
         if (slotIndex !== -1) {
           starters[slotIndex].player_id = selectedPlayer;
           assignedPlayerIds.add(selectedPlayer);
-          console.log(
+          logger.debug(
             `[AutoPopulate] ✓ Assigned player ${selectedPlayer} (${playerPosition}) to slot ${starters[slotIndex].slot}`
           );
         }
       } else {
-        console.log(`[AutoPopulate]   No eligible players for slot ${slot.slot}`);
+        logger.debug(`[AutoPopulate]   No eligible players for slot ${slot.slot}`);
       }
     }
 
     // Remaining players go to bench
     const bench = playerIds.filter((id) => !assignedPlayerIds.has(id));
 
-    console.log(
+    logger.info(
       `[AutoPopulate] Roster ${rosterId}: ${assignedPlayerIds.size} starters, ${bench.length} bench`
     );
 
     return { starters, bench };
   } catch (error) {
-    console.error("Error auto-populating starters:", error);
+    logger.error("Error auto-populating starters:", { error });
     // Fallback: all players to bench
     return { starters: [], bench: playerIds };
   }
@@ -510,7 +511,7 @@ async function autoPopulateStarters(
  */
 export async function assignDraftedPlayersToRosters(draftId: number): Promise<void> {
   try {
-    console.log(`[AssignPlayers] Starting roster assignment for draft ${draftId}`);
+    logger.info(`[AssignPlayers] Starting roster assignment for draft ${draftId}`);
 
     // Get draft info to get league_id
     const draftQuery = `SELECT league_id FROM drafts WHERE id = $1`;
@@ -531,7 +532,7 @@ export async function assignDraftedPlayersToRosters(draftId: number): Promise<vo
     const picksResult = await pool.query(picksQuery, [draftId]);
     const picks = picksResult.rows;
 
-    console.log(`[AssignPlayers] Found ${picks.length} picks to assign`);
+    logger.info(`[AssignPlayers] Found ${picks.length} picks to assign`);
 
     // Group picks by roster (maintaining draft order)
     const picksByRoster: { [key: number]: string[] } = {};
@@ -569,11 +570,11 @@ export async function assignDraftedPlayersToRosters(draftId: number): Promise<vo
       const allPlayersAssigned = playerIds.every(id => existingPlayerIds.has(id));
 
       if (allPlayersAssigned && playerIds.length === existingPlayerIds.size) {
-        console.log(`[AssignPlayers] Roster ${rosterId} already has all ${playerIds.length} drafted players assigned, skipping`);
+        logger.info(`[AssignPlayers] Roster ${rosterId} already has all ${playerIds.length} drafted players assigned, skipping`);
         continue;
       }
 
-      console.log(
+      logger.info(
         `[AssignPlayers] Auto-populating roster ${rosterId} with ${playerIds.length} players`
       );
 
@@ -614,7 +615,7 @@ export async function assignDraftedPlayersToRosters(draftId: number): Promise<vo
         const playoffWeekStart = league.settings?.playoff_week_start || 15;
         const { updateWeeklyLineup } = await import("./WeeklyLineup");
 
-        console.log(`[AssignPlayers] Populating weekly lineups for roster ${rosterId} from week ${startWeek} to ${playoffWeekStart - 1}`);
+        logger.info(`[AssignPlayers] Populating weekly lineups for roster ${rosterId} from week ${startWeek} to ${playoffWeekStart - 1}`);
 
         // Filter out BN slots for weekly lineups (bench players don't go in weekly starters)
         const nonBenchStarters = starters.filter((slot: any) => {
@@ -626,15 +627,15 @@ export async function assignDraftedPlayersToRosters(draftId: number): Promise<vo
           try {
             await updateWeeklyLineup(rosterId, week, league.season, nonBenchStarters);
           } catch (error) {
-            console.error(`[AssignPlayers] Failed to populate week ${week} lineup:`, error);
+            logger.error(`[AssignPlayers] Failed to populate week ${week} lineup:`, { error });
           }
         }
       }
     }
 
-    console.log(`[AssignPlayers] Successfully assigned players to rosters and populated weekly lineups`);
+    logger.info(`[AssignPlayers] Successfully assigned players to rosters and populated weekly lineups`);
   } catch (error) {
-    console.error("Error assigning drafted players to rosters:", error);
+    logger.error("Error assigning drafted players to rosters:", { error });
     throw new Error("Error assigning drafted players to rosters");
   }
 }
@@ -697,7 +698,7 @@ export async function resetDraft(draftId: number): Promise<Draft> {
     return result.rows[0];
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("Error resetting draft:", error);
+    logger.error("Error resetting draft:", { error });
     throw new Error("Error resetting draft");
   } finally {
     client.release();

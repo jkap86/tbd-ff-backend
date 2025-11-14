@@ -1,5 +1,6 @@
 import pool from "../config/database";
 import { setTransactionTimeouts } from "../utils/transactionTimeout";
+import { logger } from "../config/logger";
 
 export interface DraftDerby {
   id: number;
@@ -56,7 +57,7 @@ export async function createDraftDerby(
       skipped_roster_ids: derby.skipped_roster_ids || [],
     };
   } catch (error: any) {
-    console.error("Error creating draft derby:", error);
+    logger.error("Error creating draft derby:", { error });
 
     if (error.code === "23505") {
       throw new Error("Derby already exists for this draft");
@@ -91,7 +92,7 @@ export async function getDraftDerbyByDraftId(
       skipped_roster_ids: derby.skipped_roster_ids || [],
     };
   } catch (error) {
-    console.error("Error getting draft derby:", error);
+    logger.error("Error getting draft derby:", { error });
     throw new Error("Error getting draft derby");
   }
 }
@@ -132,7 +133,7 @@ export async function randomizeDerbyOrder(draftId: number): Promise<DraftDerby> 
       skipped_roster_ids: updatedDerby.skipped_roster_ids || [],
     };
   } catch (error: any) {
-    console.error("Error randomizing derby order:", error);
+    logger.error("Error randomizing derby order:", { error });
     throw error;
   }
 }
@@ -174,7 +175,7 @@ export async function getDraftDerbyWithDetails(
       available_positions: availablePositions,
     };
   } catch (error) {
-    console.error("Error getting draft derby with details:", error);
+    logger.error("Error getting draft derby with details:", { error });
     throw new Error("Error getting draft derby with details");
   }
 }
@@ -224,7 +225,7 @@ export async function startDraftDerby(draftId: number): Promise<DraftDerby> {
     };
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("Error starting draft derby:", error);
+    logger.error("Error starting draft derby:", { error });
     throw error;
   } finally {
     client.release();
@@ -303,7 +304,7 @@ export async function makeDerbySelection(
     return selection;
   } catch (error: any) {
     await client.query("ROLLBACK");
-    console.error("Error making derby selection:", error);
+    logger.error("Error making derby selection:", { error });
 
     if (error.code === "23505") {
       throw new Error("This draft position has already been selected");
@@ -436,7 +437,7 @@ export async function skipDerbyTurn(draftId: number): Promise<DraftDerby> {
     return updatedDerby!;
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("Error skipping derby turn:", error);
+    logger.error("Error skipping derby turn:", { error });
     throw error;
   } finally {
     client.release();
@@ -491,7 +492,7 @@ export async function autoAssignDerbyPosition(
 
       // Pick random skipped roster
       rosterToAssign = skippedNotSelected[Math.floor(Math.random() * skippedNotSelected.length)];
-      console.log(`[DerbyAutoAssign] Only skipped remain, randomly selected roster ${rosterToAssign}`);
+      logger.info(`[DerbyAutoAssign] Only skipped remain, randomly selected roster ${rosterToAssign}`);
     } else {
       throw new Error("No current turn and no skipped rosters to auto-assign");
     }
@@ -537,7 +538,7 @@ export async function autoAssignDerbyPosition(
     return selection;
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("Error auto-assigning derby position:", error);
+    logger.error("Error auto-assigning derby position:", { error });
     throw error;
   } finally {
     client.release();
@@ -631,12 +632,12 @@ export async function autoAssignAllSkippedRosters(
 
     await client.query("COMMIT");
 
-    console.log(`[DerbyAutoAssign] Auto-assigned ${selections.length} skipped rosters to positions`);
+    logger.info(`[DerbyAutoAssign] Auto-assigned ${selections.length} skipped rosters to positions`);
 
     return selections;
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("Error auto-assigning all skipped rosters:", error);
+    logger.error("Error auto-assigning all skipped rosters:", { error });
     throw error;
   } finally {
     client.release();
@@ -659,7 +660,7 @@ export async function getDerbySelections(
     const result = await pool.query(query, [derbyId]);
     return result.rows;
   } catch (error) {
-    console.error("Error getting derby selections:", error);
+    logger.error("Error getting derby selections:", { error });
     throw new Error("Error getting derby selections");
   }
 }
@@ -672,7 +673,7 @@ export async function deleteDraftDerby(draftId: number): Promise<void> {
     const query = `DELETE FROM draft_derby WHERE draft_id = $1`;
     await pool.query(query, [draftId]);
   } catch (error) {
-    console.error("Error deleting draft derby:", error);
+    logger.error("Error deleting draft derby:", { error });
     throw new Error("Error deleting draft derby");
   }
 }
@@ -724,7 +725,7 @@ export async function resetDraftDerby(draftId: number): Promise<DraftDerby | nul
     };
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("Error resetting draft derby:", error);
+    logger.error("Error resetting draft derby:", { error });
     throw error;
   } finally {
     client.release();

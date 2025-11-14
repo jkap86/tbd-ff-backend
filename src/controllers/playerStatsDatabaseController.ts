@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import pool from "../config/database";
+import { logger } from "../config/logger";
 
 /**
  * Get bulk season stats from DATABASE (much faster than Sleeper API)
@@ -21,7 +22,7 @@ export async function getBulkPlayerSeasonStatsFromDB(
       return;
     }
 
-    console.log(`[StatsDB] Querying database for ${player_ids.length} players, season ${season}`);
+    logger.info(`[StatsDB] Querying database for ${player_ids.length} players, season ${season}`);
 
     // Query database for stats
     // Group by player_id and sum all weeks to get season totals
@@ -70,7 +71,7 @@ export async function getBulkPlayerSeasonStatsFromDB(
       statsMap[row.player_id] = row;
     }
 
-    console.log(`[StatsDB] Found stats for ${result.rows.length}/${player_ids.length} players`);
+    logger.info(`[StatsDB] Found stats for ${result.rows.length}/${player_ids.length} players`);
 
     res.status(200).json({
       success: true,
@@ -79,7 +80,7 @@ export async function getBulkPlayerSeasonStatsFromDB(
       source: "database",
     });
   } catch (error: any) {
-    console.error("Error fetching bulk player season stats from DB:", error);
+    logger.error("Error fetching bulk player season stats from DB:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error fetching bulk player season stats",
@@ -114,7 +115,7 @@ export async function getBulkPlayerWeekRangeProjectionsFromDB(
       return;
     }
 
-    console.log(`[ProjectionsDB] Querying database for ${player_ids.length} players, weeks ${start_week}-${end_week}`);
+    logger.info(`[ProjectionsDB] Querying database for ${player_ids.length} players, weeks ${start_week}-${end_week}`);
 
     // Query database and aggregate projections across week range
     const result = await pool.query(
@@ -153,7 +154,7 @@ export async function getBulkPlayerWeekRangeProjectionsFromDB(
       projectionsMap[row.player_id] = row;
     }
 
-    console.log(`[ProjectionsDB] Found projections for ${result.rows.length}/${player_ids.length} players`);
+    logger.info(`[ProjectionsDB] Found projections for ${result.rows.length}/${player_ids.length} players`);
 
     res.status(200).json({
       success: true,
@@ -163,7 +164,7 @@ export async function getBulkPlayerWeekRangeProjectionsFromDB(
       source: "database",
     });
   } catch (error: any) {
-    console.error("Error fetching bulk week range projections from DB:", error);
+    logger.error("Error fetching bulk week range projections from DB:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error fetching bulk week range projections",
@@ -190,7 +191,7 @@ export async function getBulkPlayerSeasonProjectionsFromDB(
       return;
     }
 
-    console.log(`[ProjectionsDB] Querying database for ${player_ids.length} players, season ${season}`);
+    logger.info(`[ProjectionsDB] Querying database for ${player_ids.length} players, season ${season}`);
 
     // Query and sum all weeks for season totals
     const result = await pool.query(
@@ -227,7 +228,7 @@ export async function getBulkPlayerSeasonProjectionsFromDB(
       projectionsMap[row.player_id] = row;
     }
 
-    console.log(`[ProjectionsDB] Found projections for ${result.rows.length}/${player_ids.length} players`);
+    logger.info(`[ProjectionsDB] Found projections for ${result.rows.length}/${player_ids.length} players`);
 
     res.status(200).json({
       success: true,
@@ -236,7 +237,7 @@ export async function getBulkPlayerSeasonProjectionsFromDB(
       source: "database",
     });
   } catch (error: any) {
-    console.error("Error fetching bulk season projections from DB:", error);
+    logger.error("Error fetching bulk season projections from DB:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Error fetching bulk season projections",

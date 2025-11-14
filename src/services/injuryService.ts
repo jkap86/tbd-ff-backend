@@ -1,6 +1,7 @@
 import pool from '../config/database';
 import { updatePlayerInjuryStatus } from '../models/Player';
 import { API_TIMEOUT } from '../config/sleeper';
+import { logger } from '../utils/logger';
 
 /**
  * Sync injury data from Sleeper API
@@ -10,7 +11,7 @@ export async function syncInjuriesFromSleeper(): Promise<{
   updated: number;
   errors: string[];
 }> {
-  console.log('[InjuryService] Starting injury sync from Sleeper...');
+  logger.info('[InjuryService] Starting injury sync from Sleeper...');
 
   let updated = 0;
   const errors: string[] = [];
@@ -54,15 +55,15 @@ export async function syncInjuriesFromSleeper(): Promise<{
       }
     }
 
-    console.log(`[InjuryService] Sync complete: ${updated} players updated`);
+    logger.info(`[InjuryService] Sync complete: ${updated} players updated`);
     return { updated, errors };
 
   } catch (error: any) {
     if (error.name === 'AbortError') {
-      console.error('[InjuryService] Request timed out after 30 seconds');
+      logger.error('[InjuryService] Request timed out after 30 seconds');
       throw new Error('Request timed out - Sleeper API took too long to respond');
     }
-    console.error('[InjuryService] Sync failed:', error);
+    logger.error('[InjuryService] Sync failed:', error);
     throw error;
   }
 }

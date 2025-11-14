@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 
 export interface LeagueMedianConfig {
   league_id: number;
@@ -39,7 +40,7 @@ export async function getLeagueMedianSettings(
       median_matchup_week_end: row.median_matchup_week_end,
     };
   } catch (error) {
-    console.error("Error getting league median settings:", error);
+    logger.error("Error getting league median settings:", { error });
     throw new Error("Error getting league median settings");
   }
 }
@@ -111,7 +112,7 @@ export async function updateLeagueMedianSettings(
       median_matchup_week_end: row.median_matchup_week_end,
     };
   } catch (error: any) {
-    console.error("Error updating league median settings:", error);
+    logger.error("Error updating league median settings:", { error });
     throw error;
   }
 }

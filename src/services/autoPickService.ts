@@ -8,6 +8,7 @@ import { AutoPickFailedError } from "../errors/DraftErrors";
 import pool from "../config/database";
 import { setTransactionTimeouts } from "../utils/transactionTimeout";
 import { DB_ERROR_CODES } from "../config/constants";
+import { logger } from "../utils/logger";
 
 // Map to track active timers for each draft
 const activeTimers: Map<number, NodeJS.Timeout> = new Map();
@@ -28,7 +29,7 @@ export function startAutoPickMonitoring(draftId: number): void {
   }, 1000);
 
   activeTimers.set(draftId, timer);
-  console.log(`[AutoPick] Started monitoring draft ${draftId}`);
+  logger.info(`[AutoPick] Started monitoring draft ${draftId}`);
 }
 
 /**
@@ -39,7 +40,7 @@ export function stopAutoPickMonitoring(draftId: number): void {
   if (timer) {
     clearInterval(timer);
     activeTimers.delete(draftId);
-    console.log(`[AutoPick] Stopped monitoring draft ${draftId}`);
+    logger.info(`[AutoPick] Stopped monitoring draft ${draftId}`);
   }
 }
 
@@ -50,7 +51,7 @@ async function checkAndAutoPickIfNeeded(draftId: number): Promise<void> {
   try {
     // Skip if an auto-pick is already in progress for this draft
     if (inProgressAutoPicksMap.get(draftId)) {
-      console.log(`[AutoPick] Auto-pick already in progress for draft ${draftId}, skipping check`);
+      logger.info(`[AutoPick] Auto-pick already in progress for draft ${draftId}, skipping check`);
       return;
     }
 
@@ -70,7 +71,7 @@ async function checkAndAutoPickIfNeeded(draftId: number): Promise<void> {
 
     // Check if current roster has autodraft enabled
     if (currentRosterOrder?.is_autodrafting && draft.current_roster_id) {
-      console.log(
+      logger.info(
         `[AutoPick] Roster ${draft.current_roster_id} has autodraft enabled, picking immediately`
       );
       // Mark as in-progress to prevent concurrent attempts
@@ -92,13 +93,13 @@ async function checkAndAutoPickIfNeeded(draftId: number): Promise<void> {
     const deadline = new Date(draft.pick_deadline);
 
     if (now >= deadline) {
-      console.log(
+      logger.info(
         `[AutoPick] Pick deadline expired for draft ${draftId}, pick ${draft.current_pick}`
       );
 
       // Automatically enable autodraft for this roster since they timed out
       if (currentRosterOrder && !currentRosterOrder.is_autodrafting && draft.current_roster_id) {
-        console.log(
+        logger.info(
           `[AutoPick] Enabling autodraft for roster ${draft.current_roster_id} due to timeout`
         );
         const { toggleAutodraft } = await import("../models/DraftOrder");
@@ -125,7 +126,7 @@ async function checkAndAutoPickIfNeeded(draftId: number): Promise<void> {
       }
     }
   } catch (error) {
-    console.error(`[AutoPick] Error checking draft ${draftId}:`, error);
+    logger.error(`[AutoPick] Error checking draft ${draftId}:`, error);
   }
 }
 
@@ -142,7 +143,7 @@ async function performAutoPickWithRetry(
 
   while (attempt < maxRetries) {
     try {
-      console.log(`[AutoPick] Attempt ${attempt + 1}/${maxRetries} for draft ${draftId}, roster ${rosterId}`);
+      logger.info(`[AutoPick] Attempt ${attempt + 1}/${maxRetries} for draft ${draftId}, roster ${rosterId}`);
 
       const draft = await getDraftById(draftId);
       if (!draft) {
@@ -150,26 +151,26 @@ async function performAutoPickWithRetry(
       }
 
       await makeDraftPickWithPlayerSelection(draftId, rosterId);
-      console.log(`[AutoPick] Success: Auto-pick completed for roster ${rosterId}`);
+      logger.info(`[AutoPick] Success: Auto-pick completed for roster ${rosterId}`);
       return true;
 
     } catch (error: any) {
       lastError = error;
       attempt++;
 
-      console.error(`[AutoPick] Attempt ${attempt} failed:`, error.message);
+      logger.error(`[AutoPick] Attempt ${attempt} failed:`, error.message);
 
       if (attempt < maxRetries) {
         // Exponential backoff: 1s, 2s, 4s
         const backoffMs = Math.pow(2, attempt - 1) * 1000;
-        console.log(`[AutoPick] Retrying in ${backoffMs}ms...`);
+        logger.info(`[AutoPick] Retrying in ${backoffMs}ms...`);
         await new Promise(resolve => setTimeout(resolve, backoffMs));
       }
     }
   }
 
   // All retries failed
-  console.error(`[AutoPick] Failed after ${maxRetries} attempts for draft ${draftId}, roster ${rosterId}`);
+  logger.error(`[AutoPick] Failed after ${maxRetries} attempts for draft ${draftId}, roster ${rosterId}`);
 
   // Create error event for monitoring
   await createAutoPickFailureEvent(draftId, rosterId, lastError?.message || 'Unknown error');
@@ -209,13 +210,13 @@ async function skipPick(draftId: number, rosterId: number): Promise<void> {
 
     await client.query('COMMIT');
 
-    console.log(`[AutoPick] Skipped pick ${draft.current_pick} for roster ${rosterId}`);
+    logger.info(`[AutoPick] Skipped pick ${draft.current_pick} for roster ${rosterId}`);
   } catch (error: any) {
     await client.query('ROLLBACK');
 
     // Handle timeout errors
     if (error.code === DB_ERROR_CODES.STATEMENT_TIMEOUT) {
-      console.error('[Transaction] Statement timeout in skipPick');
+      logger.error('[Transaction] Statement timeout in skipPick');
       throw new Error('Operation timed out, please try again');
     }
 
@@ -241,7 +242,7 @@ async function createAutoPickFailureEvent(
       [draftId, rosterId, JSON.stringify({ reason })]
     );
   } catch (error) {
-    console.error('[AutoPick] Failed to log failure event:', error);
+    logger.error('[AutoPick] Failed to log failure event:', error);
   }
 }
 
@@ -296,14 +297,14 @@ async function makeDraftPickWithPlayerSelection(draftId: number, rosterId: numbe
     );
 
     if (availablePlayersResult.rows.length === 0) {
-      console.warn(`[AutoPick] No available players for roster ${rosterId}, skipping pick`);
+      logger.warn(`[AutoPick] No available players for roster ${rosterId}, skipping pick`);
       await client.query('ROLLBACK');
       await skipPick(draftId, rosterId);
       return;
     }
 
     const selectedPlayer = availablePlayersResult.rows[0];
-    console.log(`[AutoPick] Selected player ${selectedPlayer.id} (${selectedPlayer.full_name}) for roster ${rosterId}`);
+    logger.info(`[AutoPick] Selected player ${selectedPlayer.id} (${selectedPlayer.full_name}) for roster ${rosterId}`);
 
     // Get league and draft order for calculations
     const league = await getLeagueById(lockedDraft.league_id);
@@ -339,7 +340,7 @@ async function makeDraftPickWithPlayerSelection(draftId: number, rosterId: numbe
     );
 
     const pick = pickResult.rows[0];
-    console.log(`[AutoPick] Created pick:`, pick);
+    logger.info(`[AutoPick] Created pick:`, pick);
 
     // Calculate next pick
     const nextPickNumber = lockedDraft.current_pick + 1;
@@ -350,7 +351,7 @@ async function makeDraftPickWithPlayerSelection(draftId: number, rosterId: numbe
 
     if (nextPickNumber > totalPicks) {
       // Draft is complete
-      console.log(`[AutoPick] Draft ${draftId} is complete! Total picks: ${totalPicks}`);
+      logger.info(`[AutoPick] Draft ${draftId} is complete! Total picks: ${totalPicks}`);
 
       const completeDraftResult = await client.query(
         `UPDATE drafts
@@ -371,7 +372,7 @@ async function makeDraftPickWithPlayerSelection(draftId: number, rosterId: numbe
       const { assignDraftedPlayersToRosters } = await import("../models/Draft");
       await assignDraftedPlayersToRosters(draftId);
 
-      console.log(`[AutoPick] Draft completed and rosters assigned`);
+      logger.info(`[AutoPick] Draft completed and rosters assigned`);
 
       // Mark that we completed the draft so we emit the completion event below
       isCompleted = true;
@@ -448,14 +449,14 @@ async function makeDraftPickWithPlayerSelection(draftId: number, rosterId: numbe
       picked_by_username: user?.username,
     };
 
-    console.log(`[AutoPick] Emitting pick with details:`, pickWithDetails);
+    logger.info(`[AutoPick] Emitting pick with details:`, pickWithDetails);
 
     // Emit draft pick event with enriched details
     emitDraftPick(io, draftId, pickWithDetails, updatedDraft);
 
     // Emit updated draft state - use 'completed' status if draft finished, otherwise 'in_progress'
     const draftStatus = isCompleted ? 'completed' : 'in_progress';
-    console.log(`[AutoPick] Emitting status change - status: ${draftStatus}`);
+    logger.info(`[AutoPick] Emitting status change - status: ${draftStatus}`);
     emitDraftStatusChange(io, draftId, draftStatus, updatedDraft);
 
   } catch (error: any) {
@@ -463,7 +464,7 @@ async function makeDraftPickWithPlayerSelection(draftId: number, rosterId: numbe
 
     // Handle timeout errors
     if (error.code === DB_ERROR_CODES.STATEMENT_TIMEOUT) {
-      console.error('[Transaction] Statement timeout in makeDraftPickWithPlayerSelection');
+      logger.error('[Transaction] Statement timeout in makeDraftPickWithPlayerSelection');
       throw new Error('Operation timed out, please try again');
     }
 
@@ -480,7 +481,7 @@ async function makeDraftPickWithPlayerSelection(draftId: number, rosterId: numbe
 export function stopAllAutoPickMonitoring(): void {
   for (const [draftId, timer] of activeTimers.entries()) {
     clearInterval(timer);
-    console.log(`[AutoPick] Stopped monitoring draft ${draftId}`);
+    logger.info(`[AutoPick] Stopped monitoring draft ${draftId}`);
   }
   activeTimers.clear();
 }

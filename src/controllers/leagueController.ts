@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import {
   getLeagueById,
   getLeaguesForUser,
@@ -133,11 +134,11 @@ class LeagueController extends BaseController {
    * GET /api/leagues/user/:userId
    */
   getUserLeagues = this.asyncHandler(async (req: Request, res: Response) => {
-    console.log('[getUserLeagues] Request for userId:', req.params.userId);
+    logger.info('[getUserLeagues] Request for userId', { userId: req.params.userId });
     const userId = this.validateId(req.params.userId, "User ID");
 
     const leagues = await getLeaguesForUser(userId);
-    console.log('[getUserLeagues] Found', leagues.length, 'leagues');
+    logger.info('[getUserLeagues] Found leagues', { count: leagues.length });
 
     this.respondSuccess(res, leagues);
   });
@@ -274,7 +275,7 @@ class LeagueController extends BaseController {
         },
       });
 
-      console.log(`[LeagueController] Assigned user ${userId} to existing roster ${emptyRoster.roster_id} in league ${leagueId}`);
+      logger.info('[LeagueController] Assigned user to existing roster', { user_id: userId, roster_id: emptyRoster.roster_id, league_id: leagueId });
     } else {
       // No empty slots, check if league is full
       if (rosters.length >= league.total_rosters) {
@@ -292,7 +293,7 @@ class LeagueController extends BaseController {
         team_name: team_name || `Team ${nextRosterId}`,
       });
 
-      console.log(`[LeagueController] Created new roster ${nextRosterId} for user ${userId} in league ${leagueId}`);
+      logger.info('[LeagueController] Created new roster', { roster_id: nextRosterId, user_id: userId, league_id: leagueId });
     }
 
     // Ensure roster was created/updated successfully
@@ -456,7 +457,7 @@ class LeagueController extends BaseController {
       );
 
       if (rostersToDelete.length > 0) {
-        console.log(`[LeagueController] Deleting ${rostersToDelete.length} empty rosters beyond new limit of ${total_rosters}`);
+        logger.info('[LeagueController] Deleting empty rosters', { count: rostersToDelete.length, limit: total_rosters });
 
         for (const roster of rostersToDelete) {
           await pool.query('DELETE FROM rosters WHERE id = $1', [roster.id]);
@@ -467,7 +468,7 @@ class LeagueController extends BaseController {
     // Handle draft order reset if roster count changed
     if (rosterCountChanged) {
       try {
-        console.log(`[LeagueController] Roster count changed from ${oldTotalRosters} to ${newTotalRosters} for league ${leagueId}`);
+        logger.info('[LeagueController] Roster count changed', { old_total: oldTotalRosters, new_total: newTotalRosters, league_id: leagueId });
 
         const { getDraftByLeagueId } = await import("../models/Draft");
         const { getRostersByLeagueId } = await import("../models/Roster");
@@ -476,7 +477,7 @@ class LeagueController extends BaseController {
         const draft = await getDraftByLeagueId(leagueId);
 
         if (draft && draft.status === "not_started") {
-          console.log(`[LeagueController] Resetting draft order for draft ${draft.id}`);
+          logger.info('[LeagueController] Resetting draft order', { draft_id: draft.id });
 
           // Get current rosters for the league
           const rosters = await getRostersByLeagueId(leagueId);
@@ -485,13 +486,13 @@ class LeagueController extends BaseController {
           if (rosterIds.length > 0) {
             // Regenerate randomized draft order
             await randomizeDraftOrder(draft.id, rosterIds);
-            console.log(`[LeagueController] Draft order regenerated with ${rosterIds.length} rosters`);
+            logger.info('[LeagueController] Draft order regenerated', { roster_count: rosterIds.length });
           }
         } else if (draft) {
-          console.log(`[LeagueController] Draft ${draft.id} has status "${draft.status}", skipping order reset (only reset for not_started drafts)`);
+          logger.info('[LeagueController] Draft status is not "not_started", skipping order reset', { draft_id: draft.id, status: draft.status });
         }
       } catch (draftOrderError: any) {
-        console.error("Error resetting draft order:", draftOrderError);
+        logger.error("Error resetting draft order:", draftOrderError);
         // Don't fail the request if draft order reset fails
       }
     }
@@ -683,7 +684,7 @@ class LeagueController extends BaseController {
         );
       }
     } catch (notificationError) {
-      console.error("Error sending settings change notification:", notificationError);
+      logger.error("Error sending settings change notification:", notificationError);
       // Don't fail the request if notification fails
     }
 
@@ -938,7 +939,7 @@ if (!league) {
       this.respondSuccess(res, null, "League reset to pre-draft status successfully");
     } catch (error: any) {
       await client.query('ROLLBACK');
-      console.error("[resetLeagueHandler] Error:", error);
+      logger.error("[resetLeagueHandler] Error:", error);
       throw error;
     } finally {
       client.release();

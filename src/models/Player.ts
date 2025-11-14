@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { setTransactionTimeouts } from "../utils/transactionTimeout";
 import { escapeLikePattern } from "../utils/sqlHelpers";
 import { BaseRepository } from "./BaseRepository";
@@ -109,7 +110,7 @@ export async function getAvailablePlayersForDraft(
     const offset = (page - 1) * limit;
 
     // DEBUG: Log what we're querying
-    console.log(`[getAvailablePlayersForDraft] Querying for draft_id=${draftId}, filters:`, filters, `page=${page}, limit=${limit}, offset=${offset}`);
+    logger.info(`[getAvailablePlayersForDraft] Querying for draft_id=${draftId}, filters:`, filters, `page=${page}, limit=${limit}, offset=${offset}`);
 
     // Build the WHERE clause for filtering
     let whereClause = `
@@ -164,12 +165,12 @@ export async function getAvailablePlayersForDraft(
     params.push(limit, offset);
 
     // DEBUG: Log the final query
-    console.log(`[getAvailablePlayersForDraft] Query:`, dataQuery);
-    console.log(`[getAvailablePlayersForDraft] Params:`, params);
+    logger.info(`[getAvailablePlayersForDraft] Query:`, dataQuery);
+    logger.info(`[getAvailablePlayersForDraft] Params:`, params);
 
     const result = await pool.query(dataQuery, params);
 
-    console.log(`[getAvailablePlayersForDraft] Returned ${result.rows.length} players (page ${page}/${totalPages}, total: ${total})`);
+    logger.info(`[getAvailablePlayersForDraft] Returned ${result.rows.length} players (page ${page}/${totalPages}, total: ${total})`);
 
     return {
       data: result.rows,
@@ -183,7 +184,7 @@ export async function getAvailablePlayersForDraft(
       },
     };
   } catch (error) {
-    console.error("Error getting available players:", error);
+    logger.error("Error getting available players:", { error });
     throw new Error("Error getting available players");
   }
 }
@@ -217,7 +218,7 @@ export async function getPlayerBySleeperPlayerId(
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error getting player by Sleeper ID:", error);
+    logger.error("Error getting player by Sleeper ID:", { error });
     throw new Error("Error getting player by Sleeper ID");
   }
 }
@@ -265,7 +266,7 @@ export async function upsertPlayer(playerData: {
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error upserting player:", error);
+    logger.error("Error upserting player:", { error });
     throw new Error("Error upserting player");
   }
 }
@@ -289,7 +290,7 @@ export async function getPlayersByIds(playerIds: number[]): Promise<Player[]> {
     const result = await pool.query(query, [playerIds]);
     return result.rows;
   } catch (error) {
-    console.error("Error getting players by IDs:", error);
+    logger.error("Error getting players by IDs:", { error });
     throw new Error("Error getting players by IDs");
   }
 }
@@ -372,7 +373,7 @@ export async function bulkUpsertPlayers(
     return totalUpserted;
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("Error bulk upserting players:", error);
+    logger.error("Error bulk upserting players:", { error });
     throw new Error("Error bulk upserting players");
   } finally {
     client.release();

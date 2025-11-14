@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { BaseRepository } from "./BaseRepository";
 
 export interface WaiverSettings {
@@ -109,7 +110,7 @@ export async function updateWaiverSettings(
     const result = await pool.query(query, values);
     return result.rows[0];
   } catch (error) {
-    console.error("Error updating waiver settings:", error);
+    logger.error("Error updating waiver settings:", { error });
     throw error;
   }
 }
@@ -141,7 +142,7 @@ export async function createDefaultWaiverSettings(
 
     return result.rows[0];
   } catch (error) {
-    console.error("Error creating default waiver settings:", error);
+    logger.error("Error creating default waiver settings:", { error });
     throw error;
   }
 }

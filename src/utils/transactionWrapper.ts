@@ -2,6 +2,7 @@ import { PoolClient } from "pg";
 import pool from "../config/database";
 import { setTransactionTimeouts } from "./transactionTimeout";
 import { DB_ERROR_CODES } from "../config/constants";
+import { logger } from "../config/logger";
 
 /**
  * Custom error for transaction timeouts
@@ -105,7 +106,7 @@ export async function withTransaction<T>(
     try {
       await client.query("ROLLBACK");
     } catch (rollbackError) {
-      console.error("Failed to rollback transaction:", rollbackError);
+      logger.error("Failed to rollback transaction", { error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError) });
       rolledBack = false;
     }
 

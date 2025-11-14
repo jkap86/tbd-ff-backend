@@ -1,4 +1,5 @@
 import pool from "../config/database";
+import { logger } from "../config/logger";
 import { PoolClient } from "pg";
 
 export interface PaymentTransaction {
@@ -44,7 +45,7 @@ export async function getByRosterPaymentId(
     const result = await pool.query(query, [rosterPaymentId]);
     return result.rows;
   } catch (error: any) {
-    console.error("Error getting payment transactions by roster payment:", error);
+    logger.error("Error getting payment transactions by roster payment:", { error });
     throw new Error("Error getting payment transactions by roster payment");
   }
 }
@@ -69,7 +70,7 @@ export async function getByLeagueId(
     const result = await pool.query(query, [leagueId]);
     return result.rows;
   } catch (error: any) {
-    console.error("Error getting payment transactions by league:", error);
+    logger.error("Error getting payment transactions by league:", { error });
     throw new Error("Error getting payment transactions by league");
   }
 }
@@ -90,7 +91,7 @@ export async function getByRosterId(
     const result = await pool.query(query, [rosterId]);
     return result.rows;
   } catch (error: any) {
-    console.error("Error getting payment transactions by roster:", error);
+    logger.error("Error getting payment transactions by roster:", { error });
     throw new Error("Error getting payment transactions by roster");
   }
 }
@@ -149,7 +150,7 @@ export async function create(
     const result = await pool.query(query, values);
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error creating payment transaction:", error);
+    logger.error("Error creating payment transaction:", { error });
     throw new Error("Error creating payment transaction");
   }
 }
@@ -234,7 +235,7 @@ export async function update(
 
     return result.rows[0];
   } catch (error: any) {
-    console.error("Error updating payment transaction:", error);
+    logger.error("Error updating payment transaction:", { error });
     throw new Error("Error updating payment transaction");
   }
 }
@@ -344,7 +345,7 @@ export async function recordPayment(
   } catch (error: any) {
     // Rollback on error
     await client.query("ROLLBACK");
-    console.error("Error recording payment:", error);
+    logger.error("Error recording payment:", { error });
     throw new Error("Error recording payment");
   } finally {
     // Release client back to pool

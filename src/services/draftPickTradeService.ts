@@ -192,21 +192,21 @@ export async function declineTrade(tradeId: number, decliningRosterId: number): 
  */
 export async function getTradeablePicksByRoster(
   rosterId: number,
-  leagueId: number,
+  _leagueId: number, // Reserved for future use
   season: string
 ): Promise<any[]> {
   try {
     // Get all picks this roster originally owned
     const query = `
       SELECT
-        $3 as season,
+        $2 as season,
         generate_series as round,
         CASE
           WHEN EXISTS (
             SELECT 1 FROM draft_pick_trades
             WHERE from_roster_id = $1
             AND round = generate_series
-            AND season = $3
+            AND season = $2
             AND status = 'accepted'
           ) THEN FALSE
           ELSE TRUE
@@ -216,12 +216,12 @@ export async function getTradeablePicksByRoster(
         SELECT 1 FROM draft_pick_trades
         WHERE from_roster_id = $1
         AND round = generate_series
-        AND season = $3
+        AND season = $2
         AND status = 'accepted'
       )
     `;
 
-    const result = await pool.query(query, [rosterId, leagueId, season]);
+    const result = await pool.query(query, [rosterId, season]);
     return result.rows.filter(r => r.tradeable);
   } catch (error: any) {
     logger.error("Error getting tradeable picks:", error);
@@ -259,6 +259,7 @@ export async function getTradesByLeague(leagueId: number): Promise<DraftPickTrad
 
 /**
  * Check if a roster owns a specific pick
+ * Tracks pick ownership through all accepted trades (out and in)
  */
 async function checkPickOwnership(
   rosterId: number,
@@ -266,14 +267,30 @@ async function checkPickOwnership(
   round: number
 ): Promise<{ owns: boolean; reason?: string }> {
   try {
-    // Check if this pick has been traded away
-    const tradeCheck = await pool.query(
-      `SELECT id FROM draft_pick_trades
+    // Count trades where this roster gave away the pick
+    const tradesOut = await pool.query(
+      `SELECT COUNT(*) as count FROM draft_pick_trades
        WHERE from_roster_id = $1 AND season = $2 AND round = $3 AND status = 'accepted'`,
       [rosterId, season, round]
     );
 
-    if (tradeCheck.rows.length > 0) {
+    // Count trades where this roster received the pick
+    const tradesIn = await pool.query(
+      `SELECT COUNT(*) as count FROM draft_pick_trades
+       WHERE to_roster_id = $1 AND season = $2 AND round = $3 AND status = 'accepted'`,
+      [rosterId, season, round]
+    );
+
+    const timesOut = parseInt(tradesOut.rows[0].count);
+    const timesIn = parseInt(tradesIn.rows[0].count);
+
+    // Net: if traded out more than received, they don't own it
+    // timesOut = 1, timesIn = 0 → net = 1 → don't own (traded away)
+    // timesOut = 1, timesIn = 1 → net = 0 → own (got it back)
+    // timesOut = 0, timesIn = 0 → net = 0 → own (original owner)
+    const netOut = timesOut - timesIn;
+
+    if (netOut > 0) {
       return { owns: false, reason: "This pick has already been traded away" };
     }
 

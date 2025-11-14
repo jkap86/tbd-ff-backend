@@ -4,10 +4,14 @@ import { body, ValidationChain } from "express-validator";
 export const registerValidator: ValidationChain[] = [
   body("username")
     .trim()
-    .isLength({ min: 3, max: 30 })
-    .withMessage("Username must be between 3 and 30 characters")
-    .matches(/^[a-zA-Z0-9_-]+$/)
-    .withMessage("Username can only contain letters, numbers, underscores, and hyphens")
+    .notEmpty()
+    .withMessage("Username is required")
+    .isLength({ min: 3, max: 20 })
+    .withMessage("Username must be between 3 and 20 characters")
+    .isAlphanumeric()
+    .withMessage("Username must contain only letters and numbers")
+    .matches(/^[a-zA-Z0-9_]+$/)
+    .withMessage("Username can only contain letters, numbers, and underscores")
     .custom((value) => {
       const reserved = ["admin", "root", "system", "api", "null", "undefined"];
       if (reserved.includes(value.toLowerCase())) {
@@ -18,17 +22,37 @@ export const registerValidator: ValidationChain[] = [
 
   body("email")
     .trim()
+    .notEmpty()
+    .withMessage("Email is required")
     .isEmail()
     .withMessage("Must be a valid email address")
     .normalizeEmail()
     .isLength({ max: 255 })
-    .withMessage("Email must be less than 255 characters"),
+    .withMessage("Email must not exceed 255 characters"),
 
   body("password")
-    .isLength({ min: 6, max: 128 })
-    .withMessage("Password must be at least 6 characters")
-    .matches(/(?=.*[\d@$!%*?&])/)
-    .withMessage("Password must contain at least one number or special character"),
+    .notEmpty()
+    .withMessage("Password is required")
+    .isLength({ min: 8, max: 128 })
+    .withMessage("Password must be between 8 and 128 characters")
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+    .withMessage(
+      "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&)"
+    )
+    .custom((value, { req }) => {
+      // Ensure password is not similar to username or email
+      const username = req.body.username?.toLowerCase();
+      const email = req.body.email?.toLowerCase().split("@")[0];
+      const passwordLower = value.toLowerCase();
+
+      if (username && passwordLower.includes(username)) {
+        throw new Error("Password must not contain your username");
+      }
+      if (email && passwordLower.includes(email)) {
+        throw new Error("Password must not contain your email");
+      }
+      return true;
+    }),
 
   body("phone_number")
     .optional({ nullable: true })

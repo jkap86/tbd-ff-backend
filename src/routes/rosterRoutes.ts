@@ -1,10 +1,12 @@
 import { Router } from "express";
 import { getRosterWithPlayersHandler, updateRosterLineupHandler, fixBenchSlotsHandler, debugRosterHandler, updateDuesStatusHandler } from "../controllers/rosterController";
 import { authenticate } from "../middleware/authMiddleware";
+import { handleValidationErrors } from "../middleware/validationMiddleware";
 import {
   requireRosterOwnership,
 } from "../middleware/authorization";
 import { getRosterTradesController } from "../controllers/tradeController";
+import { setLineupValidator, rosterIdValidator } from "../validators/roster.validator";
 
 const router = Router();
 
@@ -15,15 +17,15 @@ router.post("/league/:leagueId/fix-bn-slots", fixBenchSlotsHandler);
 router.get("/:rosterId/debug", authenticate, debugRosterHandler);
 
 // Get roster with player details
-router.get("/:rosterId/players", authenticate, getRosterWithPlayersHandler);
+router.get("/:rosterId/players", authenticate, rosterIdValidator, handleValidationErrors, getRosterWithPlayersHandler);
 
 // Update roster lineup (must own roster)
-router.put("/:rosterId/lineup", authenticate, requireRosterOwnership, updateRosterLineupHandler);
+router.put("/:rosterId/lineup", authenticate, requireRosterOwnership, setLineupValidator, handleValidationErrors, updateRosterLineupHandler);
 
 // Update roster dues paid status (commissioner only - checked in controller)
-router.put("/:rosterId/dues", authenticate, updateDuesStatusHandler);
+router.put("/:rosterId/dues", authenticate, rosterIdValidator, handleValidationErrors, updateDuesStatusHandler);
 
 // GET /api/rosters/:id/trades - Get all trades for a roster
-router.get("/:id/trades", authenticate, getRosterTradesController);
+router.get("/:id/trades", authenticate, rosterIdValidator, handleValidationErrors, getRosterTradesController);
 
 export default router;

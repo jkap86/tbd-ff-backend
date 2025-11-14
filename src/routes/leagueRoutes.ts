@@ -31,11 +31,18 @@ import {
   getUnreadMessageCountHandler,
 } from "../controllers/leagueChatController";
 import { getLeagueTradesController } from "../controllers/tradeController";
+import {
+  createLeagueValidator,
+  updateLeagueValidator,
+  joinLeagueValidator,
+  leagueIdValidator,
+} from "../validators/league.validator";
+import { handleValidationErrors } from "../middleware/validationMiddleware";
 
 const router = Router();
 
 // POST /api/leagues/create - Create a new league (protected)
-router.post("/create", authenticate, createLeagueHandler);
+router.post("/create", authenticate, createLeagueValidator, handleValidationErrors, createLeagueHandler);
 
 // GET /api/leagues/public - Get public leagues
 // Rate limit: 30 requests per minute (prevent scraping)
@@ -60,13 +67,13 @@ router.post("/:leagueId/generate-invite-link", authenticate, requireCommissioner
 router.get("/:leagueId/public-info", getPublicLeagueInfoHandler);
 
 // GET /api/leagues/:leagueId - Get specific league details with rosters
-router.get("/:leagueId", authenticate, requireLeagueMember, getLeagueDetailsHandler);
+router.get("/:leagueId", authenticate, requireLeagueMember, leagueIdValidator, handleValidationErrors, getLeagueDetailsHandler);
 
 // PUT /api/leagues/:leagueId - Update league settings (protected, commissioner only)
-router.put("/:leagueId", authenticate, requireCommissioner, updateLeagueSettingsHandler);
+router.put("/:leagueId", authenticate, requireCommissioner, updateLeagueValidator, handleValidationErrors, updateLeagueSettingsHandler);
 
 // POST /api/leagues/:leagueId/join - Join a league (protected)
-router.post("/:leagueId/join", authenticate, joinLeagueHandler);
+router.post("/:leagueId/join", authenticate, joinLeagueValidator, handleValidationErrors, joinLeagueHandler);
 
 /**
  * Transfer commissioner role

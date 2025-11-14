@@ -1,4 +1,8 @@
-import pool from "../config/database";
+import {
+  checkDraftParticipation,
+  checkDraftCommissioner,
+  checkRosterOwnershipInDraft,
+} from "../services/authorizationService";
 
 /**
  * Check if a user is a participant in a draft
@@ -10,23 +14,7 @@ export async function isUserDraftParticipant(
   userId: number,
   draftId: number
 ): Promise<boolean> {
-  try {
-    // Check if user has a roster in the league that owns this draft
-    const query = `
-      SELECT EXISTS (
-        SELECT 1
-        FROM rosters r
-        INNER JOIN drafts d ON d.league_id = r.league_id
-        WHERE d.id = $1 AND r.user_id = $2
-      ) as is_participant
-    `;
-
-    const result = await pool.query(query, [draftId, userId]);
-    return result.rows[0]?.is_participant || false;
-  } catch (error) {
-    console.error("[DraftAuth] Error checking draft participation:", error);
-    return false;
-  }
+  return checkDraftParticipation(userId, draftId);
 }
 
 /**
@@ -39,28 +27,7 @@ export async function isUserDraftCommissioner(
   userId: number,
   draftId: number
 ): Promise<boolean> {
-  try {
-    const query = `
-      SELECT EXISTS (
-        SELECT 1
-        FROM leagues l
-        INNER JOIN drafts d ON d.league_id = l.id
-        WHERE d.id = $1 AND (l.settings->>'commissioner_id')::int = $2
-      ) as is_commissioner
-    `;
-
-    const result = await pool.query(query, [draftId, userId]);
-    const isCommissioner = result.rows[0]?.is_commissioner || false;
-
-    if (!isCommissioner) {
-      console.debug(`[DraftAuth] User ${userId} is not commissioner of draft ${draftId}`);
-    }
-
-    return isCommissioner;
-  } catch (error) {
-    console.error("[DraftAuth] Error checking draft commissioner for user", userId, "draft", draftId, ":", error);
-    return false;
-  }
+  return checkDraftCommissioner(userId, draftId);
 }
 
 /**
@@ -75,42 +42,6 @@ export async function doesUserOwnRoster(
   rosterId: number,
   draftId: number
 ): Promise<boolean> {
-  try {
-    const query = `
-      SELECT EXISTS (
-        SELECT 1
-        FROM rosters r
-        INNER JOIN drafts d ON d.league_id = r.league_id
-        WHERE d.id = $1 AND r.id = $2 AND r.user_id = $3
-      ) as owns_roster
-    `;
-
-    const result = await pool.query(query, [draftId, rosterId, userId]);
-    const ownsRoster = result.rows[0]?.owns_roster || false;
-
-    if (!ownsRoster) {
-      console.debug(`[DraftAuth] User ${userId} does not own roster ${rosterId} in draft ${draftId}`);
-    }
-
-    return ownsRoster;
-  } catch (error) {
-    console.error("[DraftAuth] Error checking roster ownership for user", userId, "roster", rosterId, "draft", draftId, ":", error);
-    return false;
-  }
+  return checkRosterOwnershipInDraft(userId, rosterId, draftId);
 }
 
-/**
- * Get the username for a user ID
- * @param userId - The user's ID
- * @returns username or null
- */
-export async function getUsernameById(userId: number): Promise<string | null> {
-  try {
-    const query = `SELECT username FROM users WHERE id = $1`;
-    const result = await pool.query(query, [userId]);
-    return result.rows[0]?.username || null;
-  } catch (error) {
-    console.error("[DraftAuth] Error getting username:", error);
-    return null;
-  }
-}

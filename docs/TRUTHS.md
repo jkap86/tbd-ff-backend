@@ -164,6 +164,113 @@ round >= 1 AND round <= 20
 from_roster_id != to_roster_id
 ```
 
+### Database Index Standards
+
+#### Index Naming Convention
+**ALL indexes MUST follow this naming pattern:**
+```
+idx_{table}_{column(s)}[_{suffix}]
+```
+
+**Examples:**
+- Single column: `idx_rosters_league_id`
+- Composite: `idx_matchups_league_week`
+- Partial/filtered: `idx_drafts_active` (with WHERE clause)
+- Composite with suffix: `idx_trades_league_status_composite`
+
+#### When to Create Indexes
+
+**ALWAYS index:**
+1. **Foreign key columns** - All FK columns need indexes for join performance
+2. **Primary query filters** - Columns frequently used in WHERE clauses
+3. **ORDER BY columns** - Columns used for sorting
+4. **Unique constraints** - Already indexed automatically by PostgreSQL
+
+**CREATE composite indexes for:**
+1. **Multi-column WHERE clauses** - `WHERE league_id = ? AND week = ?`
+2. **WHERE + ORDER BY** - `WHERE league_id = ? ORDER BY created_at DESC`
+3. **JOIN conditions** - Common multi-table join patterns
+
+**Example Composite Index:**
+```sql
+-- Optimizes: SELECT * FROM matchups WHERE league_id = 1 AND week = 5
+CREATE INDEX idx_matchups_league_week ON matchups(league_id, week);
+```
+
+#### Composite Index Column Ordering
+
+**Rule: Most selective column first, UNLESS:**
+- Equality filters come before range filters
+- Columns in WHERE come before columns in ORDER BY
+
+**Example:**
+```sql
+-- Good: Equality first (league_id =), then range (created_at >)
+CREATE INDEX idx_transactions_league_created
+  ON transactions(league_id, created_at DESC);
+
+-- Bad: Range first
+CREATE INDEX idx_transactions_bad
+  ON transactions(created_at DESC, league_id);
+```
+
+#### Avoiding Redundant Indexes
+
+**Single-column indexes are redundant if a composite index starts with that column:**
+```sql
+-- Composite index can serve both queries:
+CREATE INDEX idx_rosters_league_user ON rosters(league_id, user_id);
+
+-- These single-column indexes are now redundant:
+-- DROP INDEX idx_rosters_league_id;  ← NOT needed
+-- KEEP: idx_rosters_user_id        ← NEEDED (different order)
+```
+
+**Exception:** Keep single-column index if query patterns differ significantly.
+
+#### Index Maintenance
+
+**DO:**
+- Run `ANALYZE` after bulk data loads to update statistics
+- Monitor index usage: `pg_stat_user_indexes` view
+- Remove unused indexes (never queried)
+- Use `CONCURRENTLY` for index creation on live databases
+
+**DON'T:**
+- Create indexes on columns with low cardinality (< 100 distinct values) unless filtered
+- Index columns that are rarely queried
+- Create duplicate indexes with different names
+- Forget to add indexes to migration rollback files
+
+**Monitoring Query:**
+```sql
+-- Find unused indexes
+SELECT schemaname, tablename, indexname, idx_scan
+FROM pg_stat_user_indexes
+WHERE idx_scan = 0
+AND indexrelname NOT LIKE '%pkey%';
+```
+
+#### Partial Indexes
+
+**Use partial indexes for common filtered queries:**
+```sql
+-- Only index active drafts (most common query)
+CREATE INDEX idx_drafts_active
+  ON drafts(id)
+  WHERE status = 'in_progress';
+
+-- Only index admins (rare, but queried)
+CREATE INDEX idx_users_is_admin
+  ON users(is_admin)
+  WHERE is_admin = TRUE;
+```
+
+**Benefits:**
+- Smaller index size (faster, less storage)
+- More cache-efficient
+- Faster updates (fewer rows affected)
+
 ---
 
 ## 2. API Design Patterns

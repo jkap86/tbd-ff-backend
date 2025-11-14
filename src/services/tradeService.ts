@@ -1,16 +1,10 @@
-import pool from "../config/database";
 import {
-  createTrade,
-  addTradeItem,
   getTrade,
-  updateTradeStatus,
   getTradeItems,
+  updateTradeStatus,
   Trade,
 } from "../models/Trade";
-import { getRosterById, addPlayerToRoster, removePlayerFromRoster } from "../models/Roster";
-import { getPlayerById } from "../models/Player";
-import { createTransaction } from "../models/Transaction";
-import { setTransactionTimeouts } from "../utils/transactionTimeout";
+import { withTransaction } from "../utils/transactionWrapper";
 
 export interface ProposeTradeParams {
   league_id: number;
@@ -27,15 +21,21 @@ export interface ProposeTradeParams {
 export async function proposeTrade(
   params: ProposeTradeParams
 ): Promise<Trade> {
-  const client = await pool.connect();
-    await setTransactionTimeouts(client);
-
-  try {
-    await client.query("BEGIN");
-
+  return withTransaction(async (client) => {
     // Validate rosters exist and are in same league
-    const proposerRoster = await getRosterById(params.proposer_roster_id);
-    const receiverRoster = await getRosterById(params.receiver_roster_id);
+    const rostersResult = await client.query(
+      `SELECT id, league_id, starters, bench, taxi, ir
+       FROM rosters
+       WHERE id = ANY($1::int[])`,
+      [[params.proposer_roster_id, params.receiver_roster_id]]
+    );
+
+    if (rostersResult.rows.length !== 2) {
+      throw new Error("Invalid roster");
+    }
+
+    const proposerRoster = rostersResult.rows.find(r => r.id === params.proposer_roster_id);
+    const receiverRoster = rostersResult.rows.find(r => r.id === params.receiver_roster_id);
 
     if (!proposerRoster || !receiverRoster) {
       throw new Error("Invalid roster");
@@ -64,45 +64,62 @@ export async function proposeTrade(
     }
 
     // Create trade
-    const trade = await createTrade({
-      league_id: params.league_id,
-      proposer_roster_id: params.proposer_roster_id,
-      receiver_roster_id: params.receiver_roster_id,
-      proposer_message: params.message,
-    });
+    const tradeResult = await client.query(
+      `INSERT INTO trades (league_id, proposer_roster_id, receiver_roster_id, proposer_message, status)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [
+        params.league_id,
+        params.proposer_roster_id,
+        params.receiver_roster_id,
+        params.message || null,
+        'pending'
+      ]
+    );
+
+    const trade = tradeResult.rows[0];
+
+    // Get player names for trade items
+    const allPlayerIds = [...params.players_giving, ...params.players_receiving];
+    const playersResult = await client.query(
+      `SELECT player_id, full_name FROM players WHERE player_id = ANY($1::int[])`,
+      [allPlayerIds]
+    );
+
+    const playerMap = new Map(playersResult.rows.map(p => [p.player_id, p.full_name]));
 
     // Add items proposer is giving
     for (const playerId of params.players_giving) {
-      const player = await getPlayerById(playerId);
-      await addTradeItem({
-        trade_id: trade.id,
-        from_roster_id: params.proposer_roster_id,
-        to_roster_id: params.receiver_roster_id,
-        player_id: playerId,
-        player_name: player?.full_name,
-      });
+      await client.query(
+        `INSERT INTO trade_items (trade_id, from_roster_id, to_roster_id, player_id, player_name)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          trade.id,
+          params.proposer_roster_id,
+          params.receiver_roster_id,
+          playerId,
+          playerMap.get(playerId) || null
+        ]
+      );
     }
 
     // Add items proposer is receiving
     for (const playerId of params.players_receiving) {
-      const player = await getPlayerById(playerId);
-      await addTradeItem({
-        trade_id: trade.id,
-        from_roster_id: params.receiver_roster_id,
-        to_roster_id: params.proposer_roster_id,
-        player_id: playerId,
-        player_name: player?.full_name,
-      });
+      await client.query(
+        `INSERT INTO trade_items (trade_id, from_roster_id, to_roster_id, player_id, player_name)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          trade.id,
+          params.receiver_roster_id,
+          params.proposer_roster_id,
+          playerId,
+          playerMap.get(playerId) || null
+        ]
+      );
     }
 
-    await client.query("COMMIT");
     return trade;
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 /**
@@ -186,12 +203,7 @@ export async function cancelTrade(
  * Process a trade (move players between rosters)
  */
 export async function processTrade(tradeId: number): Promise<Trade> {
-  const client = await pool.connect();
-    await setTransactionTimeouts(client);
-
-  try {
-    await client.query("BEGIN");
-
+  return withTransaction(async (client) => {
     const trade = await getTrade(tradeId);
     if (!trade) {
       throw new Error("Trade not found");
@@ -204,56 +216,101 @@ export async function processTrade(tradeId: number): Promise<Trade> {
     // Get all trade items
     const items = await getTradeItems(tradeId);
 
-    // Move each player
+    // Move each player between rosters
     for (const item of items) {
-      // Remove player from giving roster
-      await removePlayerFromRoster(item.from_roster_id, item.player_id);
+      // Get both rosters
+      const rostersResult = await client.query(
+        `SELECT id, starters, bench, taxi, ir
+         FROM rosters
+         WHERE id = ANY($1::int[])
+         FOR UPDATE`,
+        [[item.from_roster_id, item.to_roster_id]]
+      );
 
-      // Add player to receiving roster
-      await addPlayerToRoster(item.to_roster_id, item.player_id);
+      const fromRoster = rostersResult.rows.find(r => r.id === item.from_roster_id);
+      const toRoster = rostersResult.rows.find(r => r.id === item.to_roster_id);
+
+      if (!fromRoster || !toRoster) {
+        throw new Error("Roster not found in trade");
+      }
+
+      // Remove player from giving roster
+      let fromBench = fromRoster.bench || [];
+      let fromStarters = fromRoster.starters || [];
+
+      // Check if player is in bench
+      if (fromBench.includes(item.player_id)) {
+        fromBench = fromBench.filter((id: number) => id !== item.player_id);
+        await client.query(
+          `UPDATE rosters SET bench = $1 WHERE id = $2`,
+          [JSON.stringify(fromBench), item.from_roster_id]
+        );
+      } else {
+        // Remove from starters
+        fromStarters = fromStarters.map((slot: any) =>
+          slot.player_id === item.player_id ? { ...slot, player_id: null } : slot
+        );
+        await client.query(
+          `UPDATE rosters SET starters = $1 WHERE id = $2`,
+          [JSON.stringify(fromStarters), item.from_roster_id]
+        );
+      }
+
+      // Add player to receiving roster's bench
+      const toBench = toRoster.bench || [];
+      toBench.push(item.player_id);
+      await client.query(
+        `UPDATE rosters SET bench = $1 WHERE id = $2`,
+        [JSON.stringify(toBench), item.to_roster_id]
+      );
     }
 
     // Update trade status
-    const updatedTrade = await updateTradeStatus(tradeId, "accepted", {
-      responded_at: new Date(),
-      processed_at: new Date(),
-    });
+    const tradeUpdateResult = await client.query(
+      `UPDATE trades
+       SET status = $1, responded_at = NOW(), processed_at = NOW()
+       WHERE id = $2
+       RETURNING *`,
+      ['accepted', tradeId]
+    );
+
+    const updatedTrade = tradeUpdateResult.rows[0];
 
     // Create transaction records
-    await createTransaction({
-      league_id: trade.league_id,
-      roster_id: trade.proposer_roster_id,
-      transaction_type: "trade",
-      status: "processed",
-      adds: items
-        .filter((i) => i.to_roster_id === trade.proposer_roster_id)
-        .map((i) => i.player_id),
-      drops: items
-        .filter((i) => i.from_roster_id === trade.proposer_roster_id)
-        .map((i) => i.player_id),
-    });
+    const proposerAdds = items.filter((i) => i.to_roster_id === trade.proposer_roster_id).map((i) => i.player_id);
+    const proposerDrops = items.filter((i) => i.from_roster_id === trade.proposer_roster_id).map((i) => i.player_id);
 
-    await createTransaction({
-      league_id: trade.league_id,
-      roster_id: trade.receiver_roster_id,
-      transaction_type: "trade",
-      status: "processed",
-      adds: items
-        .filter((i) => i.to_roster_id === trade.receiver_roster_id)
-        .map((i) => i.player_id),
-      drops: items
-        .filter((i) => i.from_roster_id === trade.receiver_roster_id)
-        .map((i) => i.player_id),
-    });
+    await client.query(
+      `INSERT INTO transactions (league_id, roster_id, transaction_type, status, adds, drops, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+      [
+        trade.league_id,
+        trade.proposer_roster_id,
+        'trade',
+        'processed',
+        JSON.stringify(proposerAdds),
+        JSON.stringify(proposerDrops)
+      ]
+    );
 
-    await client.query("COMMIT");
+    const receiverAdds = items.filter((i) => i.to_roster_id === trade.receiver_roster_id).map((i) => i.player_id);
+    const receiverDrops = items.filter((i) => i.from_roster_id === trade.receiver_roster_id).map((i) => i.player_id);
+
+    await client.query(
+      `INSERT INTO transactions (league_id, roster_id, transaction_type, status, adds, drops, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+      [
+        trade.league_id,
+        trade.receiver_roster_id,
+        'trade',
+        'processed',
+        JSON.stringify(receiverAdds),
+        JSON.stringify(receiverDrops)
+      ]
+    );
+
     return updatedTrade;
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 /**

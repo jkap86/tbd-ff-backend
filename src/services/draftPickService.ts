@@ -7,7 +7,7 @@ import { getRosterAtPosition } from "../models/DraftOrder";
 import { getLeagueById, updateLeague } from "../models/League";
 import { getRosterById } from "../models/Roster";
 import { getPlayerById } from "../models/Player";
-import { calculateCurrentRoster } from "../controllers/draftController";
+import { calculateCurrentRoster } from "../utils/draftCalculations";
 
 export interface DraftPickRequest {
   draftId: number;

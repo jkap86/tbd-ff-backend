@@ -2,6 +2,7 @@
  * Cron Helper Utility
  * Provides retry logic and error recovery for cron jobs
  */
+import { logger } from "./logger";
 
 /**
  * Sleep utility for delays between retry attempts
@@ -48,9 +49,9 @@ export async function retryAsync<T>(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      console.log(`[Cron] ${jobName} - Starting attempt ${attempt}/${maxAttempts}`);
+      logger.info(`[Cron] ${jobName} - Starting attempt`, { attempt, maxAttempts });
       const result = await fn();
-      console.log(`[Cron] ${jobName} - Completed successfully on attempt ${attempt}/${maxAttempts}`);
+      logger.info(`[Cron] ${jobName} - Completed successfully`, { attempt, maxAttempts });
       return result;
     } catch (error) {
       lastError = error;
@@ -58,15 +59,10 @@ export async function retryAsync<T>(
       const isLastAttempt = attempt === maxAttempts;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
-      console.error(
-        `[Cron] ${jobName} - Failed on attempt ${attempt}/${maxAttempts}:`,
-        errorMessage
-      );
+      logger.error(`[Cron] ${jobName} - Failed on attempt`, { attempt, maxAttempts, errorMessage });
 
       if (isLastAttempt) {
-        console.error(
-          `[Cron] ${jobName} - All retry attempts exhausted. Job failed permanently.`
-        );
+        logger.error(`[Cron] ${jobName} - All retry attempts exhausted. Job failed permanently.`);
         // TODO: Send alert to monitoring system (e.g., Sentry, PagerDuty, CloudWatch)
         // TODO: Example: await sendAlert({ jobName, error, attempts: maxAttempts });
         throw error;
@@ -77,9 +73,7 @@ export async function retryAsync<T>(
         ? Math.pow(2, attempt - 1) * baseDelayMs // 1s, 2s, 4s, 8s...
         : baseDelayMs;
 
-      console.log(
-        `[Cron] ${jobName} - Retrying in ${delay}ms (attempt ${attempt + 1}/${maxAttempts})...`
-      );
+      logger.info(`[Cron] ${jobName} - Retrying`, { delay, nextAttempt: attempt + 1, maxAttempts });
 
       await sleep(delay);
     }
@@ -113,9 +107,9 @@ export async function withCronLogging<T>(
   const startTime = Date.now();
   const timestamp = new Date().toISOString();
 
-  console.log(`[Cron] ======================================`);
-  console.log(`[Cron] ${jobName} - Started at ${timestamp}`);
-  console.log(`[Cron] ======================================`);
+  logger.info(`[Cron] ======================================`);
+  logger.info(`[Cron] ${jobName} - Started`, { timestamp });
+  logger.info(`[Cron] ======================================`);
 
   try {
     const result = retryOptions
@@ -123,19 +117,19 @@ export async function withCronLogging<T>(
       : await fn();
 
     const duration = Date.now() - startTime;
-    console.log(`[Cron] ======================================`);
-    console.log(`[Cron] ${jobName} - Completed successfully in ${duration}ms`);
-    console.log(`[Cron] ======================================`);
+    logger.info(`[Cron] ======================================`);
+    logger.info(`[Cron] ${jobName} - Completed successfully`, { duration });
+    logger.info(`[Cron] ======================================`);
 
     return result;
   } catch (error) {
     const duration = Date.now() - startTime;
     const errorMessage = error instanceof Error ? error.message : String(error);
 
-    console.error(`[Cron] ======================================`);
-    console.error(`[Cron] ${jobName} - FAILED after ${duration}ms`);
-    console.error(`[Cron] ${jobName} - Error: ${errorMessage}`);
-    console.error(`[Cron] ======================================`);
+    logger.error(`[Cron] ======================================`);
+    logger.error(`[Cron] ${jobName} - FAILED`, { duration });
+    logger.error(`[Cron] ${jobName} - Error`, { errorMessage });
+    logger.error(`[Cron] ======================================`);
 
     // TODO: Send critical alert to monitoring system
     // TODO: Example: await sendCriticalAlert({ jobName, error, duration });

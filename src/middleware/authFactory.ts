@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { ApiResponse } from "../utils/ApiResponse";
+import { logger } from "../utils/logger";
 
 /**
  * Configuration for creating authorization middleware
@@ -105,7 +106,7 @@ export const createAuthMiddleware = (config: AuthorizationConfig) => {
       // Authorization successful, proceed to next middleware
       next();
     } catch (error: any) {
-      console.error("Authorization error:", error);
+      logger.error("Authorization error:", error);
       ApiResponse.error(res, "Authorization check failed");
     }
   };
@@ -179,7 +180,7 @@ export const createOrAuthMiddleware = (
       // None of the conditions passed
       ApiResponse.forbidden(res, errorMessage);
     } catch (error: any) {
-      console.error("Authorization error:", error);
+      logger.error("Authorization error:", error);
       ApiResponse.error(res, "Authorization check failed");
     }
   };

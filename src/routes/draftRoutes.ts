@@ -3,18 +3,22 @@ import {
   createDraftHandler,
   getDraftHandler,
   updateDraftSettingsHandler,
-  setDraftOrderHandler,
-  getDraftOrderHandler,
   startDraftHandler,
-  makeDraftPickHandler,
-  getDraftPicksHandler,
-  getAvailablePlayersHandler,
   pauseDraftHandler,
   resumeDraftHandler,
   resetDraftHandler,
   assignRostersHandler,
   getDraftHealthHandler,
 } from "../controllers/draftController";
+import {
+  setDraftOrderHandler,
+  getDraftOrderHandler,
+} from "../controllers/draftOrderController";
+import {
+  makeDraftPickHandler,
+  getDraftPicksHandler,
+  getAvailablePlayersHandler,
+} from "../controllers/draftPickController";
 import {
   sendChatMessageHandler,
   getChatMessagesHandler,

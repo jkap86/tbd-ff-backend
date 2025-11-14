@@ -1,7 +1,7 @@
 import { getDraftById } from "../models/Draft";
 import { getDraftOrder, getRosterAtPosition } from "../models/DraftOrder";
 import { getLeagueById } from "../models/League";
-import { calculateCurrentRoster } from "../controllers/draftController";
+import { calculateCurrentRoster } from "../utils/draftCalculations";
 import { emitDraftPick, emitDraftStatusChange } from "../socket/draftSocket";
 import { io } from "../index";
 import { AutoPickFailedError } from "../errors/DraftErrors";

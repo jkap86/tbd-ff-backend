@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { getRosterWithPlayers, getRosterById, updateRoster, validateLineup, validateSlotAssignment, getRostersByLeagueId } from "../models/Roster";
 import { BaseController } from "./BaseController";
 import { io } from "../index";
-import { createLeagueChatMessage } from "../models/LeagueChatMessage";
+import { sendSystemMessageSafe } from "../services/leagueChatService";
 import pool from "../config/database";
 
 // Before: 244 lines
@@ -276,15 +276,9 @@ class RosterController extends BaseController {
       return this.respondNotFound(res, "Roster not found");
     }
 
-    // Check if user is the commissioner of the roster's league
-    const { getLeagueById } = await import("../models/League");
-    const league = await getLeagueById(roster.league_id);
-
-    if (!league) {
-      return this.respondNotFound(res, "League not found");
-    }
-
-    if (league.settings?.commissioner_id !== userId) {
+    // Validate commissioner access
+    const auth = await this.validateCommissionerAccess(req, roster.league_id);
+    if (!auth) {
       return this.respondForbidden(res, "Only the league commissioner can perform this action");
     }
 
@@ -306,38 +300,17 @@ class RosterController extends BaseController {
 
     // If marked as paid, send system message to league chat
     if (dues_paid) {
-      try {
-        // Get username from users table
-        const userQuery = `SELECT username FROM users WHERE id = $1`;
-        const userResult = await pool.query(userQuery, [roster.user_id]);
-        const username = userResult.rows[0]?.username || "Unknown User";
+      // Get username from users table
+      const userQuery = `SELECT username FROM users WHERE id = $1`;
+      const userResult = await pool.query(userQuery, [roster.user_id]);
+      const username = userResult.rows[0]?.username || "Unknown User";
 
-        // Create system message
-        const chatMessage = await createLeagueChatMessage({
-          league_id: roster.league_id,
-          user_id: null, // System message
-          message: `${username} has paid`,
-          message_type: "system",
-          metadata: {
-            type: "dues_paid",
-            roster_id: roster.id,
-            user_id: roster.user_id,
-          },
-        });
-
-        // Broadcast to league room
-        const roomName = `league_${roster.league_id}`;
-        io.to(roomName).emit("league_chat_message", {
-          ...chatMessage,
-          username: "System",
-          metadata: typeof chatMessage.metadata === 'string'
-            ? JSON.parse(chatMessage.metadata)
-            : chatMessage.metadata,
-        });
-      } catch (error) {
-        console.error("Error sending dues paid notification:", error);
-        // Don't fail the request if notification fails
-      }
+      // Send system message (safe - won't fail the request)
+      await sendSystemMessageSafe(io, roster.league_id, `${username} has paid`, {
+        type: "dues_paid",
+        roster_id: roster.id,
+        user_id: roster.user_id,
+      });
     }
 
     this.respondSuccess(res, updatedRoster, `Dues status updated to ${dues_paid ? 'paid' : 'unpaid'}`);

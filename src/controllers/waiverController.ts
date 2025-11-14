@@ -18,7 +18,6 @@ import {
   getTransactionsWithPlayerDetails,
 } from "../models/Transaction";
 import { getRosterByLeagueAndUser } from "../models/Roster";
-import { validateCommissionerPermission } from "../models/League";
 import {
   getWaiverSettingsByLeague,
   updateWaiverSettings,
@@ -157,15 +156,11 @@ class WaiverController extends BaseController {
       return;
     }
 
-    // Verify user is commissioner
-    try {
-      await validateCommissionerPermission(leagueId, userId);
-    } catch (error: any) {
-      if (error.message === "Only the commissioner can perform this action") {
-        this.respondForbidden(res, error.message);
-        return;
-      }
-      throw error;
+    // Validate commissioner access
+    const auth = await this.validateCommissionerAccess(req, leagueId);
+    if (!auth) {
+      this.respondForbidden(res, "Only the commissioner can perform this action");
+      return;
     }
 
     // Process waivers
@@ -268,15 +263,11 @@ class WaiverController extends BaseController {
       return;
     }
 
-    // Verify user is commissioner
-    try {
-      await validateCommissionerPermission(leagueId, userId);
-    } catch (error: any) {
-      if (error.message === "Only the commissioner can perform this action") {
-        this.respondForbidden(res, error.message);
-        return;
-      }
-      throw error;
+    // Validate commissioner access
+    const auth = await this.validateCommissionerAccess(req, leagueId);
+    if (!auth) {
+      this.respondForbidden(res, "Only the commissioner can perform this action");
+      return;
     }
 
     const {

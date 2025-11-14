@@ -5,7 +5,7 @@ import { startAutoPickMonitoring } from "./autoPickService";
 import { withCronLogging } from "../utils/cronHelper";
 import { getLeagueById, updateLeague } from "../models/League";
 import { getDraftOrder, getRosterAtPosition } from "../models/DraftOrder";
-import { calculateCurrentRoster } from "../controllers/draftController";
+import { calculateCurrentRoster } from "../utils/draftCalculations";
 import { logger } from "../utils/logger";
 
 /**

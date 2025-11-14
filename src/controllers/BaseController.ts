@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from "express";
 import { ApiResponse } from "../utils/ApiResponse";
 import { validateId as utilValidateId, validatePositiveInteger } from "../utils/validation";
+import { getLeagueById, League } from "../models/League";
+import { getRosterById, Roster } from "../models/Roster";
 
 /**
  * Base Controller Class
@@ -253,5 +255,85 @@ export abstract class BaseController {
    */
   protected getAuthenticatedUserId(req: Request): number | null {
     return req.user?.userId || null;
+  }
+
+  /**
+   * Validate that the authenticated user is the commissioner of a league
+   *
+   * @param req Express request object
+   * @param leagueId League ID to validate
+   * @returns League and userId if authorized, null if not
+   *
+   * @example
+   * const auth = await this.validateCommissionerAccess(req, leagueId);
+   * if (!auth) {
+   *   this.respondForbidden(res, "Only the commissioner can perform this action");
+   *   return;
+   * }
+   * const { league, userId } = auth;
+   */
+  protected async validateCommissionerAccess(
+    req: Request,
+    leagueId: number
+  ): Promise<{ league: League; userId: number } | null> {
+    const userId = this.getAuthenticatedUserId(req);
+    if (!userId) {
+      return null;
+    }
+
+    const league = await getLeagueById(leagueId);
+    if (!league) {
+      return null;
+    }
+
+    const commissionerId = league.settings?.commissioner_id;
+    if (commissionerId !== userId) {
+      return null;
+    }
+
+    return { league, userId };
+  }
+
+  /**
+   * Validate that the authenticated user owns a roster
+   *
+   * @param req Express request object
+   * @param leagueId League ID the roster belongs to
+   * @param rosterId Roster ID to validate
+   * @returns Roster if authorized, null if not
+   *
+   * @example
+   * const roster = await this.validateRosterOwnership(req, leagueId, rosterId);
+   * if (!roster) {
+   *   this.respondForbidden(res, "You do not own this roster");
+   *   return;
+   * }
+   */
+  protected async validateRosterOwnership(
+    req: Request,
+    leagueId: number,
+    rosterId: number
+  ): Promise<Roster | null> {
+    const userId = this.getAuthenticatedUserId(req);
+    if (!userId) {
+      return null;
+    }
+
+    const roster = await getRosterById(rosterId);
+    if (!roster) {
+      return null;
+    }
+
+    // Verify roster belongs to the league
+    if (roster.league_id !== leagueId) {
+      return null;
+    }
+
+    // Verify user owns the roster
+    if (roster.user_id !== userId) {
+      return null;
+    }
+
+    return roster;
   }
 }

@@ -1,4 +1,7 @@
-import pool from "../config/database";
+import {
+  checkLeagueMembership,
+  checkLeagueCommissioner,
+} from "../services/authorizationService";
 
 /**
  * Check if a user is a member of a league
@@ -10,22 +13,7 @@ export async function isUserLeagueMember(
   userId: number,
   leagueId: number
 ): Promise<boolean> {
-  try {
-    // Check if user has a roster in this league
-    const query = `
-      SELECT EXISTS (
-        SELECT 1
-        FROM rosters r
-        WHERE r.league_id = $1 AND r.user_id = $2
-      ) as is_member
-    `;
-
-    const result = await pool.query(query, [leagueId, userId]);
-    return result.rows[0]?.is_member || false;
-  } catch (error) {
-    console.error("[LeagueAuth] Error checking league membership:", error);
-    return false;
-  }
+  return checkLeagueMembership(userId, leagueId);
 }
 
 /**
@@ -38,19 +26,5 @@ export async function isUserLeagueCommissioner(
   userId: number,
   leagueId: number
 ): Promise<boolean> {
-  try {
-    const query = `
-      SELECT EXISTS (
-        SELECT 1
-        FROM leagues l
-        WHERE l.id = $1 AND l.commissioner_id = $2
-      ) as is_commissioner
-    `;
-
-    const result = await pool.query(query, [leagueId, userId]);
-    return result.rows[0]?.is_commissioner || false;
-  } catch (error) {
-    console.error("[LeagueAuth] Error checking league commissioner:", error);
-    return false;
-  }
+  return checkLeagueCommissioner(userId, leagueId);
 }

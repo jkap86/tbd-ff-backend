@@ -19,6 +19,8 @@ import {
 } from "../models/OpponentSelectionOrder";
 import { leagueBusinessService } from "../services/leagueBusinessService";
 import { BaseController } from "./BaseController";
+import { io } from "../index";
+import { sendSystemMessageSafe, sendCollapsibleSystemMessageSafe } from "../services/leagueChatService";
 
 // Before: 1308 lines
 // After: 1007 lines
@@ -298,35 +300,19 @@ class LeagueController extends BaseController {
       return this.respondError(res, "Failed to create or update roster", 500);
     }
 
-    // Get user info for chat message
+    // Send system notification to league chat
     const { getUserById } = await import("../models/User");
     const user = await getUserById(userId);
+    const teamName = roster.settings?.team_name || team_name || `Team ${roster.roster_id}`;
+    const username = user?.username || `User ${userId}`;
 
-    // Create system notification in league chat
-    try {
-      const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
-      const teamName = roster.settings?.team_name || team_name || `Team ${roster.roster_id}`;
-      const username = user?.username || `User ${userId}`;
-
-      await createLeagueChatMessage({
-        league_id: leagueId,
-        user_id: null, // System message
-        message: `${username} has joined the league as ${teamName}`,
-        message_type: "system",
-        metadata: {
-          type: "user_joined",
-          joined_user_id: userId,
-          joined_username: username,
-          team_name: teamName,
-          roster_id: roster.id,
-        },
-      });
-
-      console.log(`[LeagueController] System message created for user ${userId} joining league ${leagueId}`);
-    } catch (chatError: any) {
-      console.error(`[LeagueController] Error creating system message for league join:`, chatError);
-      // Don't fail the join if chat message creation fails
-    }
+    await sendSystemMessageSafe(io, leagueId, `${username} has joined the league as ${teamName}`, {
+      type: "user_joined",
+      joined_user_id: userId,
+      joined_username: username,
+      team_name: teamName,
+      roster_id: roster.id,
+    });
 
     this.respondCreated(res, roster, "Successfully joined league");
   });
@@ -512,9 +498,6 @@ class LeagueController extends BaseController {
 
     // Send league chat notification about settings change
     try {
-      const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
-      const { emitLeagueChat } = await import("../socket/leagueSocket");
-      const { io } = await import("../index");
 
       // Track detailed changes with old and new values
       const changes: Array<{field: string, label: string, oldValue: any, newValue: any}> = [];
@@ -688,33 +671,16 @@ class LeagueController extends BaseController {
       }
 
       if (changes.length > 0) {
-        const message = 'Commissioner has updated league settings';
-
-        const chatMessage = await createLeagueChatMessage({
-          league_id: leagueId,
-          user_id: null, // System message
-          message,
-          message_type: "system",
-          metadata: {
-            type: 'league_settings_update',
-            collapsible: true,
-            details: {
-              changes: changes,
-              draft_order_regenerated: rosterCountChanged,
-            },
-          },
-        });
-
-        // Parse metadata before emitting (it's stored as JSON string in DB)
-        const messageToEmit = {
-          ...chatMessage,
-          metadata: typeof chatMessage.metadata === 'string'
-            ? JSON.parse(chatMessage.metadata)
-            : chatMessage.metadata
-        };
-
-        // Emit to league chat via socket
-        emitLeagueChat(io, leagueId, messageToEmit);
+        await sendCollapsibleSystemMessageSafe(
+          io,
+          leagueId,
+          'Commissioner has updated league settings',
+          'league_settings_update',
+          {
+            changes: changes,
+            draft_order_regenerated: rosterCountChanged,
+          }
+        );
       }
     } catch (notificationError) {
       console.error("Error sending settings change notification:", notificationError);
@@ -953,46 +919,17 @@ if (!league) {
       await client.query('COMMIT');
 
       // Send league chat notification about league reset
-      try {
-        const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
-        const { emitLeagueChat } = await import("../socket/leagueSocket");
-        const { io } = await import("../index");
-
-        const message = 'Commissioner has reset the league to pre-draft status';
-
-        const chatMessage = await createLeagueChatMessage({
-          league_id: leagueId,
-          user_id: null, // System message
-          message,
-          message_type: "system",
-          metadata: {
-            type: 'league_reset',
-            collapsible: true,
-            details: {
-              description: 'All rosters, matchups, weekly lineups, and draft data have been cleared. The league is ready for a new draft.',
-            }
-          },
-        });
-
-        // Parse metadata before emitting (it's stored as JSON string in DB)
-        const messageToEmit = {
-          ...chatMessage,
-          username: null,
-          team_name: null,
-          metadata: typeof chatMessage.metadata === 'string'
-            ? JSON.parse(chatMessage.metadata)
-            : chatMessage.metadata
-        };
-
-        // Emit to league chat via socket
-        emitLeagueChat(io, leagueId, messageToEmit);
-      } catch (notificationError) {
-        console.error("Error sending league reset notification:", notificationError);
-        // Don't fail the request if notification fails
-      }
+      await sendCollapsibleSystemMessageSafe(
+        io,
+        leagueId,
+        'Commissioner has reset the league to pre-draft status',
+        'league_reset',
+        {
+          description: 'All rosters, matchups, weekly lineups, and draft data have been cleared. The league is ready for a new draft.',
+        }
+      );
 
       // Emit socket event to notify clients that league was reset
-      const { io } = await import("../index");
       io.to(`league_${leagueId}`).emit("league_reset", {
         leagueId: leagueId,
         message: "League has been reset to pre-draft status",
@@ -1017,21 +954,9 @@ if (!league) {
     res: Response
   ) => {
     const leagueId = this.validateId(req.params.leagueId, "League ID");
-    const userId = this.getAuthenticatedUserId(req);
-
-    if (!userId) {
-      return this.respondUnauthorized(res, "User not authenticated");
-    }
-
-    // Get league to check commissioner
-    const league = await getLeagueById(leagueId);
-    if (!league) {
-      return this.respondNotFound(res, "League not found");
-    }
-
-    // Check if user is commissioner
-    const commissionerId = league.settings?.commissioner_id;
-    if (!commissionerId || commissionerId !== userId) {
+    // Validate commissioner access
+    const auth = await this.validateCommissionerAccess(req, leagueId);
+    if (!auth) {
       return this.respondForbidden(res, "Only the commissioner can delete the league");
     }
 
@@ -1167,17 +1092,10 @@ if (!league) {
    */
   randomizeOpponentSelectionOrder = this.asyncHandler(async (req: Request, res: Response) => {
     const leagueId = this.validateId(req.params.leagueId, "League ID");
-    const userId = this.getAuthenticatedUserId(req);
 
-    // Get league and verify it exists
-    const league = await getLeagueById(leagueId);
-    if (!league) {
-      return this.respondNotFound(res, "League not found");
-    }
-
-    // Verify user is commissioner
-    const commissionerId = league.settings?.commissioner_id;
-    if (!commissionerId || commissionerId !== userId) {
+    // Validate commissioner access
+    const auth = await this.validateCommissionerAccess(req, leagueId);
+    if (!auth) {
       return this.respondForbidden(res, "Only the commissioner can randomize opponent selection order");
     }
 

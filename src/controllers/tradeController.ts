@@ -21,7 +21,7 @@ import {
   getRosterTrades,
   getTradeWithDetails,
 } from "../models/Trade";
-import { createLeagueChatMessage } from "../models/LeagueChatMessage";
+import { sendSystemMessage } from "../services/leagueChatService";
 import { getLeagueById } from "../models/League";
 
 class TradeController extends BaseController {
@@ -119,7 +119,10 @@ class TradeController extends BaseController {
       const receiverTeamName = tradeWithDetails.receiver_team_name || `Team ${tradeWithDetails.receiver_roster_id}`;
 
       let chatMessageText = `${proposerTeamName} has proposed a trade to ${receiverTeamName}`;
-      let metadata: any = { trade_id: tradeWithDetails.id };
+      let metadata: any = {
+        type: 'trade_proposed',
+        trade_id: tradeWithDetails.id
+      };
 
       // Include trade details in metadata if requested
       if (finalShowDetails) {
@@ -133,25 +136,8 @@ class TradeController extends BaseController {
         };
       }
 
-      // Save the system message to the database
-      const chatMessage = await createLeagueChatMessage({
-        league_id,
-        user_id: null as any, // System message (null user_id)
-        message: chatMessageText,
-        message_type: "system",
-        metadata,
-      });
-
-      // Broadcast to league room
-      const roomName = `league_${league_id}`;
-      io.to(roomName).emit("league_chat_message", {
-        ...chatMessage,
-        username: "System",
-        // Parse metadata if it's a string (from DB)
-        metadata: typeof chatMessage.metadata === 'string'
-          ? JSON.parse(chatMessage.metadata)
-          : chatMessage.metadata,
-      });
+      // Send system message to league chat
+      await sendSystemMessage(io, league_id, chatMessageText, metadata);
     }
 
     this.respondCreated(res, tradeWithDetails);
@@ -186,6 +172,7 @@ class TradeController extends BaseController {
 
       const chatMessageText = `Trade completed between ${proposerTeamName} and ${receiverTeamName}`;
       const metadata = {
+        type: 'trade_completed',
         trade_id: tradeWithDetails.id,
         show_details: true,
         trade_details: {
@@ -197,24 +184,8 @@ class TradeController extends BaseController {
         },
       };
 
-      const chatMessage = await createLeagueChatMessage({
-        league_id: tradeWithDetails.league_id,
-        user_id: null as any, // System message
-        message: chatMessageText,
-        message_type: "system",
-        metadata,
-      });
-
-      // Broadcast to league room
-      const roomName = `league_${tradeWithDetails.league_id}`;
-      io.to(roomName).emit("league_chat_message", {
-        ...chatMessage,
-        username: "System",
-        // Parse metadata if it's a string (from DB)
-        metadata: typeof chatMessage.metadata === 'string'
-          ? JSON.parse(chatMessage.metadata)
-          : chatMessage.metadata,
-      });
+      // Send system message to league chat
+      await sendSystemMessage(io, tradeWithDetails.league_id, chatMessageText, metadata);
     }
 
     this.respondSuccess(res, tradeWithDetails);

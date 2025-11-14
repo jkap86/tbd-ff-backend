@@ -213,16 +213,3 @@ export function validateStringLength(
   }
   return value;
 }
-
-/**
- * Validation error class for consistent error handling
- */
-export class ValidationError extends Error {
-  statusCode: number;
-
-  constructor(message: string) {
-    super(message);
-    this.name = 'ValidationError';
-    this.statusCode = 400;
-  }
-}

@@ -18,6 +18,8 @@ import {
 } from "../models/Roster";
 import { getUserById } from "../models/User";
 import { BaseController } from "./BaseController";
+import { io } from "../index";
+import { sendSystemMessageSafe } from "../services/leagueChatService";
 
 class InviteController extends BaseController {
   /**
@@ -146,33 +148,17 @@ class InviteController extends BaseController {
     // Update invite status to accepted
     await updateInviteStatus(inviteId, "accepted");
 
-    // Get user info for chat message
+    // Send system notification to league chat
     const user = await getUserById(userId);
+    const username = user?.username || `User ${userId}`;
 
-    // Create system notification in league chat
-    try {
-      const { createLeagueChatMessage } = await import("../models/LeagueChatMessage");
-      const username = user?.username || `User ${userId}`;
-
-      await createLeagueChatMessage({
-        league_id: invite.league_id,
-        user_id: null, // System message
-        message: `${username} has joined the league`,
-        message_type: "system",
-        metadata: {
-          type: "user_joined",
-          joined_user_id: userId,
-          joined_username: username,
-          roster_id: roster.id,
-          via_invite: true,
-        },
-      });
-
-      console.log(`[InviteController] System message created for user ${userId} accepting invite to league ${invite.league_id}`);
-    } catch (chatError: any) {
-      console.error(`[InviteController] Error creating system message for invite acceptance:`, chatError);
-      // Don't fail the invite if chat message creation fails
-    }
+    await sendSystemMessageSafe(io, invite.league_id, `${username} has joined the league`, {
+      type: "user_joined",
+      joined_user_id: userId,
+      joined_username: username,
+      roster_id: roster.id,
+      via_invite: true,
+    });
 
     this.respondSuccess(res, roster, "Invite accepted successfully");
   });

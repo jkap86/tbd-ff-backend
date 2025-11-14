@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { verifyToken, JwtPayload } from "../utils/jwt";
+import { logger } from "../utils/logger";
 
 // Extend Express Request type to include user
 declare global {
@@ -23,7 +24,7 @@ export function authenticate(
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      console.error('[Auth] Missing or invalid Authorization header', {
+      logger.error('[Auth] Missing or invalid Authorization header', {
         endpoint: `${req.method} ${req.path}`,
         hasAuthHeader: !!authHeader,
         authHeaderValue: authHeader ? authHeader.substring(0, 20) + '...' : 'none',
@@ -46,7 +47,7 @@ export function authenticate(
 
     next();
   } catch (error: any) {
-    console.error('[Auth] Authentication error', {
+    logger.error('[Auth] Authentication error', {
       endpoint: `${req.method} ${req.path}`,
       errorMessage: error.message,
     });

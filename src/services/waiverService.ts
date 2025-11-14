@@ -13,7 +13,7 @@ import {
 } from "../models/Roster";
 import { createTransaction } from "../models/Transaction";
 import pool from "../config/database";
-import { setTransactionTimeouts } from "../utils/transactionTimeout";
+import { withTransaction } from "../utils/transactionWrapper";
 
 /**
  * Submit a waiver claim for a player
@@ -87,13 +87,9 @@ export async function submitWaiverClaim(
  * Process all pending waiver claims for a league with transaction isolation
  */
 export async function processWaivers(leagueId: number): Promise<void> {
-  const client = await pool.connect();
-    await setTransactionTimeouts(client);
-
-  try {
-    // Begin transaction with SERIALIZABLE isolation level
-    // This prevents phantom reads and ensures consistent view of data
-    await client.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+  return withTransaction(async (client) => {
+    // Using SERIALIZABLE isolation level to prevent phantom reads
+    // and ensure consistent view of data
 
     // Lock the league row to prevent concurrent processing
     await client.query(
@@ -272,17 +268,8 @@ export async function processWaivers(leagueId: number): Promise<void> {
       }
     }
 
-    // Commit transaction
-    await client.query("COMMIT");
     console.log(`Successfully processed ${pendingClaims.length} waiver claims for league ${leagueId}`);
-  } catch (error: any) {
-    // Rollback on any error
-    await client.query("ROLLBACK");
-    console.error("Error processing waivers:", error);
-    throw error;
-  } finally {
-    client.release();
-  }
+  }, { isolationLevel: "SERIALIZABLE" });
 }
 
 /**
@@ -293,12 +280,10 @@ export async function pickupFreeAgent(
   playerId: number,
   dropPlayerId: number | null
 ): Promise<any> {
-  const client = await pool.connect();
-    await setTransactionTimeouts(client);
-
+  // NOTE: This function doesn't use withTransaction because it calls model functions
+  // that use the global pool instead of a transaction client. Converting this would
+  // require updating all model functions to accept an optional client parameter.
   try {
-    await client.query("BEGIN");
-
     // Get roster to validate
     const roster = await getRosterById(rosterId);
     if (!roster) {
@@ -343,14 +328,10 @@ export async function pickupFreeAgent(
       drops: dropPlayerId ? [dropPlayerId] : [],
     });
 
-    await client.query("COMMIT");
     return transaction;
   } catch (error: any) {
-    await client.query("ROLLBACK");
     console.error("Error picking up free agent:", error);
     throw error;
-  } finally {
-    client.release();
   }
 }
 

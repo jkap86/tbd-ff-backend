@@ -1,6 +1,7 @@
 import rateLimit from "express-rate-limit";
 import { Request, Response, NextFunction } from "express";
 import { projectionsCache } from "../services/statsPreloader";
+import { logger } from "../utils/logger";
 
 /**
  * Rate Limiting Configuration
@@ -123,20 +124,16 @@ export const smartBulkProjectionsLimiter = (
 
     // If cache exists, skip rate limiting - cached requests are instant and cheap
     if (cachedIndex || cachedData) {
-      console.log(
-        `[SmartRateLimit] Cache hit for ${cacheKey} - bypassing rate limit`
-      );
+      logger.info(`[SmartRateLimit] Cache hit - bypassing rate limit`, { cacheKey });
       return next();
     }
 
     // No cache, apply rate limiting for expensive Sleeper API calls
-    console.log(
-      `[SmartRateLimit] Cache miss for ${cacheKey} - applying rate limit`
-    );
+    logger.info(`[SmartRateLimit] Cache miss - applying rate limit`, { cacheKey });
     bulkOperationLimiterStrict(req, res, next);
   } catch (error) {
     // On error, apply rate limiting to be safe
-    console.warn("[SmartRateLimit] Error checking cache, applying rate limit");
+    logger.warn("[SmartRateLimit] Error checking cache, applying rate limit", error);
     bulkOperationLimiterStrict(req, res, next);
   }
 };

@@ -1,5 +1,6 @@
 import { Socket } from "socket.io";
 import { verifyToken, JwtPayload } from "../utils/jwt";
+import { logger } from "../utils/logger";
 
 // Extend Socket data interface to include authenticated user
 declare module "socket.io" {
@@ -18,7 +19,7 @@ export function socketAuthMiddleware(socket: Socket, next: (err?: Error) => void
     const token = socket.handshake.auth.token;
 
     if (!token) {
-      console.log(`[SocketAuth] Connection rejected: No token provided (socket: ${socket.id})`);
+      logger.info(`[SocketAuth] Connection rejected: No token provided`, { socketId: socket.id });
       return next(new Error("Authentication failed: No token provided"));
     }
 
@@ -28,10 +29,10 @@ export function socketAuthMiddleware(socket: Socket, next: (err?: Error) => void
     // Store verified user in socket data
     socket.data.user = decoded;
 
-    console.log(`[SocketAuth] User ${decoded.username} (${decoded.userId}) authenticated (socket: ${socket.id})`);
+    logger.info(`[SocketAuth] User authenticated`, { username: decoded.username, userId: decoded.userId, socketId: socket.id });
     next();
   } catch (error: any) {
-    console.log(`[SocketAuth] Connection rejected: ${error.message} (socket: ${socket.id})`);
+    logger.info(`[SocketAuth] Connection rejected`, { errorMessage: error.message, socketId: socket.id });
 
     if (error.message === "Token expired") {
       return next(new Error("Authentication failed: Token expired"));

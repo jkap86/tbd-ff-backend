@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { getLeagueById } from "../models/League";
+import { logger } from "../utils/logger";
 
 /**
  * Middleware to require league is dynasty type
@@ -40,7 +41,7 @@ export async function requireDynasty(
 
     next();
   } catch (error: any) {
-    console.error("Dynasty guard error:", error);
+    logger.error("Dynasty guard error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Failed to verify league type"
@@ -87,7 +88,7 @@ export async function requireNotDynasty(
 
     next();
   } catch (error: any) {
-    console.error("Dynasty guard error:", error);
+    logger.error("Dynasty guard error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Failed to verify league type"
@@ -137,7 +138,7 @@ export async function requireKeeperPeriod(
 
     next();
   } catch (error: any) {
-    console.error("Keeper period guard error:", error);
+    logger.error("Keeper period guard error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Failed to verify keeper period"
@@ -146,61 +147,7 @@ export async function requireKeeperPeriod(
 }
 
 /**
- * Middleware to require user is league commissioner
- * Note: This duplicates some functionality from authorization.ts requireCommissioner
- * but is included here for completeness of the dynastyGuards module
+ * Re-export requireCommissioner from authorization middleware
+ * for convenience in dynasty-specific route files
  */
-export async function requireCommissioner(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const leagueId = parseInt(req.params.leagueId);
-    const userId = req.user?.userId;
-
-    if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "Not authenticated"
-      });
-      return;
-    }
-
-    if (isNaN(leagueId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid league ID"
-      });
-      return;
-    }
-
-    const league = await getLeagueById(leagueId);
-
-    if (!league) {
-      res.status(404).json({
-        success: false,
-        message: "League not found"
-      });
-      return;
-    }
-
-    const commissionerId = league.settings?.commissioner_id;
-
-    if (commissionerId !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "Only the commissioner can perform this action"
-      });
-      return;
-    }
-
-    next();
-  } catch (error: any) {
-    console.error("Commissioner guard error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to verify commissioner status"
-    });
-  }
-}
+export { requireCommissioner } from "./authorization";

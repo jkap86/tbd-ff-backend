@@ -22,8 +22,8 @@ CREATE INDEX IF NOT EXISTS idx_draft_picks_draft_roster ON draft_picks(draft_id,
 -- Draft order by draft and roster (for finding a team's draft position)
 CREATE INDEX IF NOT EXISTS idx_draft_order_draft_roster ON draft_order(draft_id, roster_id);
 
--- Auction nominations by draft and roster (for team's nominations)
-CREATE INDEX IF NOT EXISTS idx_auction_nominations_draft_roster ON auction_nominations(draft_id, roster_id);
+-- Auction nominations by draft and nominating roster (for team's nominations)
+CREATE INDEX IF NOT EXISTS idx_auction_nominations_draft_roster ON auction_nominations(draft_id, nominating_roster_id);
 
 -- ============================================================================
 -- TIME-BASED COMPOSITE INDEXES

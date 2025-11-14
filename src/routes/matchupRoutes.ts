@@ -11,19 +11,25 @@ import {
   deleteAllMatchupsForLeague,
 } from "../controllers/matchupController";
 import { authenticate } from "../middleware/authMiddleware";
+import { cacheMatchup, cacheLeague } from "../middleware/cacheMiddleware";
+import { CACHE_TTL } from "../utils/cache";
 
 const router = Router();
 
 // GET /api/matchups/league/:leagueId - Get all matchups for a league
-router.get("/league/:leagueId", getAllMatchupsForLeague);
+// Cache for 1 minute - updated when games complete
+router.get("/league/:leagueId", cacheLeague(CACHE_TTL.STANDINGS), getAllMatchupsForLeague);
 
 // GET /api/matchups/league/:leagueId/week/:week - Get matchups for specific week
-router.get("/league/:leagueId/week/:week", getMatchupsForWeek);
+// Cache for 30 seconds - frequently accessed during game days
+router.get("/league/:leagueId/week/:week", cacheMatchup(CACHE_TTL.MATCHUP), getMatchupsForWeek);
 
 // GET /api/matchups/:matchupId/details - Get detailed matchup with rosters and players
+// Cache for 30 seconds - includes live scores
 router.get("/:matchupId/details", getMatchupDetailsHandler);
 
 // GET /api/matchups/:matchupId/scores - Get detailed matchup with player scores
+// Cache for 30 seconds - includes live scores
 router.get("/:matchupId/scores", getMatchupScoresHandler);
 
 // POST /api/matchups/league/:leagueId/week/:week/generate - Generate matchups (commissioner only)

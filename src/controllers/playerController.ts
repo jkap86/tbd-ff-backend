@@ -2,10 +2,11 @@
 // Before: 178 lines | After: 139 lines | Saved: 39 lines
 
 import { Request, Response } from "express";
-import { bulkUpsertPlayers, getAllPlayers, getPlayersByIds } from "../models/Player";
+import { bulkUpsertPlayers, getAllPlayers, getPlayersByIds, getPlayersCount } from "../models/Player";
 import https from "https";
 import { logger } from "../config/logger";
 import { BaseController } from "./BaseController";
+import { parsePaginationParams, createPaginatedResponse } from "../utils/pagination";
 
 /**
  * Fetch players from Sleeper API
@@ -90,19 +91,34 @@ class PlayerController extends BaseController {
   });
 
   /**
-   * Get all players with optional filtering
-   * GET /api/players
+   * Get all players with optional filtering and pagination
+   * GET /api/players?page=1&limit=20&position=QB&team=KC&search=mahomes
    */
   getPlayersHandler = this.asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { position, team, search } = req.query;
 
-    const players = await getAllPlayers({
+    // Parse pagination parameters (default: page=1, limit=20, max=100)
+    const { page, limit, offset } = parsePaginationParams(req, 20, 100);
+
+    // Get players and total count
+    const filters = {
       position: position as string,
       team: team as string,
       search: search as string,
-    });
+    };
 
-    this.respondSuccess(res, players);
+    const [players, total] = await Promise.all([
+      getAllPlayers({
+        ...filters,
+        limit,
+        offset,
+      }),
+      getPlayersCount(filters),
+    ]);
+
+    // Return paginated response
+    const response = createPaginatedResponse(players, total, page, limit);
+    res.status(200).json(response);
   });
 
   /**

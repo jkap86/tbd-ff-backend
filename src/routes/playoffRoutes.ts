@@ -9,11 +9,14 @@ import {
   advancePlayoffRoundHandler,
   pickManualWinnerHandler,
 } from "../controllers/playoffController";
+import { cacheLeague } from "../middleware/cacheMiddleware";
+import { CACHE_TTL } from "../utils/cache";
 
 const router = Router();
 
 // GET playoff settings
-router.get("/league/:leagueId/settings", authenticate, getPlayoffSettingsHandler);
+// Cache for 5 minutes - settings rarely change
+router.get("/league/:leagueId/settings", authenticate, cacheLeague(CACHE_TTL.LEAGUE_SETTINGS), getPlayoffSettingsHandler);
 
 // Update playoff settings (commissioner only)
 router.post("/league/:leagueId/settings", authenticate, updatePlayoffSettingsHandler);
@@ -22,10 +25,12 @@ router.post("/league/:leagueId/settings", authenticate, updatePlayoffSettingsHan
 router.post("/league/:leagueId/generate", authenticate, generatePlayoffBracketHandler);
 
 // Get playoff bracket
-router.get("/league/:leagueId/bracket", authenticate, getPlayoffBracketHandler);
+// Cache for 1 minute - updated when games complete
+router.get("/league/:leagueId/bracket", authenticate, cacheLeague(CACHE_TTL.STANDINGS), getPlayoffBracketHandler);
 
 // Get playoff standings/seedings
-router.get("/league/:leagueId/standings", authenticate, getPlayoffStandingsHandler);
+// Cache for 1 minute - expensive calculation, updated frequently
+router.get("/league/:leagueId/standings", authenticate, cacheLeague(CACHE_TTL.STANDINGS), getPlayoffStandingsHandler);
 
 // Advance playoff round (commissioner only)
 router.post("/league/:leagueId/advance/:round", authenticate, advancePlayoffRoundHandler);

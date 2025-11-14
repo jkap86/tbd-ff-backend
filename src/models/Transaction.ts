@@ -89,11 +89,12 @@ export async function createTransaction(
 }
 
 /**
- * Get all transactions for a league
+ * Get all transactions for a league with pagination support
  */
 export async function getTransactionsByLeague(
   leagueId: number,
-  limit: number = 50
+  limit: number = 50,
+  offset: number = 0
 ): Promise<any[]> {
   try {
     const query = `
@@ -103,10 +104,10 @@ export async function getTransactionsByLeague(
       JOIN users u ON r.user_id = u.id
       WHERE t.league_id = $1
       ORDER BY t.processed_at DESC
-      LIMIT $2
+      LIMIT $2 OFFSET $3
     `;
 
-    const result = await pool.query(query, [leagueId, limit]);
+    const result = await pool.query(query, [leagueId, limit, offset]);
     return result.rows;
   } catch (error: any) {
     logger.error("Error getting transactions by league:", { error });
@@ -115,21 +116,22 @@ export async function getTransactionsByLeague(
 }
 
 /**
- * Get all transactions for a specific roster
+ * Get all transactions for a specific roster with pagination support
  */
 export async function getTransactionsByRoster(
   rosterId: number,
-  limit: number = 50
+  limit: number = 50,
+  offset: number = 0
 ): Promise<Transaction[]> {
   try {
     const query = `
       SELECT * FROM transactions
       WHERE roster_id = $1
       ORDER BY processed_at DESC
-      LIMIT $2
+      LIMIT $2 OFFSET $3
     `;
 
-    const result = await pool.query(query, [rosterId, limit]);
+    const result = await pool.query(query, [rosterId, limit, offset]);
     return result.rows;
   } catch (error: any) {
     logger.error("Error getting transactions by roster:", { error });
@@ -146,11 +148,50 @@ export async function getTransactionById(transactionId: number): Promise<Transac
 }
 
 /**
- * Get recent transactions for a league with player details
+ * Get total count of transactions for a league
+ */
+export async function getTransactionsCountByLeague(leagueId: number): Promise<number> {
+  try {
+    const query = `
+      SELECT COUNT(*) as count
+      FROM transactions
+      WHERE league_id = $1
+    `;
+
+    const result = await pool.query(query, [leagueId]);
+    return parseInt(result.rows[0].count, 10);
+  } catch (error: any) {
+    logger.error("Error getting transactions count:", { error });
+    throw new Error("Error getting transactions count");
+  }
+}
+
+/**
+ * Get total count of transactions for a roster
+ */
+export async function getTransactionsCountByRoster(rosterId: number): Promise<number> {
+  try {
+    const query = `
+      SELECT COUNT(*) as count
+      FROM transactions
+      WHERE roster_id = $1
+    `;
+
+    const result = await pool.query(query, [rosterId]);
+    return parseInt(result.rows[0].count, 10);
+  } catch (error: any) {
+    logger.error("Error getting transactions count by roster:", { error });
+    throw new Error("Error getting transactions count by roster");
+  }
+}
+
+/**
+ * Get recent transactions for a league with player details and pagination support
  */
 export async function getTransactionsWithPlayerDetails(
   leagueId: number,
-  limit: number = 50
+  limit: number = 50,
+  offset: number = 0
 ): Promise<any[]> {
   try {
     const query = `
@@ -160,10 +201,10 @@ export async function getTransactionsWithPlayerDetails(
       JOIN users u ON r.user_id = u.id
       WHERE t.league_id = $1
       ORDER BY t.processed_at DESC
-      LIMIT $2
+      LIMIT $2 OFFSET $3
     `;
 
-    const result = await pool.query(query, [leagueId, limit]);
+    const result = await pool.query(query, [leagueId, limit, offset]);
     const transactions = result.rows;
 
     // Get all unique player IDs from transactions

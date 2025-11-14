@@ -161,13 +161,15 @@ export async function getMatchupsByLeagueAndWeek(
 }
 
 /**
- * Get all matchups for a league
+ * Get all matchups for a league with pagination support
  */
 export async function getMatchupsByLeague(
-  leagueId: number
+  leagueId: number,
+  limit?: number,
+  offset?: number
 ): Promise<MatchupWithRosters[]> {
   try {
-    const query = `
+    let query = `
       SELECT
         m.*,
         r1.settings->>'team_name' as roster1_team_name,
@@ -180,14 +182,41 @@ export async function getMatchupsByLeague(
       LEFT JOIN rosters r2 ON m.roster2_id = r2.id
       LEFT JOIN users u2 ON r2.user_id = u2.id
       WHERE m.league_id = $1
-      ORDER BY m.week, m.id
+      ORDER BY m.week DESC, m.id
     `;
 
-    const result = await pool.query(query, [leagueId]);
+    const params: any[] = [leagueId];
+
+    // Add pagination if provided
+    if (limit !== undefined && offset !== undefined) {
+      query += ` LIMIT $2 OFFSET $3`;
+      params.push(limit, offset);
+    }
+
+    const result = await pool.query(query, params);
     return result.rows;
   } catch (error) {
     logger.error("Error getting matchups:", { error });
     throw new Error("Error getting matchups");
+  }
+}
+
+/**
+ * Get total count of matchups for a league
+ */
+export async function getMatchupsCountByLeague(leagueId: number): Promise<number> {
+  try {
+    const query = `
+      SELECT COUNT(*) as count
+      FROM matchups
+      WHERE league_id = $1
+    `;
+
+    const result = await pool.query(query, [leagueId]);
+    return parseInt(result.rows[0].count, 10);
+  } catch (error) {
+    logger.error("Error getting matchups count:", { error });
+    throw new Error("Error getting matchups count");
   }
 }
 

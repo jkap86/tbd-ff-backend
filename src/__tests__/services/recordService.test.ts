@@ -362,6 +362,12 @@ describe('Record Service Tests', () => {
 
   describe('recalculateAllRecords', () => {
     beforeEach(async () => {
+      // Reset league settings to start_week = 1
+      await pool.query(
+        `UPDATE leagues SET settings = jsonb_set(settings, '{start_week}', '1') WHERE id = $1`,
+        [testLeagueId]
+      );
+
       // Create completed matchups for weeks 1-3
       // Week 1
       await pool.query(
@@ -440,11 +446,11 @@ describe('Record Service Tests', () => {
       expect(roster1.rows[0].settings.wins).toBe(3);
       expect(roster1.rows[0].settings.losses).toBe(0);
 
-      // Roster 2: 0-2-1 (L L T)
+      // Roster 2: 0-3-0 (L L L) - Week 1: L vs R1, Week 2: L vs R4, Week 3: L vs R3
       const roster2 = await pool.query('SELECT settings FROM rosters WHERE id = $1', [testRosterIds[1]]);
       expect(roster2.rows[0].settings.wins).toBe(0);
-      expect(roster2.rows[0].settings.losses).toBe(2);
-      expect(roster2.rows[0].settings.ties).toBe(1);
+      expect(roster2.rows[0].settings.losses).toBe(3);
+      expect(roster2.rows[0].settings.ties).toBe(0);
 
       // Roster 3: 1-1-1 (T L W)
       const roster3 = await pool.query('SELECT settings FROM rosters WHERE id = $1', [testRosterIds[2]]);

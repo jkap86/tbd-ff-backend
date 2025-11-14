@@ -5,6 +5,7 @@ import { BaseController } from "./BaseController";
 import { io } from "../index";
 import { sendSystemMessageSafe } from "../services/leagueChatService";
 import pool from "../config/database";
+import { invalidateRosterCache } from "../utils/cache";
 
 // Before: 244 lines
 // After: 254 lines
@@ -244,6 +245,9 @@ class RosterController extends BaseController {
 
     // Get updated roster with player details
     const rosterWithPlayers = await getRosterWithPlayers(rosterIdNum);
+
+    // Invalidate roster cache after lineup update
+    await invalidateRosterCache(rosterIdNum, roster.league_id);
 
     this.respondSuccess(res, rosterWithPlayers, "Lineup updated successfully");
   });

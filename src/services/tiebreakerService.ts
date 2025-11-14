@@ -155,7 +155,7 @@ async function applyBenchPointsTiebreaker(
     // Get bench points from rosters
     // Bench players are stored in the roster's bench array
     const { getRosterById } = await import("../models/Roster");
-    const { getPlayerStatsByWeek } = await import("../models/PlayerStats");
+    const { getMultiplePlayersStatsByWeek } = await import("../models/PlayerStats");
     const { calculateFantasyPoints } = await import("./scoringService");
     const { getLeagueById } = await import("../models/League");
 
@@ -176,17 +176,28 @@ async function applyBenchPointsTiebreaker(
 
     const scoringSettings = league.scoring_settings || {};
 
+    // Get all bench player IDs from both rosters
+    const bench1PlayerIds = roster1.bench || [];
+    const bench2PlayerIds = roster2.bench || [];
+    const allBenchPlayerIds = [...bench1PlayerIds, ...bench2PlayerIds];
+
+    // Batch fetch all stats in one query
+    const allStats = await getMultiplePlayersStatsByWeek(
+      allBenchPlayerIds,
+      matchup.week,
+      matchup.season,
+      "regular"
+    );
+
+    // Create a Map for O(1) lookups
+    const statsMap = new Map(
+      allStats.map(stat => [stat.player_id, stat])
+    );
+
     // Calculate bench points for roster1
     let roster1BenchPoints = 0;
-    const bench1PlayerIds = roster1.bench || [];
-
     for (const playerId of bench1PlayerIds) {
-      const stats = await getPlayerStatsByWeek(
-        playerId,
-        matchup.week,
-        matchup.season,
-        "regular"
-      );
+      const stats = statsMap.get(playerId);
       if (stats) {
         const points = calculateFantasyPoints(stats, scoringSettings);
         roster1BenchPoints += points;
@@ -195,15 +206,8 @@ async function applyBenchPointsTiebreaker(
 
     // Calculate bench points for roster2
     let roster2BenchPoints = 0;
-    const bench2PlayerIds = roster2.bench || [];
-
     for (const playerId of bench2PlayerIds) {
-      const stats = await getPlayerStatsByWeek(
-        playerId,
-        matchup.week,
-        matchup.season,
-        "regular"
-      );
+      const stats = statsMap.get(playerId);
       if (stats) {
         const points = calculateFantasyPoints(stats, scoringSettings);
         roster2BenchPoints += points;

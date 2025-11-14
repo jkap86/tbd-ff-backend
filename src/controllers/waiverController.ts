@@ -16,6 +16,7 @@ import {
 } from "../models/WaiverClaim";
 import {
   getTransactionsWithPlayerDetails,
+  getTransactionsCountByLeague,
 } from "../models/Transaction";
 import { getRosterByLeagueAndUser } from "../models/Roster";
 import {
@@ -23,6 +24,7 @@ import {
   updateWaiverSettings,
 } from "../models/WaiverSettings";
 import { BaseController } from "./BaseController";
+import { parsePaginationParams, createPaginatedResponse } from "../utils/pagination";
 
 class WaiverController extends BaseController {
   /**
@@ -209,17 +211,24 @@ class WaiverController extends BaseController {
   });
 
   /**
-   * Get transaction history for a league
-   * GET /api/leagues/:leagueId/transactions
+   * Get transaction history for a league with pagination
+   * GET /api/leagues/:leagueId/transactions?page=1&limit=20
    */
   getLeagueTransactionsHandler = this.asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const leagueId = this.validateId(req.params.leagueId, "League ID");
-    const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
 
-    // Get transactions with player details
-    const transactions = await getTransactionsWithPlayerDetails(leagueId, limit);
+    // Parse pagination parameters (default: page=1, limit=20, max=100)
+    const { page, limit, offset } = parsePaginationParams(req, 20, 100);
 
-    this.respondSuccess(res, transactions);
+    // Get transactions with player details and total count
+    const [transactions, total] = await Promise.all([
+      getTransactionsWithPlayerDetails(leagueId, limit, offset),
+      getTransactionsCountByLeague(leagueId),
+    ]);
+
+    // Return paginated response
+    const response = createPaginatedResponse(transactions, total, page, limit);
+    res.status(200).json(response);
   });
 
   /**

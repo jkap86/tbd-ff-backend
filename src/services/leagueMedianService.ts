@@ -240,9 +240,11 @@ export async function generateMedianMatchups(
  * Update median matchup results after regular matchups are scored
  *
  * Algorithm:
- * 1. Get all median matchups for league/week
- * 2. For each median matchup:
- *    - Get the roster's score from their regular matchup
+ * 1. Recalculate median score for the week
+ * 2. Get all median matchups for league/week
+ * 3. Fetch ALL regular matchup scores in ONE query (performance optimization)
+ * 4. Build a roster_id -> score lookup map for O(1) access
+ * 5. For each median matchup, use pre-fetched score from map to:
  *    - Update roster1_score with that score
  *    - Compare to median_score to determine winner
  *
@@ -282,53 +284,54 @@ export async function updateMedianMatchupResults(
       return;
     }
 
+    // 3. Fetch all regular matchup scores for this week in ONE query
+    const regularMatchupsQuery = `
+      SELECT
+        roster1_id,
+        roster1_score,
+        roster2_id,
+        roster2_score
+      FROM matchups
+      WHERE league_id = $1
+        AND week = $2
+        AND (is_median_matchup IS NULL OR is_median_matchup = FALSE)
+    `;
+
+    const regularMatchupsResult = await pool.query(regularMatchupsQuery, [leagueId, week]);
+
+    // 4. Create a lookup map: roster_id -> score (O(1) access)
+    const rosterScoreMap = new Map<number, number>();
+
+    for (const matchup of regularMatchupsResult.rows) {
+      if (matchup.roster1_id && matchup.roster1_score !== null) {
+        rosterScoreMap.set(matchup.roster1_id, parseFloat(matchup.roster1_score));
+      }
+      if (matchup.roster2_id && matchup.roster2_score !== null) {
+        rosterScoreMap.set(matchup.roster2_id, parseFloat(matchup.roster2_score));
+      }
+    }
+
+    logger.info(`[LeagueMedian] Loaded ${rosterScoreMap.size} roster scores into lookup map`);
+
     const client = await pool.connect();
     await setTransactionTimeouts(client);
     try {
       await client.query("BEGIN");
 
-      // 3. For each median matchup, get the roster's score and update
+      // 5. For each median matchup, use the pre-fetched score from the map
       for (const medianMatchup of medianMatchupsResult.rows) {
-        // Get the roster's score from their regular (non-median) matchup
-        const regularMatchupQuery = `
-          SELECT
-            CASE
-              WHEN roster1_id = $1 THEN roster1_score
-              WHEN roster2_id = $1 THEN roster2_score
-              ELSE NULL
-            END as roster_score
-          FROM matchups
-          WHERE league_id = $2
-            AND week = $3
-            AND (roster1_id = $1 OR roster2_id = $1)
-            AND (is_median_matchup IS NULL OR is_median_matchup = FALSE)
-          LIMIT 1
-        `;
+        // Look up the roster's score from the pre-fetched map (O(1))
+        const rosterScore = rosterScoreMap.get(medianMatchup.roster1_id);
 
-        const regularMatchupResult = await client.query(regularMatchupQuery, [
-          medianMatchup.roster1_id,
-          leagueId,
-          week,
-        ]);
-
-        if (regularMatchupResult.rows.length === 0) {
+        if (rosterScore === undefined) {
           logger.info(`[LeagueMedian] No regular matchup found for roster ${medianMatchup.roster1_id}`);
           continue;
         }
 
-        const rosterScore = regularMatchupResult.rows[0].roster_score;
-
-        if (rosterScore === null) {
-          logger.info(`[LeagueMedian] Roster ${medianMatchup.roster1_id} has no score yet`);
-          continue;
-        }
-
-        const rosterScoreFloat = parseFloat(rosterScore);
-
         // Determine winner: if roster score > median score, roster wins (winner_roster_id = roster1_id)
         // Otherwise, median wins (winner_roster_id = null)
         let winnerRosterId: number | null = null;
-        if (rosterScoreFloat > medianScore) {
+        if (rosterScore > medianScore) {
           winnerRosterId = medianMatchup.roster1_id;
         }
         // If tied or below median, winner stays null (median wins)
@@ -346,14 +349,14 @@ export async function updateMedianMatchupResults(
         `;
 
         await client.query(updateQuery, [
-          rosterScoreFloat,
+          rosterScore,
           medianScore,
           winnerRosterId,
           medianMatchup.id,
         ]);
 
         logger.info(
-          `[LeagueMedian] Updated median matchup for roster ${medianMatchup.roster1_id}: score ${rosterScoreFloat.toFixed(2)} vs median ${medianScore.toFixed(2)}, winner: ${winnerRosterId || "median"}`
+          `[LeagueMedian] Updated median matchup for roster ${medianMatchup.roster1_id}: score ${rosterScore.toFixed(2)} vs median ${medianScore.toFixed(2)}, winner: ${winnerRosterId || "median"}`
         );
       }
 

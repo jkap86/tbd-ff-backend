@@ -7,6 +7,8 @@ import {
 } from "../middleware/authorization";
 import { getRosterTradesController } from "../controllers/tradeController";
 import { setLineupValidator, rosterIdValidator } from "../validators/roster.validator";
+import { cacheRoster } from "../middleware/cacheMiddleware";
+import { CACHE_TTL } from "../utils/cache";
 
 const router = Router();
 
@@ -17,7 +19,8 @@ router.post("/league/:leagueId/fix-bn-slots", fixBenchSlotsHandler);
 router.get("/:rosterId/debug", authenticate, debugRosterHandler);
 
 // Get roster with player details
-router.get("/:rosterId/players", authenticate, rosterIdValidator, handleValidationErrors, getRosterWithPlayersHandler);
+// Cache for 3 minutes - expensive query with joins
+router.get("/:rosterId/players", authenticate, rosterIdValidator, handleValidationErrors, cacheRoster(CACHE_TTL.ROSTER), getRosterWithPlayersHandler);
 
 // Update roster lineup (must own roster)
 router.put("/:rosterId/lineup", authenticate, requireRosterOwnership, setLineupValidator, handleValidationErrors, updateRosterLineupHandler);

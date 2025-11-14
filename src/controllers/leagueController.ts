@@ -22,6 +22,7 @@ import { leagueBusinessService } from "../services/leagueBusinessService";
 import { BaseController } from "./BaseController";
 import { io } from "../index";
 import { sendSystemMessageSafe, sendCollapsibleSystemMessageSafe } from "../services/leagueChatService";
+import { invalidateLeagueCache } from "../utils/cache";
 
 // Before: 1308 lines
 // After: 1007 lines
@@ -688,6 +689,9 @@ class LeagueController extends BaseController {
       // Don't fail the request if notification fails
     }
 
+    // Invalidate league cache after settings update
+    await invalidateLeagueCache(leagueId);
+
     this.respondSuccess(res, updatedLeague, "League settings updated successfully");
   });
 
@@ -935,6 +939,9 @@ if (!league) {
         leagueId: leagueId,
         message: "League has been reset to pre-draft status",
       });
+
+      // Invalidate all league cache after reset
+      await invalidateLeagueCache(leagueId);
 
       this.respondSuccess(res, null, "League reset to pre-draft status successfully");
     } catch (error: any) {

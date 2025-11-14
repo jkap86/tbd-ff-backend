@@ -38,6 +38,8 @@ import {
   leagueIdValidator,
 } from "../validators/league.validator";
 import { handleValidationErrors } from "../middleware/validationMiddleware";
+import { cacheLeague } from "../middleware/cacheMiddleware";
+import { CACHE_TTL } from "../utils/cache";
 
 const router = Router();
 
@@ -67,7 +69,8 @@ router.post("/:leagueId/generate-invite-link", authenticate, requireCommissioner
 router.get("/:leagueId/public-info", getPublicLeagueInfoHandler);
 
 // GET /api/leagues/:leagueId - Get specific league details with rosters
-router.get("/:leagueId", authenticate, requireLeagueMember, leagueIdValidator, handleValidationErrors, getLeagueDetailsHandler);
+// Cache for 5 minutes - league settings rarely change
+router.get("/:leagueId", authenticate, requireLeagueMember, leagueIdValidator, handleValidationErrors, cacheLeague(CACHE_TTL.LEAGUE_SETTINGS), getLeagueDetailsHandler);
 
 // PUT /api/leagues/:leagueId - Update league settings (protected, commissioner only)
 router.put("/:leagueId", authenticate, requireCommissioner, updateLeagueValidator, handleValidationErrors, updateLeagueSettingsHandler);
@@ -107,7 +110,8 @@ router.post(
  * Get league statistics
  * GET /api/leagues/:leagueId/stats
  */
-router.get("/:leagueId/stats", authenticate, requireLeagueMember, getLeagueStatsHandler);
+// Cache for 5 minutes - stats change infrequently
+router.get("/:leagueId/stats", authenticate, requireLeagueMember, cacheLeague(CACHE_TTL.LEAGUE_SETTINGS), getLeagueStatsHandler);
 
 /**
  * Get draft for a league

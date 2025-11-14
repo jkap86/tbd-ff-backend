@@ -5,6 +5,7 @@ import { Request, Response } from "express";
 import {
   getMatchupsByLeagueAndWeek,
   getMatchupsByLeague,
+  getMatchupsCountByLeague,
   generateMatchupsForWeek,
   deleteMatchupsForWeek,
   deleteMatchupsForLeague,
@@ -20,6 +21,8 @@ import { getOrCreateWeeklyLineup, updateWeeklyLineup } from "../models/WeeklyLin
 import { getRostersByLeagueId } from "../models/Roster";
 import { logger } from "../config/logger";
 import { BaseController } from "./BaseController";
+import { invalidateMatchupCache } from "../utils/cache";
+import { parsePaginationParams, createPaginatedResponse } from "../utils/pagination";
 
 // Simple in-memory cache for last update times
 const lastUpdateCache = new Map<string, number>();
@@ -72,13 +75,24 @@ class MatchupController extends BaseController {
   });
 
   /**
-   * Get all matchups for a league (all weeks)
-   * GET /api/matchups/league/:leagueId
+   * Get all matchups for a league (all weeks) with pagination
+   * GET /api/matchups/league/:leagueId?page=1&limit=20
    */
   getAllMatchupsForLeague = this.asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const leagueIdNum = this.validateId(req.params.leagueId, "League ID");
-    const matchups = await getMatchupsByLeague(leagueIdNum);
-    this.respondSuccess(res, matchups);
+
+    // Parse pagination parameters (default: page=1, limit=20, max=100)
+    const { page, limit, offset } = parsePaginationParams(req, 20, 100);
+
+    // Get matchups and total count
+    const [matchups, total] = await Promise.all([
+      getMatchupsByLeague(leagueIdNum, limit, offset),
+      getMatchupsCountByLeague(leagueIdNum),
+    ]);
+
+    // Return paginated response
+    const response = createPaginatedResponse(matchups, total, page, limit);
+    res.status(200).json(response);
   });
 
   /**
@@ -133,6 +147,9 @@ class MatchupController extends BaseController {
     // Finally, finalize scores if week is complete
     logger.info(`Checking if week ${weekNum} should be finalized...`);
     await finalizeWeekScores(leagueIdNum, weekNum, season, season_type);
+
+    // Invalidate matchup cache after score update
+    await invalidateMatchupCache(leagueIdNum, weekNum);
 
     res.status(200).json({
       success: true,

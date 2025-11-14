@@ -35,7 +35,7 @@ class PlayerRepository extends BaseRepository<Player> {
 const playerRepository = new PlayerRepository();
 
 /**
- * Get all players
+ * Get all players with pagination support
  * REFACTORED: Uses playerRepository.query() for error handling (4 lines saved)
  */
 export async function getAllPlayers(
@@ -43,6 +43,8 @@ export async function getAllPlayers(
     position?: string;
     team?: string;
     search?: string;
+    limit?: number;
+    offset?: number;
   }
 ): Promise<Player[]> {
   let query = `
@@ -74,8 +76,62 @@ export async function getAllPlayers(
 
   query += ` ORDER BY search_rank NULLS LAST, full_name`;
 
+  // Add pagination if provided
+  if (filters?.limit !== undefined) {
+    query += ` LIMIT $${paramCount}`;
+    params.push(filters.limit);
+    paramCount++;
+  }
+
+  if (filters?.offset !== undefined) {
+    query += ` OFFSET $${paramCount}`;
+    params.push(filters.offset);
+    paramCount++;
+  }
+
   const result = await playerRepository['query'](query, params);
   return result.rows;
+}
+
+/**
+ * Get total count of players with filters
+ */
+export async function getPlayersCount(
+  filters?: {
+    position?: string;
+    team?: string;
+    search?: string;
+  }
+): Promise<number> {
+  let query = `
+    SELECT COUNT(*) as count
+    FROM players
+    WHERE 1=1
+  `;
+  const params: any[] = [];
+  let paramCount = 1;
+
+  if (filters?.position) {
+    query += ` AND position = $${paramCount}`;
+    params.push(filters.position);
+    paramCount++;
+  }
+
+  if (filters?.team) {
+    query += ` AND team = $${paramCount}`;
+    params.push(filters.team);
+    paramCount++;
+  }
+
+  if (filters?.search) {
+    const escapedSearch = escapeLikePattern(filters.search);
+    query += ` AND full_name ILIKE $${paramCount}`;
+    params.push(`%${escapedSearch}%`);
+    paramCount++;
+  }
+
+  const result = await playerRepository['query'](query, params);
+  return parseInt(result.rows[0].count, 10);
 }
 
 export interface PaginatedPlayers {

@@ -1,5 +1,6 @@
 import pool from "../config/database";
 import { logger } from "../config/logger";
+import { rosterRepository } from "../repositories/RosterRepository";
 
 export interface StandingsEntry {
   roster_id: number;
@@ -67,26 +68,11 @@ export async function calculateStandings(
     const settings = league.settings || {};
     const tiebreaker = settings.tiebreaker || "points_for";
 
-    // Query to get all rosters with their records
-    const query = `
-      SELECT
-        r.id as roster_id,
-        r.user_id,
-        COALESCE(r.settings->>'team_name', 'Team ' || r.roster_id) as team_name,
-        u.username,
-        COALESCE((r.settings->>'wins')::integer, 0) as wins,
-        COALESCE((r.settings->>'losses')::integer, 0) as losses,
-        COALESCE((r.settings->>'ties')::integer, 0) as ties,
-        COALESCE((r.settings->>'points_for')::numeric, 0) as points_for,
-        COALESCE((r.settings->>'points_against')::numeric, 0) as points_against
-      FROM rosters r
-      JOIN users u ON r.user_id = u.id
-      WHERE r.league_id = $1
-      ORDER BY r.roster_id
-    `;
+    // REFACTORED: Use RosterRepository for centralized query
+    // Eliminates duplicate roster queries and improves testability
+    const standingsData = await rosterRepository.getStandingsData(leagueId);
 
-    const result = await pool.query(query, [leagueId]);
-    let standings: StandingsEntry[] = result.rows.map((row) => ({
+    let standings: StandingsEntry[] = standingsData.map((row) => ({
       roster_id: row.roster_id,
       user_id: row.user_id,
       team_name: row.team_name,
@@ -94,8 +80,8 @@ export async function calculateStandings(
       wins: row.wins,
       losses: row.losses,
       ties: row.ties,
-      points_for: parseFloat(row.points_for),
-      points_against: parseFloat(row.points_against),
+      points_for: row.points_for,
+      points_against: row.points_against,
       seed: 0, // Will be assigned later
     }));
 

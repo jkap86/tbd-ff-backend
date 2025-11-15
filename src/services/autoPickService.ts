@@ -3,7 +3,7 @@ import { getDraftOrder, getRosterAtPosition } from "../models/DraftOrder";
 import { getLeagueById } from "../models/League";
 import { calculateCurrentRoster } from "../utils/draftCalculations";
 import { emitDraftPick, emitDraftStatusChange } from "../socket/draftSocket";
-import { io } from "../index";
+import { eventBus } from "../index";
 import { AutoPickFailedError } from "../errors/DraftErrors";
 import pool from "../config/database";
 import { setTransactionTimeouts } from "../utils/transactionTimeout";
@@ -105,9 +105,8 @@ async function checkAndAutoPickIfNeeded(draftId: number): Promise<void> {
         const { toggleAutodraft } = await import("../models/DraftOrder");
         await toggleAutodraft(draftId, draft.current_roster_id, true);
 
-        // Broadcast autodraft status change to all clients
-        const { io } = await import("../index");
-        io.to(`draft_${draftId}`).emit("autodraft_toggled", {
+        // Broadcast autodraft status change to all clients using EventBus
+        eventBus.emitToRoom(`draft_${draftId}`, "autodraft_toggled", {
           roster_id: draft.current_roster_id,
           is_autodrafting: true,
           username: "System (Timeout)",
@@ -452,6 +451,8 @@ async function makeDraftPickWithPlayerSelection(draftId: number, rosterId: numbe
     logger.info(`[AutoPick] Emitting pick with details:`, pickWithDetails);
 
     // Emit draft pick event with enriched details
+    // TODO: Update emitDraftPick to accept IEventBus instead of Server
+    const io = eventBus.getSocketIOInstance();
     emitDraftPick(io, draftId, pickWithDetails, updatedDraft);
 
     // Emit updated draft state - use 'completed' status if draft finished, otherwise 'in_progress'

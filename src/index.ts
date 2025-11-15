@@ -27,6 +27,7 @@ import { setupWaiverSocket } from "./socket/waiverSocket";
 import { setupTradeSocket } from "./socket/tradeSocket";
 import { setupAuctionSocket } from "./socket/auctionSocket";
 import { setupOpponentSelectionDraftSocket } from "./socket/opponentSelectionDraftSocket";
+import { SocketEventBus } from "./services/eventBus/SocketEventBus";
 import { stopAllAutoPickMonitoring } from "./services/autoPickService";
 import { startScoreScheduler, stopScoreScheduler } from "./services/scoreScheduler";
 import { startLiveScoreUpdates, stopLiveScoreUpdates } from "./services/liveScoreService";
@@ -192,7 +193,21 @@ setupTradeSocket(io);
 setupAuctionSocket(io);
 setupOpponentSelectionDraftSocket(io);
 
-// Make io available globally for controllers
+// Create Event Bus abstraction for services
+// This decouples services from Socket.io implementation
+const eventBus = new SocketEventBus(io);
+
+// Export Event Bus for new services to use
+export { eventBus };
+
+// TEMPORARY: Keep io export for backward compatibility during migration
+// TODO: Remove this export once all services are updated to use eventBus
+// Files that need updating (13 total):
+// - src/controllers: auctionController, derbyController, draftController,
+//   draftOrderController, draftPickController, inviteController,
+//   leagueChatController, leagueController, rosterController, tradeController
+// - src/services: autoPickService, chessTimerService
+// - src/socket: derbySocket
 export { io };
 
 // Trust proxy for Heroku (enables x-forwarded-* headers)

@@ -3,7 +3,7 @@ import {
   getRosterTimeRemaining,
   updateRosterTimeRemaining
 } from "../models/DraftOrder";
-import { io } from "../index";
+import { eventBus } from "../index";
 import { logger } from "../utils/logger";
 
 /**
@@ -143,14 +143,15 @@ export async function hasRosterTimedOut(
 }
 
 /**
- * Emit a time update via Socket.io to all clients in the draft room
+ * Emit a time update via EventBus to all clients in the draft room
+ * REFACTORED: Uses EventBus abstraction instead of direct Socket.io
  */
 export function emitTimeUpdate(
   draftId: number,
   rosterId: number,
   timeRemaining: number
 ): void {
-  io.to(`draft_${draftId}`).emit("chess_timer_update", {
+  eventBus.emitToRoom(`draft_${draftId}`, "chess_timer_update", {
     draft_id: draftId,
     roster_id: rosterId,
     time_remaining_seconds: timeRemaining,
@@ -207,7 +208,7 @@ export async function startChessTimerMonitoring(draftId: number): Promise<void> 
           logger.info(`[ChessTimer] Roster ${currentRosterId} has run out of time!`);
           // Note: Actual auto-pick logic should be handled by autoPickService
           // We just emit the timeout event here
-          io.to(`draft_${draftId}`).emit("chess_timer_timeout", {
+          eventBus.emitToRoom(`draft_${draftId}`, "chess_timer_timeout", {
             draft_id: draftId,
             roster_id: currentRosterId,
             timestamp: new Date().toISOString(),

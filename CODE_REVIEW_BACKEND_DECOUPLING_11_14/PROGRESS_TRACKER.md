@@ -64,33 +64,62 @@
 - Improved testability by using dependency-injectable repository
 - **Impact**: Cleaner code, better separation of concerns, easier to test
 
+#### 8. Migrated chessTimerService to EventBus ✅
+**File**: `src/services/chessTimerService.ts` (modified)
+- Changed import from io to eventBus
+- Replaced 2 io.to().emit() calls with eventBus.emitToRoom()
+- Updated emitTimeUpdate and timeout emission logic
+- **Impact**: Chess timer now testable without Socket.io
+
+#### 9. Migrated inviteController to EventBus ✅
+**File**: `src/controllers/inviteController.ts` (modified)
+- Changed import from io to eventBus
+- Uses getSocketIOInstance() for sendSystemMessageSafe (temporary)
+- Added TODO to refactor sendSystemMessageSafe
+- **Impact**: First controller migrated to EventBus pattern
+
+#### 10. Created MatchupRepository ✅
+**File**: `src/repositories/MatchupRepository.ts` (NEW - 401 lines)
+- Extends BaseRepository<Matchup> for standard CRUD operations
+- Added getByLeagueAndWeek(), getByLeague() for common queries
+- Added getByLeagueAndWeekWithRosters() to prevent N+1 with JOINs
+- Added getCompletedByLeague(), getPlayoffMatchups() for analysis
+- Added batchUpdateScores() for efficient bulk updates
+- Added getHeadToHeadMatchups() for tiebreaker logic
+- Added updateScores(), updateStatus(), delete methods
+- **Impact**: Centralizes 70+ matchup queries across 17 files
+
 ---
 
 ## 📊 Current State
 
-### New Files Created (4)
+### New Files Created (5)
 ```
 src/
 ├── interfaces/
 │   └── IEventBus.ts                        (NEW - 35 lines)
 ├── repositories/
-│   └── RosterRepository.ts                 (NEW - 304 lines)
+│   ├── RosterRepository.ts                 (NEW - 304 lines)
+│   └── MatchupRepository.ts                (NEW - 401 lines)
 └── services/
     └── eventBus/
         ├── SocketEventBus.ts               (NEW - 107 lines)
         └── MockEventBus.ts                 (NEW - 151 lines)
 ```
 
-### Files Modified (3)
+### Files Modified (5)
 ```
 src/
 ├── index.ts                                (MODIFIED - added EventBus setup)
-├── services/
-│   ├── autoPickService.ts                  (MODIFIED - uses EventBus)
-│   └── standingsService.ts                 (MODIFIED - uses RosterRepository)
+├── controllers/
+│   └── inviteController.ts                 (MODIFIED - uses EventBus)
+└── services/
+    ├── autoPickService.ts                  (MODIFIED - uses EventBus)
+    ├── chessTimerService.ts                (MODIFIED - uses EventBus)
+    └── standingsService.ts                 (MODIFIED - uses RosterRepository)
 ```
 
-### Total Lines Added: ~600 lines of production code
+### Total Lines Added: ~1000 lines of production code
 
 ---
 
@@ -152,25 +181,25 @@ src/
 
 ## 🚦 Migration Status
 
-### Services Using EventBus: 1/13
+### Services Using EventBus: 3/13
 - [x] autoPickService ✅
-- [ ] chessTimerService (NEXT)
-- [ ] auctionController
+- [x] chessTimerService ✅
+- [x] inviteController ✅
+- [ ] auctionController (NEXT)
 - [ ] derbyController
 - [ ] draftController
 - [ ] draftOrderController
 - [ ] draftPickController
-- [ ] inviteController
 - [ ] leagueChatController
 - [ ] leagueController
 - [ ] rosterController
 - [ ] tradeController
 - [ ] derbySocket
 
-### Repositories Created: 1/12
+### Repositories Created: 2/12
 - [x] RosterRepository ✅
-- [ ] MatchupRepository (NEXT)
-- [ ] PlayerRepository
+- [x] MatchupRepository ✅
+- [ ] PlayerRepository (NEXT)
 - [ ] DraftRepository
 - [ ] LeagueRepository
 - [ ] UserRepository

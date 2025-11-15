@@ -1,5 +1,6 @@
 import { Server, Socket } from "socket.io";
 import { logger } from "../config/logger";
+import { IEventBus } from "../interfaces/IEventBus";
 
 export function setupTradeSocket(io: Server) {
   io.on("connection", (socket: Socket) => {
@@ -27,8 +28,8 @@ export function setupTradeSocket(io: Server) {
 /**
  * Emit trade proposed event
  */
-export function emitTradeProposed(io: Server, leagueId: number, trade: any) {
-  io.to(`league_${leagueId}`).emit("trade_proposed", {
+export function emitTradeProposed(eventBus: IEventBus, leagueId: number, trade: any) {
+  eventBus.emitToRoom(`league_${leagueId}`, "trade_proposed", {
     trade,
     timestamp: new Date(),
   });
@@ -42,8 +43,8 @@ export function emitTradeProposed(io: Server, leagueId: number, trade: any) {
 /**
  * Emit trade accepted/processed event
  */
-export function emitTradeProcessed(io: Server, leagueId: number, trade: any) {
-  io.to(`league_${leagueId}`).emit("trade_processed", {
+export function emitTradeProcessed(eventBus: IEventBus, leagueId: number, trade: any) {
+  eventBus.emitToRoom(`league_${leagueId}`, "trade_processed", {
     trade,
     timestamp: new Date(),
   });
@@ -57,8 +58,8 @@ export function emitTradeProcessed(io: Server, leagueId: number, trade: any) {
 /**
  * Emit trade rejected event
  */
-export function emitTradeRejected(io: Server, leagueId: number, trade: any) {
-  io.to(`league_${leagueId}`).emit("trade_rejected", {
+export function emitTradeRejected(eventBus: IEventBus, leagueId: number, trade: any) {
+  eventBus.emitToRoom(`league_${leagueId}`, "trade_rejected", {
     trade,
     timestamp: new Date(),
   });
@@ -72,8 +73,8 @@ export function emitTradeRejected(io: Server, leagueId: number, trade: any) {
 /**
  * Emit trade cancelled event
  */
-export function emitTradeCancelled(io: Server, leagueId: number, trade: any) {
-  io.to(`league_${leagueId}`).emit("trade_cancelled", {
+export function emitTradeCancelled(eventBus: IEventBus, leagueId: number, trade: any) {
+  eventBus.emitToRoom(`league_${leagueId}`, "trade_cancelled", {
     trade,
     timestamp: new Date(),
   });

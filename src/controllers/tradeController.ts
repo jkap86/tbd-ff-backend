@@ -110,11 +110,8 @@ class TradeController extends BaseController {
       return;
     }
 
-    // TODO: Refactor socket functions to accept IEventBus instead of Server
-    const io = eventBus.getSocketIOInstance();
-
     // Emit socket event
-    emitTradeProposed(io, league_id, tradeWithDetails);
+    emitTradeProposed(eventBus, league_id, tradeWithDetails);
 
     // Send league chat notification if enabled
     if (finalNotifyChat) {
@@ -140,8 +137,7 @@ class TradeController extends BaseController {
       }
 
       // Send system message to league chat
-      // TODO: Refactor sendSystemMessage to accept IEventBus
-      await sendSystemMessage(io, league_id, chatMessageText, metadata);
+      await sendSystemMessage(eventBus, league_id, chatMessageText, metadata);
     }
 
     this.respondCreated(res, tradeWithDetails);
@@ -168,10 +164,7 @@ class TradeController extends BaseController {
 
     // Emit socket event
     if (tradeWithDetails) {
-      // TODO: Refactor socket functions to accept IEventBus instead of Server
-      const io = eventBus.getSocketIOInstance();
-
-      emitTradeProcessed(io, tradeWithDetails.league_id, tradeWithDetails);
+      emitTradeProcessed(eventBus, tradeWithDetails.league_id, tradeWithDetails);
 
       // Post trade completion to league chat with details
       const proposerTeamName = tradeWithDetails.proposer_team_name || `Team ${tradeWithDetails.proposer_roster_id}`;
@@ -192,8 +185,7 @@ class TradeController extends BaseController {
       };
 
       // Send system message to league chat
-      // TODO: Refactor sendSystemMessage to accept IEventBus
-      await sendSystemMessage(io, tradeWithDetails.league_id, chatMessageText, metadata);
+      await sendSystemMessage(eventBus, tradeWithDetails.league_id, chatMessageText, metadata);
     }
 
     this.respondSuccess(res, tradeWithDetails);
@@ -222,8 +214,7 @@ class TradeController extends BaseController {
     // Emit socket event
     if (tradeWithDetails) {
       // TODO: Refactor socket functions to accept IEventBus instead of Server
-      const io = eventBus.getSocketIOInstance();
-      emitTradeRejected(io, tradeWithDetails.league_id, tradeWithDetails);
+      emitTradeRejected(eventBus, tradeWithDetails.league_id, tradeWithDetails);
     }
 
     this.respondSuccess(res, tradeWithDetails);
@@ -251,8 +242,7 @@ class TradeController extends BaseController {
     // Emit socket event
     if (tradeWithDetails) {
       // TODO: Refactor socket functions to accept IEventBus instead of Server
-      const io = eventBus.getSocketIOInstance();
-      emitTradeCancelled(io, tradeWithDetails.league_id, tradeWithDetails);
+      emitTradeCancelled(eventBus, tradeWithDetails.league_id, tradeWithDetails);
     }
 
     this.respondSuccess(res, tradeWithDetails);

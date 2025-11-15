@@ -10,6 +10,7 @@ import {
 import validator from "validator";
 import { SocketRateLimiter } from "../utils/socketRateLimiter";
 import { logger } from "../config/logger";
+import { IEventBus } from "../interfaces/IEventBus";
 
 export function setupDraftSocket(io: Server) {
   // Apply authentication middleware to all socket connections
@@ -402,9 +403,9 @@ export function setupDraftSocket(io: Server) {
 /**
  * Emit draft pick event from server-side code
  */
-export function emitDraftPick(io: Server, draftId: number, pick: any, draft: any) {
+export function emitDraftPick(eventBus: IEventBus, draftId: number, pick: any, draft: any) {
   const roomName = `draft_${draftId}`;
-  io.to(roomName).emit("pick_made", {
+  eventBus.emitToRoom(roomName, "pick_made", {
     pick,
     draft,
     timestamp: new Date(),
@@ -414,9 +415,9 @@ export function emitDraftPick(io: Server, draftId: number, pick: any, draft: any
 /**
  * Emit draft status change from server-side code
  */
-export function emitDraftStatusChange(io: Server, draftId: number, status: string, draft: any) {
+export function emitDraftStatusChange(eventBus: IEventBus, draftId: number, status: string, draft: any) {
   const roomName = `draft_${draftId}`;
-  io.to(roomName).emit("status_changed", {
+  eventBus.emitToRoom(roomName, "status_changed", {
     status,
     draft,
     timestamp: new Date(),
@@ -426,9 +427,9 @@ export function emitDraftStatusChange(io: Server, draftId: number, status: strin
 /**
  * Emit draft order update from server-side code
  */
-export function emitDraftOrderUpdate(io: Server, draftId: number, draftOrder: any[]) {
+export function emitDraftOrderUpdate(eventBus: IEventBus, draftId: number, draftOrder: any[]) {
   const roomName = `draft_${draftId}`;
-  io.to(roomName).emit("order_updated", {
+  eventBus.emitToRoom(roomName, "order_updated", {
     draft_order: draftOrder,
     timestamp: new Date(),
   });
@@ -469,9 +470,10 @@ function getTimerInterval(secondsRemaining: number): number {
  * Start periodic timer broadcasts for a draft
  * Uses dynamic intervals based on remaining time for optimal performance
  */
-export async function startTimerBroadcast(io: Server, draftId: number) {
+export async function startTimerBroadcast(eventBus: IEventBus, draftId: number) {
   const { getDraftById } = await import("../models/Draft");
   const pool = (await import("../config/database")).default;
+  const io = eventBus.getSocketIOInstance();
 
   let currentInterval: number | null = null;
   let intervalId: NodeJS.Timeout;

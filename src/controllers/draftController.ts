@@ -327,8 +327,7 @@ class DraftController extends BaseController {
         message = 'Draft time has been cleared';
       }
 
-      const io = eventBus.getSocketIOInstance();
-      await sendCollapsibleSystemMessageSafe(io, draft.league_id, message, 'draft_time_update', {
+      await sendCollapsibleSystemMessageSafe(eventBus, draft.league_id, message, 'draft_time_update', {
         draft_id: draft.id,
         scheduled_start_time: newDraftTime,
       });
@@ -336,8 +335,7 @@ class DraftController extends BaseController {
 
     // Send system message to league chat if derby settings were changed
     if (derbyChanges.length > 0) {
-      const io = eventBus.getSocketIOInstance();
-      await sendCollapsibleSystemMessageSafe(io, draft.league_id, 'Derby settings updated', 'derby_settings_update', {
+      await sendCollapsibleSystemMessageSafe(eventBus, draft.league_id, 'Derby settings updated', 'derby_settings_update', {
         changes: derbyChanges,
       });
     }
@@ -485,14 +483,12 @@ class DraftController extends BaseController {
         }
 
         // Emit draft status change via WebSocket
-        // TODO: Update emitDraftStatusChange to accept IEventBus instead of Server
-        const io = eventBus.getSocketIOInstance();
-        emitDraftStatusChange(io, parseInt(draftId), "in_progress", updatedDraft);
+        emitDraftStatusChange(eventBus, parseInt(draftId), "in_progress", updatedDraft);
 
         // For regular auctions (not slow), start turn timer
         if (draft.draft_type === "auction" && firstRosterId) {
           const { scheduleTurnTimer } = await import("../socket/auctionSocket");
-          scheduleTurnTimer(io, parseInt(draftId), firstRosterId, draft.pick_time_seconds);
+          scheduleTurnTimer(eventBus, parseInt(draftId), firstRosterId, draft.pick_time_seconds);
         }
 
         res.status(200).json({
@@ -566,9 +562,8 @@ class DraftController extends BaseController {
 
       // Start timer broadcast and emit draft status change
       // TODO: Update startTimerBroadcast and emitDraftStatusChange to accept IEventBus
-      const io = eventBus.getSocketIOInstance();
-      startTimerBroadcast(io, parseInt(draftId));
-      emitDraftStatusChange(io, parseInt(draftId), "in_progress", updatedDraft);
+      startTimerBroadcast(eventBus, parseInt(draftId));
+      emitDraftStatusChange(eventBus, parseInt(draftId), "in_progress", updatedDraft);
 
       // Broadcast initial timer state
       eventBus.emitToRoom(`draft_${draftId}`, "draft_started", {
@@ -722,8 +717,7 @@ class DraftController extends BaseController {
       }
 
       // Emit draft status change via WebSocket
-      const io = eventBus.getSocketIOInstance();
-      emitDraftStatusChange(io, parseInt(draftId), "paused", updatedDraft);
+      emitDraftStatusChange(eventBus, parseInt(draftId), "paused", updatedDraft);
 
       eventBus.emitToRoom(`draft_${draftId}`, "draft_paused", {
         draft: updatedDraft,
@@ -857,11 +851,8 @@ class DraftController extends BaseController {
       // Commit transaction
       await client.query('COMMIT');
 
-      // TODO: Update startTimerBroadcast and emitDraftStatusChange to accept IEventBus
-      const io = eventBus.getSocketIOInstance();
-
       // Restart timer broadcasts
-      startTimerBroadcast(io, parseInt(draftId));
+      startTimerBroadcast(eventBus, parseInt(draftId));
 
       // Restart auto-pick monitoring when resumed
       startAutoPickMonitoring(parseInt(draftId));
@@ -869,11 +860,11 @@ class DraftController extends BaseController {
       // Restart turn timer for auctions
       if ((draft.draft_type === "auction" || draft.draft_type === "slow_auction") && updatedDraft.current_roster_id) {
         const { scheduleTurnTimer } = await import("../socket/auctionSocket");
-        scheduleTurnTimer(io, parseInt(draftId), updatedDraft.current_roster_id, draft.pick_time_seconds);
+        scheduleTurnTimer(eventBus, parseInt(draftId), updatedDraft.current_roster_id, draft.pick_time_seconds);
       }
 
       // Emit draft status change via WebSocket
-      emitDraftStatusChange(io, parseInt(draftId), "in_progress", updatedDraft);
+      emitDraftStatusChange(eventBus, parseInt(draftId), "in_progress", updatedDraft);
 
       eventBus.emitToRoom(`draft_${draftId}`, "draft_resumed", {
         draft: updatedDraft,
@@ -950,9 +941,7 @@ class DraftController extends BaseController {
     const updatedDraft = await resetDraft(parsedDraftId);
 
     // Emit draft status change via WebSocket
-    // TODO: Update emitDraftStatusChange to accept IEventBus instead of Server
-    const io = eventBus.getSocketIOInstance();
-    emitDraftStatusChange(io, parsedDraftId, "not_started", updatedDraft);
+    emitDraftStatusChange(eventBus, parsedDraftId, "not_started", updatedDraft);
 
     this.respondSuccess(res, updatedDraft);
   });

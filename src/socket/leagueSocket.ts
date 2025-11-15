@@ -7,13 +7,14 @@ import { isUserLeagueMember } from "../utils/leagueAuthorization";
 import { notifyLeagueChat } from "../services/notificationHelpers";
 import { logger } from "../config/logger";
 import validator from "validator";
+import { IEventBus } from "../interfaces/IEventBus";
 
 /**
  * Emit a league chat message to all users in a league room
  */
-export function emitLeagueChat(io: Server, leagueId: number, chatMessage: any) {
+export function emitLeagueChat(eventBus: IEventBus, leagueId: number, chatMessage: any) {
   const roomName = `league_${leagueId}`;
-  io.to(roomName).emit("league_chat_message", chatMessage);
+  eventBus.emitToRoom(roomName, "league_chat_message", chatMessage);
 }
 
 export function setupLeagueSocket(io: Server) {

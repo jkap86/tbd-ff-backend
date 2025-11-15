@@ -451,14 +451,12 @@ async function makeDraftPickWithPlayerSelection(draftId: number, rosterId: numbe
     logger.info(`[AutoPick] Emitting pick with details:`, pickWithDetails);
 
     // Emit draft pick event with enriched details
-    // TODO: Update emitDraftPick to accept IEventBus instead of Server
-    const io = eventBus.getSocketIOInstance();
-    emitDraftPick(io, draftId, pickWithDetails, updatedDraft);
+    emitDraftPick(eventBus, draftId, pickWithDetails, updatedDraft);
 
     // Emit updated draft state - use 'completed' status if draft finished, otherwise 'in_progress'
     const draftStatus = isCompleted ? 'completed' : 'in_progress';
     logger.info(`[AutoPick] Emitting status change - status: ${draftStatus}`);
-    emitDraftStatusChange(io, draftId, draftStatus, updatedDraft);
+    emitDraftStatusChange(eventBus, draftId, draftStatus, updatedDraft);
 
   } catch (error: any) {
     await client.query('ROLLBACK');

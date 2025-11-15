@@ -309,10 +309,8 @@ class RosterController extends BaseController {
       const userResult = await pool.query(userQuery, [roster.user_id]);
       const username = userResult.rows[0]?.username || "Unknown User";
 
-      // TODO: Refactor sendSystemMessageSafe to accept IEventBus
-      const io = eventBus.getSocketIOInstance();
       // Send system message (safe - won't fail the request)
-      await sendSystemMessageSafe(io, roster.league_id, `${username} has paid`, {
+      await sendSystemMessageSafe(eventBus, roster.league_id, `${username} has paid`, {
         type: "dues_paid",
         roster_id: roster.id,
         user_id: roster.user_id,

@@ -43,8 +43,6 @@ class DraftPickController extends BaseController {
       const { roster_id, player_id, is_auto_pick = false } = req.body;
       logger.info('[MakePick] Request started', { draftId, roster_id, player_id });
 
-      // TODO: Refactor socket functions to accept IEventBus instead of Server
-      const io = eventBus.getSocketIOInstance();
 
       if (!roster_id || !player_id) {
         await client.query('ROLLBACK');
@@ -313,7 +311,7 @@ class DraftPickController extends BaseController {
               logger.info('[Draft] Successfully rolled back draft to in_progress state', { draftId });
 
               // Notify clients about rollback
-              emitDraftStatusChange(io, parseInt(draftId), "in_progress", rolledBackDraft);
+              emitDraftStatusChange(eventBus, parseInt(draftId), "in_progress", rolledBackDraft);
             } else {
               logger.error('[Draft] Rollback failed - draft not found', { draftId });
             }
@@ -366,7 +364,7 @@ class DraftPickController extends BaseController {
 
         // Emit status change to notify clients that draft is complete
         logger.info('[Draft] Emitting draft completion status', { draftId });
-        emitDraftStatusChange(io, parseInt(draftId), "completed", updatedDraft);
+        emitDraftStatusChange(eventBus, parseInt(draftId), "completed", updatedDraft);
 
         // Trigger ADP recalculation (don't await - run in background)
         const season = league?.season || new Date().getFullYear().toString();
@@ -507,7 +505,7 @@ class DraftPickController extends BaseController {
           timestamp: new Date(),
         });
       } else {
-        emitDraftPick(io, parseInt(draftId), pickWithDetails, updatedDraft);
+        emitDraftPick(eventBus, parseInt(draftId), pickWithDetails, updatedDraft);
       }
 
       const responseTime = Date.now() - startTime;

@@ -652,9 +652,7 @@ class AuctionController extends BaseController {
         // Schedule timer for this nomination if there's a deadline
         if (calculatedDeadline) {
           const { scheduleNominationExpiry } = await import("../socket/auctionSocket");
-          // TODO: Update scheduleNominationExpiry to accept IEventBus instead of Server
-          const io = eventBus.getSocketIOInstance();
-          scheduleNominationExpiry(io, nomination.id, draftId, calculatedDeadline);
+          scheduleNominationExpiry(eventBus, nomination.id, draftId, calculatedDeadline);
         }
 
         // Advance turn to next roster (for regular auctions, not slow auctions)
@@ -671,9 +669,7 @@ class AuctionController extends BaseController {
 
             // Schedule turn timer for next roster
             const { scheduleTurnTimer } = await import("../socket/auctionSocket");
-            // TODO: Update scheduleTurnTimer to accept IEventBus instead of Server
-            const io = eventBus.getSocketIOInstance();
-            scheduleTurnTimer(io, draftId, nextRosterId, draft.pick_time_seconds);
+            scheduleTurnTimer(eventBus, draftId, nextRosterId, draft.pick_time_seconds);
           }
         }
       } catch (socketError) {

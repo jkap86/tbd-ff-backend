@@ -1,3 +1,5 @@
+import { Server } from "socket.io";
+
 /**
  * Event Bus Interface
  * Provides abstraction layer for real-time event emission
@@ -29,6 +31,12 @@ export interface IEventBus {
    * Remove a socket from a room
    */
   leaveRoom(socketId: string, room: string): void;
+
+  /**
+   * Get the underlying Socket.IO server instance
+   * @deprecated Use IEventBus methods instead
+   */
+  getSocketIOInstance(): Server;
 }
 
 /**

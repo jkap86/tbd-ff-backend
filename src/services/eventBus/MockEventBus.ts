@@ -57,6 +57,14 @@ export class MockEventBus implements IEventBus {
     }
   }
 
+  /**
+   * Get Socket.IO instance (not available in mock)
+   * @deprecated Use IEventBus methods instead
+   */
+  getSocketIOInstance(): any {
+    throw new Error("getSocketIOInstance is not available in MockEventBus. Use IEventBus methods instead.");
+  }
+
   // Test Helper Methods
 
   /**

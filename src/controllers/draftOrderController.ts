@@ -116,11 +116,8 @@ class DraftOrderController extends BaseController {
     // Get detailed draft order with team names and usernames
     const detailedDraftOrder = await getDraftOrderWithDetails(parseInt(req.params.draftId));
 
-    // TODO: Refactor socket functions to accept IEventBus instead of Server
-    const io = eventBus.getSocketIOInstance();
-
     // Emit draft order update via WebSocket
-    emitDraftOrderUpdate(io, parseInt(req.params.draftId), detailedDraftOrder);
+    emitDraftOrderUpdate(eventBus, parseInt(req.params.draftId), detailedDraftOrder);
 
     // If randomized, send system message to league chat
     if (randomize) {
@@ -133,8 +130,7 @@ class DraftOrderController extends BaseController {
         username: order.username,
       }));
 
-      // TODO: Refactor sendCollapsibleSystemMessageSafe to accept IEventBus
-      await sendCollapsibleSystemMessageSafe(io, draft.league_id, "Draft order has been randomized", "draft_order_randomized", {
+      await sendCollapsibleSystemMessageSafe(eventBus, draft.league_id, "Draft order has been randomized", "draft_order_randomized", {
         draft_id: draft.id,
         draft_order: draftOrderList,
       });

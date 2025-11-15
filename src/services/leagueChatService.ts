@@ -1,7 +1,6 @@
-import { Server as SocketServer } from "socket.io";
 import { createLeagueChatMessage, LeagueChatMessage } from "../models/LeagueChatMessage";
-import { emitLeagueChat } from "../socket/leagueSocket";
 import { logger } from "../utils/logger";
+import { IEventBus } from "../interfaces/IEventBus";
 
 /**
  * League Chat Service - Consolidates chat message creation and emission logic
@@ -14,10 +13,10 @@ export interface SystemMessageMetadata {
 }
 
 /**
- * Sends a system message to a league chat and emits it via Socket.IO.
+ * Sends a system message to a league chat and emits it via EventBus.
  * Handles all the boilerplate of creating the message, parsing metadata, and emitting.
  *
- * @param io - Socket.IO server instance
+ * @param eventBus - EventBus instance
  * @param leagueId - ID of the league
  * @param message - The message text to display
  * @param metadata - Message metadata (type and additional data)
@@ -25,14 +24,14 @@ export interface SystemMessageMetadata {
  *
  * @example
  * ```typescript
- * await sendSystemMessage(io, leagueId, "Derby has started", {
+ * await sendSystemMessage(eventBus, leagueId, "Derby has started", {
  *   type: "derby_started",
  *   draft_id: draftId
  * });
  * ```
  */
 export async function sendSystemMessage(
-  io: SocketServer,
+  eventBus: IEventBus,
   leagueId: number,
   message: string,
   metadata: SystemMessageMetadata
@@ -47,8 +46,8 @@ export async function sendSystemMessage(
       metadata,
     });
 
-    // Emit to league room via socket
-    emitLeagueChat(io, leagueId, chatMessage);
+    // Emit to league room via EventBus
+    eventBus.emitToRoom(`league:${leagueId}`, "leagueChat:message", chatMessage);
 
     return chatMessage;
   } catch (error) {
@@ -61,7 +60,7 @@ export async function sendSystemMessage(
  * Sends a system message with collapsible details.
  * Use this for messages with additional information that can be expanded by users.
  *
- * @param io - Socket.IO server instance
+ * @param eventBus - EventBus instance
  * @param leagueId - ID of the league
  * @param message - The message text to display
  * @param type - The metadata type identifier
@@ -70,19 +69,19 @@ export async function sendSystemMessage(
  *
  * @example
  * ```typescript
- * await sendCollapsibleSystemMessage(io, leagueId, "Draft order set", "derby_completed", {
+ * await sendCollapsibleSystemMessage(eventBus, leagueId, "Draft order set", "derby_completed", {
  *   draft_order: orderList
  * });
  * ```
  */
 export async function sendCollapsibleSystemMessage(
-  io: SocketServer,
+  eventBus: IEventBus,
   leagueId: number,
   message: string,
   type: string,
   details: any
 ): Promise<LeagueChatMessage> {
-  return sendSystemMessage(io, leagueId, message, {
+  return sendSystemMessage(eventBus, leagueId, message, {
     type,
     collapsible: true,
     details,
@@ -93,7 +92,7 @@ export async function sendCollapsibleSystemMessage(
  * Sends a system message without throwing errors on failure.
  * Use this when the chat message is non-critical and shouldn't fail the parent operation.
  *
- * @param io - Socket.IO server instance
+ * @param eventBus - EventBus instance
  * @param leagueId - ID of the league
  * @param message - The message text to display
  * @param metadata - Message metadata (type and additional data)
@@ -101,20 +100,20 @@ export async function sendCollapsibleSystemMessage(
  *
  * @example
  * ```typescript
- * await sendSystemMessageSafe(io, leagueId, "Player nominated", {
+ * await sendSystemMessageSafe(eventBus, leagueId, "Player nominated", {
  *   type: "player_nominated",
  *   player_id: playerId
  * });
  * ```
  */
 export async function sendSystemMessageSafe(
-  io: SocketServer,
+  eventBus: IEventBus,
   leagueId: number,
   message: string,
   metadata: SystemMessageMetadata
 ): Promise<LeagueChatMessage | null> {
   try {
-    return await sendSystemMessage(io, leagueId, message, metadata);
+    return await sendSystemMessage(eventBus, leagueId, message, metadata);
   } catch (error) {
     logger.error(`Failed to send system message (non-critical): ${message}`, error);
     return null;
@@ -125,7 +124,7 @@ export async function sendSystemMessageSafe(
  * Sends a collapsible system message without throwing errors on failure.
  * Combines collapsible functionality with safe error handling.
  *
- * @param io - Socket.IO server instance
+ * @param eventBus - EventBus instance
  * @param leagueId - ID of the league
  * @param message - The message text to display
  * @param type - The metadata type identifier
@@ -133,14 +132,14 @@ export async function sendSystemMessageSafe(
  * @returns The created chat message or null if failed
  */
 export async function sendCollapsibleSystemMessageSafe(
-  io: SocketServer,
+  eventBus: IEventBus,
   leagueId: number,
   message: string,
   type: string,
   details: any
 ): Promise<LeagueChatMessage | null> {
   try {
-    return await sendCollapsibleSystemMessage(io, leagueId, message, type, details);
+    return await sendCollapsibleSystemMessage(eventBus, leagueId, message, type, details);
   } catch (error) {
     logger.error(`Failed to send collapsible system message (non-critical): ${message}`, error);
     return null;

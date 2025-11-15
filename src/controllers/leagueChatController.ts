@@ -88,9 +88,7 @@ class LeagueChatController extends BaseController {
     const senderUsername = sender?.username || "Someone";
 
     // Emit socket event to all users in the league room
-    // TODO: Update emitLeagueChat to accept IEventBus instead of Server
-    const io = eventBus.getSocketIOInstance();
-    emitLeagueChat(io, parseInt(leagueId), {
+    emitLeagueChat(eventBus, parseInt(leagueId), {
       ...chatMessage,
       username: senderUsername,
     });

@@ -152,9 +152,7 @@ class InviteController extends BaseController {
     const user = await getUserById(userId);
     const username = user?.username || `User ${userId}`;
 
-    // TODO: Update sendSystemMessageSafe to accept IEventBus instead of Server
-    const io = eventBus.getSocketIOInstance();
-    await sendSystemMessageSafe(io, invite.league_id, `${username} has joined the league`, {
+    await sendSystemMessageSafe(eventBus, invite.league_id, `${username} has joined the league`, {
       type: "user_joined",
       joined_user_id: userId,
       joined_username: username,

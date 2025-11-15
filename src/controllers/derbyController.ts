@@ -98,9 +98,7 @@ class DerbyController extends BaseController {
       message: 'Derby has started - teams will now select their draft positions',
     });
     // Create system chat message for derby started
-    // TODO: Update sendSystemMessageSafe to accept IEventBus instead of Server
-    const io = eventBus.getSocketIOInstance();
-    await sendSystemMessageSafe(io, draft.league_id, "Derby has started - teams will now select their draft positions", {
+    await sendSystemMessageSafe(eventBus, draft.league_id, "Derby has started - teams will now select their draft positions", {
       type: "derby_started",
       draft_id: parseInt(draftId),
     });
@@ -229,9 +227,7 @@ class DerbyController extends BaseController {
     const derby = await createDraftDerby(parseInt(draftId), rosterIds);
 
     // Create system chat message for derby created
-    // TODO: Update sendSystemMessageSafe to accept IEventBus instead of Server
-    const io = eventBus.getSocketIOInstance();
-    await sendSystemMessageSafe(io, draft.league_id, "Derby has been created", {
+    await sendSystemMessageSafe(eventBus, draft.league_id, "Derby has been created", {
       type: "derby_created",
       draft_id: parseInt(draftId),
     });
@@ -377,9 +373,7 @@ class DerbyController extends BaseController {
 
         logger.info('[Derby] Formatted draft order list', { draft_order_list: draftOrderList });
 
-        // TODO: Update sendCollapsibleSystemMessageSafe to accept IEventBus instead of Server
-        const io = eventBus.getSocketIOInstance();
-        await sendCollapsibleSystemMessageSafe(io, draft.league_id, "Derby has completed. Draft order set.", "derby_completed", {
+        await sendCollapsibleSystemMessageSafe(eventBus, draft.league_id, "Derby has completed. Draft order set.", "derby_completed", {
           draft_id: parseInt(draftId),
           draft_order: draftOrderList,
         });
@@ -515,9 +509,7 @@ class DerbyController extends BaseController {
         };
       });
 
-      // TODO: Update sendCollapsibleSystemMessageSafe to accept IEventBus instead of Server
-      const io = eventBus.getSocketIOInstance();
-      await sendCollapsibleSystemMessageSafe(io, draft.league_id, "Derby has completed. Draft order set.", "derby_completed", {
+      await sendCollapsibleSystemMessageSafe(eventBus, draft.league_id, "Derby has completed. Draft order set.", "derby_completed", {
         draft_id: parseInt(draftId),
         draft_order: draftOrderList,
       });
@@ -606,9 +598,7 @@ class DerbyController extends BaseController {
     // Create system chat message with collapsible derby order
     logger.info('[Derby] Sending derby order randomized message with order', { derby_order_list: derbyOrderList });
 
-    // TODO: Update sendCollapsibleSystemMessageSafe to accept IEventBus instead of Server
-    const io = eventBus.getSocketIOInstance();
-    await sendCollapsibleSystemMessageSafe(io, draft.league_id, "Derby selection order has been randomized", "derby_order_randomized", {
+    await sendCollapsibleSystemMessageSafe(eventBus, draft.league_id, "Derby selection order has been randomized", "derby_order_randomized", {
       draft_id: parseInt(draftId),
       derby_order: derbyOrderList,
     });

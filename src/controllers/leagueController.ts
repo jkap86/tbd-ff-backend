@@ -308,9 +308,7 @@ class LeagueController extends BaseController {
     const teamName = roster.settings?.team_name || team_name || `Team ${roster.roster_id}`;
     const username = user?.username || `User ${userId}`;
 
-    // TODO: Refactor sendSystemMessageSafe to accept IEventBus
-    const io = eventBus.getSocketIOInstance();
-    await sendSystemMessageSafe(io, leagueId, `${username} has joined the league as ${teamName}`, {
+    await sendSystemMessageSafe(eventBus, leagueId, `${username} has joined the league as ${teamName}`, {
       type: "user_joined",
       joined_user_id: userId,
       joined_username: username,
@@ -675,10 +673,8 @@ class LeagueController extends BaseController {
       }
 
       if (changes.length > 0) {
-        // TODO: Refactor sendCollapsibleSystemMessageSafe to accept IEventBus
-        const io = eventBus.getSocketIOInstance();
         await sendCollapsibleSystemMessageSafe(
-          io,
+          eventBus,
           leagueId,
           'Commissioner has updated league settings',
           'league_settings_update',
@@ -927,12 +923,9 @@ if (!league) {
 
       await client.query('COMMIT');
 
-      // TODO: Refactor sendCollapsibleSystemMessageSafe to accept IEventBus
-      const io = eventBus.getSocketIOInstance();
-
       // Send league chat notification about league reset
       await sendCollapsibleSystemMessageSafe(
-        io,
+        eventBus,
         leagueId,
         'Commissioner has reset the league to pre-draft status',
         'league_reset',

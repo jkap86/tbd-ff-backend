@@ -17,6 +17,8 @@ import {
   doesUserOwnRoster,
 } from "../utils/draftAuthorization";
 import { logger } from "../config/logger";
+import { IEventBus } from "../interfaces/IEventBus";
+import { eventBus } from "../index";
 
 // Track active nomination timers (for when bids close)
 const nominationTimers = new Map<number, NodeJS.Timeout>();
@@ -213,7 +215,7 @@ export function setupAuctionSocket(io: Server) {
 
           // For slow auctions, start timer for nomination expiry
           if (draft.draft_type === "slow_auction" && deadline) {
-            scheduleNominationExpiry(io, nomination.id, data.draftId, deadline);
+            scheduleNominationExpiry(eventBus, nomination.id, data.draftId, deadline);
           }
         } catch (error: any) {
           logger.error("Error nominating player", { error, context: 'AuctionSocket' });
@@ -349,7 +351,7 @@ export function setupAuctionSocket(io: Server) {
                   await updateNominationDeadline(bidData.nominationId, newDeadline);
 
                   // Reset timer
-                  resetNominationTimer(io, bidData.nominationId, bidData.draftId, newDeadline);
+                  resetNominationTimer(eventBus, bidData.nominationId, bidData.draftId, newDeadline);
 
                   // Broadcast deadline update
                   io.to(room).emit("nomination_deadline_updated", {
@@ -397,12 +399,13 @@ export function setupAuctionSocket(io: Server) {
 // Timer management functions
 
 export function scheduleNominationExpiry(
-  io: Server,
+  eventBus: IEventBus,
   nominationId: number,
   draftId: number,
   deadline: Date
 ) {
   const delay = deadline.getTime() - Date.now();
+  const io = eventBus.getSocketIOInstance();
 
   // Don't schedule if deadline has already passed
   if (delay <= 0) {
@@ -602,7 +605,7 @@ async function processNominationExpiry(io: Server, nominationId: number, draftId
 }
 
 export function resetNominationTimer(
-  io: Server,
+  eventBus: IEventBus,
   nominationId: number,
   draftId: number,
   newDeadline: Date
@@ -611,7 +614,7 @@ export function resetNominationTimer(
   if (existingTimer) {
     clearTimeout(existingTimer);
   }
-  scheduleNominationExpiry(io, nominationId, draftId, newDeadline);
+  scheduleNominationExpiry(eventBus, nominationId, draftId, newDeadline);
 }
 
 // Helper function to cancel timer (if nomination is manually cancelled)
@@ -896,7 +899,7 @@ export function cancelBidTimer(nominationId: number) {
 // Turn timer functions (for auto-nominating when it's someone's turn)
 
 export function scheduleTurnTimer(
-  io: Server,
+  eventBus: IEventBus,
   draftId: number,
   rosterId: number,
   pickTimeSeconds: number
@@ -908,6 +911,7 @@ export function scheduleTurnTimer(
   }
 
   const delay = pickTimeSeconds * 1000;
+  const io = eventBus.getSocketIOInstance();
 
   const timer = setTimeout(async () => {
     await processTurnExpiry(io, draftId, rosterId);
@@ -1006,7 +1010,7 @@ async function processTurnExpiry(io: Server, draftId: number, rosterId: number) 
 
     // For slow auctions, start timer for nomination expiry
     if (draft.draft_type === "slow_auction" && deadline) {
-      scheduleNominationExpiry(io, nomination.id, draftId, deadline);
+      scheduleNominationExpiry(eventBus, nomination.id, draftId, deadline);
     }
 
     // Advance turn to next roster (for regular auctions)
@@ -1025,7 +1029,7 @@ async function processTurnExpiry(io: Server, draftId: number, rosterId: number) 
         });
 
         // Schedule next turn timer
-        scheduleTurnTimer(io, draftId, nextRosterId, draft.pick_time_seconds);
+        scheduleTurnTimer(eventBus, draftId, nextRosterId, draft.pick_time_seconds);
       }
     }
 

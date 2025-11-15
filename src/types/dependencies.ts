@@ -5,7 +5,7 @@
  * These interfaces allow for easy mocking in tests while maintaining type safety.
  */
 
-import { Pool, PoolClient, QueryResult } from 'pg';
+import { QueryResult, QueryResultRow } from 'pg';
 
 /**
  * Database Client Interface
@@ -19,7 +19,7 @@ export interface DatabaseClient {
    * @param params - Query parameters
    * @returns Query result with rows
    */
-  query<T = any>(sql: string, params?: any[]): Promise<QueryResult<T>>;
+  query<T extends QueryResultRow = any>(sql: string, params?: any[]): Promise<QueryResult<T>>;
 }
 
 /**

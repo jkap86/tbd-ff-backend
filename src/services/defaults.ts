@@ -20,7 +20,7 @@ import {
  * Wraps the global pool for dependency injection
  */
 export const defaultDbClient: DatabaseClient = {
-  query: <T = any>(sql: string, params?: any[]) => pool.query<T>(sql, params),
+  query: <T extends import('pg').QueryResultRow = any>(sql: string, params?: any[]) => pool.query<T>(sql, params),
 };
 
 /**
@@ -51,7 +51,7 @@ export const defaultEmailService: EmailServiceInterface = {
  * Email service that doesn't send emails, just logs
  */
 export const noopEmailService: EmailServiceInterface = {
-  sendPasswordResetEmail: async (email: string, username: string, resetToken: string) => {
+  sendPasswordResetEmail: async (email: string, username: string, _resetToken: string) => {
     logger.info(`[NOOP] Would send password reset email to ${email} for user ${username}`);
   },
 };

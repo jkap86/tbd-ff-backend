@@ -59,6 +59,10 @@ import { logger } from "./config/logger";
 // Load environment variables
 dotenv.config();
 
+// Initialize DI Container (must be after dotenv.config())
+// This registers all services and repositories for dependency injection
+import { container } from './container';
+
 // Validate critical environment variables
 const requiredEnvVars = [
   'DATABASE_URL',
@@ -197,18 +201,12 @@ setupOpponentSelectionDraftSocket(io);
 // This decouples services from Socket.io implementation
 const eventBus = new SocketEventBus(io);
 
-// Export Event Bus for new services to use
+// Export Event Bus for services to use
+// All services have been migrated to use EventBus abstraction (13/13 complete)
 export { eventBus };
 
-// TEMPORARY: Keep io export for backward compatibility during migration
-// TODO: Remove this export once all services are updated to use eventBus
-// Files that need updating (13 total):
-// - src/controllers: auctionController, derbyController, draftController,
-//   draftOrderController, draftPickController, inviteController,
-//   leagueChatController, leagueController, rosterController, tradeController
-// - src/services: autoPickService, chessTimerService
-// - src/socket: derbySocket
-export { io };
+// Export DI Container for application-wide dependency injection
+export { container };
 
 // Trust proxy for Heroku (enables x-forwarded-* headers)
 // Set to 1 to trust only the first proxy (Heroku router) for security

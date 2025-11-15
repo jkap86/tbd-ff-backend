@@ -645,13 +645,15 @@ class AuctionController extends BaseController {
 
       // Broadcast to all clients in the auction room via socket
       try {
-        const { io } = await import("../index");
+        const { eventBus } = await import("../index");
         const room = `auction_${draftId}`;
-        io.to(room).emit("player_nominated", nomination);
+        eventBus.emitToRoom(room, "player_nominated", nomination);
 
         // Schedule timer for this nomination if there's a deadline
         if (calculatedDeadline) {
           const { scheduleNominationExpiry } = await import("../socket/auctionSocket");
+          // TODO: Update scheduleNominationExpiry to accept IEventBus instead of Server
+          const io = eventBus.getSocketIOInstance();
           scheduleNominationExpiry(io, nomination.id, draftId, calculatedDeadline);
         }
 
@@ -662,13 +664,15 @@ class AuctionController extends BaseController {
             await updateDraft(draftId, { current_roster_id: nextRosterId });
 
             // Emit turn change via socket
-            io.to(room).emit("turn_changed", {
+            eventBus.emitToRoom(room, "turn_changed", {
               currentRosterId: nextRosterId,
               draftId: draftId,
             });
 
             // Schedule turn timer for next roster
             const { scheduleTurnTimer } = await import("../socket/auctionSocket");
+            // TODO: Update scheduleTurnTimer to accept IEventBus instead of Server
+            const io = eventBus.getSocketIOInstance();
             scheduleTurnTimer(io, draftId, nextRosterId, draft.pick_time_seconds);
           }
         }
@@ -954,13 +958,13 @@ class AuctionController extends BaseController {
 
       // Broadcast to all clients in the auction room via socket
       try {
-        const { io } = await import("../index");
+        const { eventBus } = await import("../index");
         const room = `auction_${draftId}`;
         const bidWithTeamName = {
           ...result.currentBid,
           team_name: teamName,
         };
-        io.to(room).emit("bid_placed", bidWithTeamName);
+        eventBus.emitToRoom(room, "bid_placed", bidWithTeamName);
       } catch (socketError) {
         logger.error('Socket emit failed:', socketError);
       }

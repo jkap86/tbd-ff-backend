@@ -7,7 +7,7 @@ import pool from "../config/database";
 import { logger } from "../config/logger";
 import { getDraftById } from "../models/Draft";
 import { getRostersByLeagueId } from "../models/Roster";
-import { io } from "../index";
+import { eventBus } from "../index";
 import { scheduleDerbyTimeout, cancelDerbyTimer } from "../socket/derbySocket";
 import { BaseController } from "./BaseController";
 import {
@@ -87,7 +87,7 @@ class DerbyController extends BaseController {
     scheduleDerbyTimeout(parseInt(draftId), turnDeadline);
 
     // Emit to socket with new schema
-    io.to(`draft_${draftId}`).emit('derby:update', {
+    eventBus.emitToRoom(`draft_${draftId}`, 'derby:update', {
       draftId: parseInt(draftId),
       derby: derbyWithDetails,
       selectionOrder: derbyWithDetails.selection_order,
@@ -98,6 +98,8 @@ class DerbyController extends BaseController {
       message: 'Derby has started - teams will now select their draft positions',
     });
     // Create system chat message for derby started
+    // TODO: Update sendSystemMessageSafe to accept IEventBus instead of Server
+    const io = eventBus.getSocketIOInstance();
     await sendSystemMessageSafe(io, draft.league_id, "Derby has started - teams will now select their draft positions", {
       type: "derby_started",
       draft_id: parseInt(draftId),
@@ -227,6 +229,8 @@ class DerbyController extends BaseController {
     const derby = await createDraftDerby(parseInt(draftId), rosterIds);
 
     // Create system chat message for derby created
+    // TODO: Update sendSystemMessageSafe to accept IEventBus instead of Server
+    const io = eventBus.getSocketIOInstance();
     await sendSystemMessageSafe(io, draft.league_id, "Derby has been created", {
       type: "derby_created",
       draft_id: parseInt(draftId),
@@ -305,7 +309,7 @@ class DerbyController extends BaseController {
     );
 
     // Emit socket events
-    io.to(`draft_${draftId}`).emit('derby:selection_made', {
+    eventBus.emitToRoom(`draft_${draftId}`, 'derby:selection_made', {
       draftId: parseInt(draftId),
       rosterId,
       draftPosition,
@@ -331,7 +335,7 @@ class DerbyController extends BaseController {
       // Schedule next timeout
       scheduleDerbyTimeout(parseInt(draftId), newDeadline);
 
-      io.to(`draft_${draftId}`).emit('derby:turn_changed', {
+      eventBus.emitToRoom(`draft_${draftId}`, 'derby:turn_changed', {
         draftId: parseInt(draftId),
         currentRosterId: nextRosterId,
         skippedRosterIds,
@@ -339,7 +343,7 @@ class DerbyController extends BaseController {
         turnDeadline: newDeadline.toISOString(),
       });
     } else {
-      io.to(`draft_${draftId}`).emit('derby:completed', {
+      eventBus.emitToRoom(`draft_${draftId}`, 'derby:completed', {
         draftId: parseInt(draftId),
         message: 'Derby completed - all positions selected',
       });
@@ -373,6 +377,8 @@ class DerbyController extends BaseController {
 
         logger.info('[Derby] Formatted draft order list', { draft_order_list: draftOrderList });
 
+        // TODO: Update sendCollapsibleSystemMessageSafe to accept IEventBus instead of Server
+        const io = eventBus.getSocketIOInstance();
         await sendCollapsibleSystemMessageSafe(io, draft.league_id, "Derby has completed. Draft order set.", "derby_completed", {
           draft_id: parseInt(draftId),
           draft_order: draftOrderList,
@@ -470,7 +476,7 @@ class DerbyController extends BaseController {
       // Schedule next timeout
       scheduleDerbyTimeout(parseInt(draftId), newDeadline);
 
-      io.to(`draft_${draftId}`).emit('derby:turn_changed', {
+      eventBus.emitToRoom(`draft_${draftId}`, 'derby:turn_changed', {
         draftId: parseInt(draftId),
         currentRosterId: nextRosterId,
         skippedRosterIds,
@@ -479,7 +485,7 @@ class DerbyController extends BaseController {
         skipped: true,
       });
     } else {
-      io.to(`draft_${draftId}`).emit('derby:completed', {
+      eventBus.emitToRoom(`draft_${draftId}`, 'derby:completed', {
         draftId: parseInt(draftId),
         message: 'Derby completed',
       });
@@ -509,6 +515,8 @@ class DerbyController extends BaseController {
         };
       });
 
+      // TODO: Update sendCollapsibleSystemMessageSafe to accept IEventBus instead of Server
+      const io = eventBus.getSocketIOInstance();
       await sendCollapsibleSystemMessageSafe(io, draft.league_id, "Derby has completed. Draft order set.", "derby_completed", {
         draft_id: parseInt(draftId),
         draft_order: draftOrderList,
@@ -588,7 +596,7 @@ class DerbyController extends BaseController {
     logger.info('[Derby] Derby order list for chat', { derby_order_list: derbyOrderList });
 
     // Emit socket event to notify all clients
-    io.to(`draft_${draftId}`).emit('derby:update', {
+    eventBus.emitToRoom(`draft_${draftId}`, 'derby:update', {
       draftId: parseInt(draftId),
       derby: updatedDerby,
       selectionOrder: updatedDerby.selection_order,
@@ -598,6 +606,8 @@ class DerbyController extends BaseController {
     // Create system chat message with collapsible derby order
     logger.info('[Derby] Sending derby order randomized message with order', { derby_order_list: derbyOrderList });
 
+    // TODO: Update sendCollapsibleSystemMessageSafe to accept IEventBus instead of Server
+    const io = eventBus.getSocketIOInstance();
     await sendCollapsibleSystemMessageSafe(io, draft.league_id, "Derby selection order has been randomized", "derby_order_randomized", {
       draft_id: parseInt(draftId),
       derby_order: derbyOrderList,
@@ -651,7 +661,7 @@ class DerbyController extends BaseController {
     cancelDerbyTimer(parseInt(draftId));
 
     // Emit socket event
-    io.to(`draft_${draftId}`).emit('derby:paused', {
+    eventBus.emitToRoom(`draft_${draftId}`, 'derby:paused', {
       draftId: parseInt(draftId),
       message: 'Derby has been paused',
     });
@@ -718,7 +728,7 @@ class DerbyController extends BaseController {
     }
 
     // Emit socket event (no deadline needed - frontend keeps its existing deadline)
-    io.to(`draft_${draftId}`).emit('derby:resumed', {
+    eventBus.emitToRoom(`draft_${draftId}`, 'derby:resumed', {
       draftId: parseInt(draftId),
       message: 'Derby has been resumed',
     });

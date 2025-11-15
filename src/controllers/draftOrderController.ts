@@ -3,7 +3,7 @@ import { BaseController } from "./BaseController";
 import {
   getDraftById,
 } from "../models/Draft";
-import { io } from "../index";
+import { eventBus } from "../index";
 import {
   emitDraftOrderUpdate,
 } from "../socket/draftSocket";
@@ -116,6 +116,9 @@ class DraftOrderController extends BaseController {
     // Get detailed draft order with team names and usernames
     const detailedDraftOrder = await getDraftOrderWithDetails(parseInt(req.params.draftId));
 
+    // TODO: Refactor socket functions to accept IEventBus instead of Server
+    const io = eventBus.getSocketIOInstance();
+
     // Emit draft order update via WebSocket
     emitDraftOrderUpdate(io, parseInt(req.params.draftId), detailedDraftOrder);
 
@@ -130,6 +133,7 @@ class DraftOrderController extends BaseController {
         username: order.username,
       }));
 
+      // TODO: Refactor sendCollapsibleSystemMessageSafe to accept IEventBus
       await sendCollapsibleSystemMessageSafe(io, draft.league_id, "Draft order has been randomized", "draft_order_randomized", {
         draft_id: draft.id,
         draft_order: draftOrderList,

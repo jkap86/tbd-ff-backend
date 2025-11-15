@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { getRosterWithPlayers, getRosterById, updateRoster, validateLineup, validateSlotAssignment, getRostersByLeagueId } from "../models/Roster";
 import { logger } from "../config/logger";
 import { BaseController } from "./BaseController";
-import { io } from "../index";
+import { eventBus } from "../index";
 import { sendSystemMessageSafe } from "../services/leagueChatService";
 import pool from "../config/database";
 import { invalidateRosterCache } from "../utils/cache";
@@ -309,6 +309,8 @@ class RosterController extends BaseController {
       const userResult = await pool.query(userQuery, [roster.user_id]);
       const username = userResult.rows[0]?.username || "Unknown User";
 
+      // TODO: Refactor sendSystemMessageSafe to accept IEventBus
+      const io = eventBus.getSocketIOInstance();
       // Send system message (safe - won't fail the request)
       await sendSystemMessageSafe(io, roster.league_id, `${username} has paid`, {
         type: "dues_paid",

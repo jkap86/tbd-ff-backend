@@ -1,6 +1,6 @@
 import pool from '../config/database';
 import { getDraftById } from '../models/Draft';
-import { io } from '../index';
+import { eventBus } from '../index';
 import { logger } from '../config/logger';
 
 // Track active derby timers
@@ -101,7 +101,7 @@ async function processDerbyTimeout(draftId: number) {
         );
 
         // Emit selection made event for each assignment
-        io.to(`draft_${draftId}`).emit('derby:selection_made', {
+        eventBus.emitToRoom(`draft_${draftId}`, 'derby:selection_made', {
           draftId,
           rosterId: assignment.roster_id,
           draftPosition: assignment.draft_position,
@@ -133,7 +133,7 @@ async function processDerbyTimeout(draftId: number) {
       logger.info("Auto-assigned position to roster", { draft_id: draftId, position: autoAssignedPosition, roster_id: timedOutRosterId, context: 'DerbySocket' });
 
       // Emit selection made event for auto-assign
-      io.to(`draft_${draftId}`).emit('derby:selection_made', {
+      eventBus.emitToRoom(`draft_${draftId}`, 'derby:selection_made', {
         draftId,
         rosterId: timedOutRosterId,
         draftPosition: autoAssignedPosition,
@@ -168,7 +168,7 @@ async function processDerbyTimeout(draftId: number) {
 
     if (isComplete) {
       // Emit completion event
-      io.to(`draft_${draftId}`).emit('derby:completed', {
+      eventBus.emitToRoom(`draft_${draftId}`, 'derby:completed', {
         draftId,
         message: 'Derby completed - all positions assigned',
       });
@@ -196,7 +196,7 @@ async function processDerbyTimeout(draftId: number) {
         onlySkippedRemaining: updatedOnlySkippedRemaining,
       };
       logger.debug("Emitting derby:timeout event", { draft_id: draftId, event_data: timeoutEventData, context: 'DerbySocket' });
-      io.to(`draft_${draftId}`).emit('derby:timeout', timeoutEventData);
+      eventBus.emitToRoom(`draft_${draftId}`, 'derby:timeout', timeoutEventData);
 
       // Emit turn changed event
       const turnChangedEventData = {
@@ -207,7 +207,7 @@ async function processDerbyTimeout(draftId: number) {
         turnDeadline: newDeadline.toISOString(),
       };
       logger.debug("Emitting derby:turn_changed event", { draft_id: draftId, event_data: turnChangedEventData, context: 'DerbySocket' });
-      io.to(`draft_${draftId}`).emit('derby:turn_changed', turnChangedEventData);
+      eventBus.emitToRoom(`draft_${draftId}`, 'derby:turn_changed', turnChangedEventData);
 
       // Schedule next timeout
       scheduleDerbyTimeout(draftId, newDeadline);

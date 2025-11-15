@@ -3,7 +3,7 @@
 
 import { Request, Response } from "express";
 import { BaseController } from "./BaseController";
-import { io } from "../index";
+import { eventBus } from "../index";
 import {
   emitTradeProposed,
   emitTradeProcessed,
@@ -110,6 +110,9 @@ class TradeController extends BaseController {
       return;
     }
 
+    // TODO: Refactor socket functions to accept IEventBus instead of Server
+    const io = eventBus.getSocketIOInstance();
+
     // Emit socket event
     emitTradeProposed(io, league_id, tradeWithDetails);
 
@@ -137,6 +140,7 @@ class TradeController extends BaseController {
       }
 
       // Send system message to league chat
+      // TODO: Refactor sendSystemMessage to accept IEventBus
       await sendSystemMessage(io, league_id, chatMessageText, metadata);
     }
 
@@ -164,6 +168,9 @@ class TradeController extends BaseController {
 
     // Emit socket event
     if (tradeWithDetails) {
+      // TODO: Refactor socket functions to accept IEventBus instead of Server
+      const io = eventBus.getSocketIOInstance();
+
       emitTradeProcessed(io, tradeWithDetails.league_id, tradeWithDetails);
 
       // Post trade completion to league chat with details
@@ -185,6 +192,7 @@ class TradeController extends BaseController {
       };
 
       // Send system message to league chat
+      // TODO: Refactor sendSystemMessage to accept IEventBus
       await sendSystemMessage(io, tradeWithDetails.league_id, chatMessageText, metadata);
     }
 
@@ -213,6 +221,8 @@ class TradeController extends BaseController {
 
     // Emit socket event
     if (tradeWithDetails) {
+      // TODO: Refactor socket functions to accept IEventBus instead of Server
+      const io = eventBus.getSocketIOInstance();
       emitTradeRejected(io, tradeWithDetails.league_id, tradeWithDetails);
     }
 
@@ -240,6 +250,8 @@ class TradeController extends BaseController {
 
     // Emit socket event
     if (tradeWithDetails) {
+      // TODO: Refactor socket functions to accept IEventBus instead of Server
+      const io = eventBus.getSocketIOInstance();
       emitTradeCancelled(io, tradeWithDetails.league_id, tradeWithDetails);
     }
 

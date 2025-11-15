@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { BaseController } from "./BaseController";
-import { io } from "../index";
+import { eventBus } from "../index";
 import {
   emitDraftPick,
   emitDraftStatusChange,
@@ -42,6 +42,9 @@ class DraftPickController extends BaseController {
       const { draftId } = req.params;
       const { roster_id, player_id, is_auto_pick = false } = req.body;
       logger.info('[MakePick] Request started', { draftId, roster_id, player_id });
+
+      // TODO: Refactor socket functions to accept IEventBus instead of Server
+      const io = eventBus.getSocketIOInstance();
 
       if (!roster_id || !player_id) {
         await client.query('ROLLBACK');
@@ -496,7 +499,7 @@ class DraftPickController extends BaseController {
 
       // Include next deadline if draft continues
       if (updatedDraft.status === "in_progress" && updatedDraft.pick_deadline) {
-        io.to(`draft_${draftId}`).emit("pick_made", {
+        eventBus.emitToRoom(`draft_${draftId}`, "pick_made", {
           pick: pickWithDetails,
           draft: updatedDraft,
           next_deadline: updatedDraft.pick_deadline.toISOString(),

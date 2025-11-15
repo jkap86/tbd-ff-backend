@@ -20,7 +20,7 @@ import {
 } from "../models/OpponentSelectionOrder";
 import { leagueBusinessService } from "../services/leagueBusinessService";
 import { BaseController } from "./BaseController";
-import { io } from "../index";
+import { eventBus } from "../index";
 import { sendSystemMessageSafe, sendCollapsibleSystemMessageSafe } from "../services/leagueChatService";
 import { invalidateLeagueCache } from "../utils/cache";
 
@@ -308,6 +308,8 @@ class LeagueController extends BaseController {
     const teamName = roster.settings?.team_name || team_name || `Team ${roster.roster_id}`;
     const username = user?.username || `User ${userId}`;
 
+    // TODO: Refactor sendSystemMessageSafe to accept IEventBus
+    const io = eventBus.getSocketIOInstance();
     await sendSystemMessageSafe(io, leagueId, `${username} has joined the league as ${teamName}`, {
       type: "user_joined",
       joined_user_id: userId,
@@ -673,6 +675,8 @@ class LeagueController extends BaseController {
       }
 
       if (changes.length > 0) {
+        // TODO: Refactor sendCollapsibleSystemMessageSafe to accept IEventBus
+        const io = eventBus.getSocketIOInstance();
         await sendCollapsibleSystemMessageSafe(
           io,
           leagueId,
@@ -923,6 +927,9 @@ if (!league) {
 
       await client.query('COMMIT');
 
+      // TODO: Refactor sendCollapsibleSystemMessageSafe to accept IEventBus
+      const io = eventBus.getSocketIOInstance();
+
       // Send league chat notification about league reset
       await sendCollapsibleSystemMessageSafe(
         io,
@@ -935,7 +942,7 @@ if (!league) {
       );
 
       // Emit socket event to notify clients that league was reset
-      io.to(`league_${leagueId}`).emit("league_reset", {
+      eventBus.emitToRoom(`league_${leagueId}`, "league_reset", {
         leagueId: leagueId,
         message: "League has been reset to pre-draft status",
       });

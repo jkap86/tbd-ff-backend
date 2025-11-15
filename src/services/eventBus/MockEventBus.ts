@@ -148,4 +148,63 @@ export class MockEventBus implements IEventBus {
       throw new Error(`Expected event "${event}" NOT to be emitted, but it was`);
     }
   }
+
+  /**
+   * Check if event was emitted to specific room
+   */
+  wasEventEmittedToRoom(room: string, event: string): boolean {
+    return this.events.some((e) => e.room === room && e.event === event);
+  }
+
+  /**
+   * Get event data for specific room and event
+   */
+  getEventDataForRoom<T = any>(room: string, event: string): T | undefined {
+    const found = this.events.find((e) => e.room === room && e.event === event);
+    return found?.data as T | undefined;
+  }
+
+  /**
+   * Check if event was emitted to specific user
+   */
+  wasEventEmittedToUser(userId: number, event: string): boolean {
+    return this.events.some((e) => e.userId === userId && e.event === event);
+  }
+
+  /**
+   * Get event data for specific user and event
+   */
+  getEventDataForUser<T = any>(userId: number, event: string): T | undefined {
+    const found = this.events.find((e) => e.userId === userId && e.event === event);
+    return found?.data as T | undefined;
+  }
+
+  /**
+   * Check if room was joined
+   */
+  wasRoomJoined(socketId: string, room: string): boolean {
+    return this.isSocketInRoom(socketId, room);
+  }
+
+  /**
+   * Check if room was left
+   */
+  wasRoomLeft(socketId: string, room: string): boolean {
+    // Since we don't track "leave" events separately, check if socket is NOT in room
+    return !this.isSocketInRoom(socketId, room);
+  }
+
+  /**
+   * Reset all events (alias for clear)
+   */
+  reset(): void {
+    this.clear();
+  }
+
+  /**
+   * Get all emitted events (alias)
+   */
+  getAllEmittedEvents(): EmittedEvent[] {
+    return this.getEmittedEvents();
+  }
 }
